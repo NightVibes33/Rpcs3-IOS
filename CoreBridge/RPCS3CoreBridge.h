@@ -18,6 +18,11 @@ typedef enum RPCS3IOSCoreCapabilityLevel {
     RPCS3IOSCoreCapabilityExecutionCapable = 2
 } RPCS3IOSCoreCapabilityLevel;
 
+typedef enum RPCS3IOSRendererBackend {
+    RPCS3IOSRendererVulkan = 0,
+    RPCS3IOSRendererMetal = 1
+} RPCS3IOSRendererBackend;
+
 typedef enum RPCS3IOSCoreOperation {
     RPCS3IOSCoreOperationBoot = 0,
     RPCS3IOSCoreOperationPause = 1,
@@ -44,6 +49,7 @@ typedef struct RPCS3IOSCoreDiagnostics {
     int renderer_available;
     int upstream_runtime_linked;
     int host_callbacks_initialized;
+    RPCS3IOSRendererBackend selected_renderer;
     const char *upstream_revision;
     const char *build_classification;
     const char *data_path;
@@ -53,6 +59,10 @@ typedef struct RPCS3IOSCoreDiagnostics {
 
 RPCS3IOSCoreDiagnostics rpcs3_ios_core_diagnostics(void);
 int rpcs3_ios_core_initialize(const char *data_path);
+
+/* Selects the renderer used when RPCS3 creates its next GSRender instance. */
+int rpcs3_ios_core_set_renderer(RPCS3IOSRendererBackend renderer);
+RPCS3IOSRendererBackend rpcs3_ios_core_get_renderer(void);
 
 /* Boot a game directory, ISO, SELF, ELF, EBOOT.BIN, or VSH path through Emu.System. */
 int rpcs3_ios_core_boot_path(const char *path);
