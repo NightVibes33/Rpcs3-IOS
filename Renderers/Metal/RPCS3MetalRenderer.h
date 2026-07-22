@@ -4,6 +4,7 @@
 #include "RPCS3MetalDrawSubmission.h"
 #include "RPCS3MetalRenderPipelineCache.h"
 #include "RPCS3MetalShaderLibrary.h"
+#include "RPCS3MetalVertexResources.h"
 
 #include <memory>
 
@@ -39,6 +40,11 @@ public:
                      float blue,
                      float alpha,
                      std::string& error);
+    bool upload_and_bind_vertex_resources(
+        const metal_rsx::geometry_packet& packet,
+        const metal_rsx::vertex_resource_bindings& bindings,
+        std::string& error);
+    [[nodiscard]] std::size_t uploaded_vertex_resource_bytes() const noexcept;
     bool submit_draw(const metal_rsx::draw_submission& submission,
                      std::string& error);
     bool end_frame(std::string& error);
