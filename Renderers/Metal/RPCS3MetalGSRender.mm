@@ -7,6 +7,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <span>
 #include <string>
 
 namespace rpcs3::ios::render
@@ -62,6 +63,8 @@ bool metal_gs_render::initialize_backend()
 
     std::string error;
     m_backend_initialized = m_backend.initialize(config, error);
+    if (!m_backend_initialized)
+        m_last_program_error = std::move(error);
     return m_backend_initialized;
 }
 
@@ -120,6 +123,69 @@ void metal_gs_render::capture_rsx_draw_state()
     ++m_translated_draws;
 }
 
+bool metal_gs_render::prepare_live_program_pipeline()
+{
+    if (!initialize_backend())
+        return false;
+
+    metal_rsx::compiled_rsx_programs programs;
+    std::string error;
+    if (!metal_rsx::compile_rsx_programs_to_spirv(
+            current_vertex_program,
+            current_fragment_program,
+            programs,
+            error))
+    {
+        ++m_program_compile_failures;
+        m_last_program_error = std::move(error);
+        return false;
+    }
+
+    metal_rsx::compiled_shader vertex_shader;
+    if (!m_backend.compile_spirv_shader(
+            std::span<const std::uint32_t>(programs.vertex_spirv),
+            metal_rsx::shader_stage::vertex,
+            vertex_shader,
+            error))
+    {
+        ++m_program_compile_failures;
+        m_last_program_error = std::move(error);
+        return false;
+    }
+
+    metal_rsx::compiled_shader fragment_shader;
+    if (!m_backend.compile_spirv_shader(
+            std::span<const std::uint32_t>(programs.fragment_spirv),
+            metal_rsx::shader_stage::fragment,
+            fragment_shader,
+            error))
+    {
+        ++m_program_compile_failures;
+        m_last_program_error = std::move(error);
+        return false;
+    }
+
+    metal_rsx::render_pipeline_request request;
+    request.vertex_function = vertex_shader.function;
+    request.fragment_function = fragment_shader.function;
+    request.color_pixel_format = static_cast<std::uint32_t>(MTLPixelFormatBGRA8Unorm);
+    request.depth_pixel_format = static_cast<std::uint32_t>(MTLPixelFormatInvalid);
+    request.stencil_pixel_format = static_cast<std::uint32_t>(MTLPixelFormatInvalid);
+    request.sample_count = 1;
+    request.color_blend = m_color_blend_state;
+
+    if (!m_backend.get_or_create_render_pipeline(request, m_active_pipeline, error))
+    {
+        ++m_program_compile_failures;
+        m_last_program_error = std::move(error);
+        return false;
+    }
+
+    ++m_program_ready_draws;
+    m_last_program_error.clear();
+    return true;
+}
+
 void metal_gs_render::flip(const rsx::display_flip_info_t& info)
 {
     if (initialize_backend())
@@ -139,12 +205,14 @@ void metal_gs_render::flip(const rsx::display_flip_info_t& info)
 
 void metal_gs_render::end()
 {
-    /* Decode the active RSX primitive, depth/stencil, blend, and write-mask
-     * registers into real Metal descriptors for every draw. Vertex/index
-     * upload, shader translation, texture binding, and actual draw encoding are
-     * the remaining stages; until those land, consume the method stream without
-     * claiming rendered guest geometry. */
+    // Follow RPCS3's existing renderer sequence far enough to resolve the live
+    // RSX vertex and fragment programs. The translated SPIR-V, MSL functions,
+    // and Metal render pipeline are now real and cached. Geometry/resource
+    // upload is deliberately not claimed yet, so the draw method stream is
+    // still consumed through execute_nop_draw().
+    analyse_current_rsx_pipeline();
     capture_rsx_draw_state();
+    prepare_live_program_pipeline();
     execute_nop_draw();
     rsx::thread::end();
 }
