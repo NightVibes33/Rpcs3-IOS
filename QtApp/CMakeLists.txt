@@ -46,8 +46,8 @@ if(RPCS3_IOS_UNIFIED_UPSTREAM)
         "${RPCS3_PORT_ROOT}/Port/IOSPlatform.mm"
         "${RPCS3_PORT_ROOT}/Port/IOSFilesystem.mm"
     )
-    # AppleSurface and MetalRenderer are already compiled into the upstream
-    # bridge. The Qt self-test adds its factory and Vulkan context/swapchain.
+    # Native Apple/Metal objects are compiled directly into rpcs3_emu. The Qt
+    # self-test adds only its own renderer factory and Vulkan context/swapchain.
     set(RPCS3_RENDERER_SOURCES
         "${RPCS3_RENDERER_ROOT}/RPCS3RendererBackend.h"
         "${RPCS3_RENDERER_ROOT}/RPCS3RendererFactory.cpp"
@@ -177,7 +177,11 @@ target_link_libraries(RPCS3QtIOS PRIVATE
     ${UNIFORMTYPEIDENTIFIERS_FRAMEWORK}
 )
 
-rpcs3_link_moltenvk(RPCS3QtIOS "${RPCS3_IOS_MOLTENVK_ROOT}")
+if(RPCS3_IOS_UNIFIED_UPSTREAM)
+    message(STATUS "RPCS3 iOS Qt host: inheriting MoltenVK from rpcs3_emu/3rdparty::vulkan")
+else()
+    rpcs3_link_moltenvk(RPCS3QtIOS "${RPCS3_IOS_MOLTENVK_ROOT}")
+endif()
 
 set_target_properties(RPCS3QtIOS PROPERTIES
     OUTPUT_NAME "RPCS3-iOS"
