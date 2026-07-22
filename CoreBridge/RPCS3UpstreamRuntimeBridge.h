@@ -23,6 +23,12 @@ int rpcs3_ios_upstream_render_view_ready(void);
 // interpreters, RPCS3's Vulkan renderer over MoltenVK, and Null audio.
 int rpcs3_ios_upstream_initialize(const char* data_root);
 
+// Installs official PS3 firmware through RPCS3's PUP/SCE/TAR implementation.
+// The caller must supply its own unmodified PS3UPDAT.PUP inside the app sandbox.
+int rpcs3_ios_upstream_install_firmware(const char* pup_path);
+int rpcs3_ios_upstream_firmware_ready(void);
+const char* rpcs3_ios_upstream_firmware_version(void);
+
 // Installs a PS3 PKG through upstream package_reader::extract_data(). Returns 1
 // only when RPCS3 reports a complete successful extraction into dev_hdd0/game.
 int rpcs3_ios_upstream_install_pkg(const char* pkg_path);
