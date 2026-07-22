@@ -1,3 +1,4 @@
+#include "stdafx.h"
 #include "RPCS3MetalProgramCompiler.h"
 
 #include "Emu/RSX/Program/GLSLTypes.h"
@@ -8,6 +9,7 @@
 #include <exception>
 #include <mutex>
 #include <string>
+#include <utility>
 
 namespace rpcs3::ios::render::metal_rsx
 {
