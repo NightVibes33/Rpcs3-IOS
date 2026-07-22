@@ -14,6 +14,7 @@
 #include <cstring>
 #include <span>
 #include <string>
+#include <tuple>
 #include <type_traits>
 #include <utility>
 #include <variant>
@@ -177,6 +178,17 @@ bool metal_gs_render::prepare_live_program_pipeline()
             return false;
         }
 
+        metal_rsx::vertex_resource_bindings vertex_bindings;
+        if (!metal_rsx::resolve_vertex_resource_bindings(
+                vertex_shader.resources,
+                vertex_bindings,
+                error))
+        {
+            ++m_program_compile_failures;
+            m_last_program_error = std::move(error);
+            return false;
+        }
+
         metal_rsx::compiled_shader fragment_shader;
         if (!m_backend.compile_spirv_shader(
                 std::span<const std::uint32_t>(programs.fragment_spirv),
@@ -189,8 +201,9 @@ bool metal_gs_render::prepare_live_program_pipeline()
             return false;
         }
 
-        m_cached_vertex_shader = vertex_shader;
-        m_cached_fragment_shader = fragment_shader;
+        m_cached_vertex_shader = std::move(vertex_shader);
+        m_cached_fragment_shader = std::move(fragment_shader);
+        m_vertex_bindings = vertex_bindings;
         m_cached_vertex_program_hash = vertex_hash;
         m_cached_fragment_program_hash = fragment_hash;
         m_cached_program_pair_valid = true;
@@ -198,6 +211,12 @@ bool metal_gs_render::prepare_live_program_pipeline()
     }
     else
     {
+        if (!m_vertex_bindings.complete())
+        {
+            ++m_program_compile_failures;
+            m_last_program_error = "Cached RPCS3 Metal program has incomplete reflected vertex bindings.";
+            return false;
+        }
         ++m_program_cache_hits;
     }
 
@@ -367,6 +386,18 @@ bool metal_gs_render::prepare_live_geometry_packet()
             ? nullptr
             : m_geometry_packet.transient_vertex_bytes.data());
 
+    // Preserve RPCS3's exact vertex-pull descriptor encoding. Offsets are zero
+    // based because persistent and transient streams become separate Metal
+    // resources, matching the original Vulkan binding model.
+    m_draw_processor.fill_vertex_layout_state(
+        m_vertex_layout,
+        current_vp_metadata,
+        vertex_base,
+        vertex_count,
+        m_geometry_packet.vertex_layout_state.data(),
+        0,
+        0);
+
     m_geometry_packet.gcm_primitive = gcm_primitive;
     m_geometry_packet.vertex_base = vertex_base;
     m_geometry_packet.vertex_count = vertex_count;
@@ -376,6 +407,8 @@ bool metal_gs_render::prepare_live_geometry_packet()
     m_geometry_packet.vertex_index_offset = vertex_index_offset;
     m_geometry_packet.persistent_byte_count = required.first;
     m_geometry_packet.transient_byte_count = required.second;
+    m_geometry_packet.attribute_mask = m_vertex_layout.attribute_mask;
+    m_geometry_packet.referenced_input_mask = current_vp_metadata.referenced_inputs_mask;
     m_geometry_packet.index_format = index_format;
     m_geometry_packet.indexed = indexed;
     m_geometry_packet.topology_rewritten = topology_rewritten;
@@ -415,9 +448,10 @@ void metal_gs_render::flip(const rsx::display_flip_info_t& info)
 
 void metal_gs_render::end()
 {
-    // Resolve live RPCS3 programs and convert the live draw's RSX vertex/index
-    // memory into host-side packet bytes. Metal resource binding is still kept
-    // disabled until the generated MSL binding table is mapped correctly.
+    // Resolve live RPCS3 programs, validate the translated Metal bindings, and
+    // convert the live draw's RSX vertex/index memory plus descriptor table into
+    // host-side packet bytes. Metal resource submission remains disabled until
+    // the vertex context, constants, and fragment resources are all bound.
     analyse_current_rsx_pipeline();
     capture_rsx_draw_state();
     prepare_live_program_pipeline();
