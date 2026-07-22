@@ -45,6 +45,58 @@ def download_patch() -> bytes:
     return content
 
 
+def patch_cmake_for_ios(cubeb_root: Path) -> None:
+    cmake = cubeb_root / "CMakeLists.txt"
+    text = cmake.read_text(encoding="utf-8")
+    needle = '''check_include_files(AudioUnit/AudioUnit.h USE_AUDIOUNIT)
+if(USE_AUDIOUNIT)
+  target_sources(cubeb PRIVATE
+    src/cubeb_audiounit.cpp
+    src/cubeb_osx_run_loop.cpp)
+  target_compile_definitions(cubeb PRIVATE USE_AUDIOUNIT)
+  target_link_libraries(cubeb PRIVATE "-framework AudioUnit" "-framework CoreAudio" "-framework CoreServices")
+  list(APPEND private_libs_flags "-framework AudioUnit" "-framework CoreAudio" "-framework CoreServices")
+endif()
+'''
+    replacement = '''check_include_files(AudioUnit/AudioUnit.h USE_AUDIOUNIT)
+if(USE_AUDIOUNIT)
+  target_sources(cubeb PRIVATE
+    src/cubeb_audiounit.cpp)
+  target_compile_definitions(cubeb PRIVATE USE_AUDIOUNIT)
+
+  if(CMAKE_SYSTEM_NAME STREQUAL "iOS")
+    # iOS uses Cubeb's AudioUnit backend but does not expose the desktop
+    # CoreAudio notification run loop or CoreServices framework.
+    target_link_libraries(cubeb PRIVATE
+      "-framework AudioUnit"
+      "-framework CoreAudio"
+      "-framework AudioToolbox")
+    list(APPEND private_libs_flags
+      "-framework AudioUnit"
+      "-framework CoreAudio"
+      "-framework AudioToolbox")
+  else()
+    target_sources(cubeb PRIVATE
+      src/cubeb_osx_run_loop.cpp)
+    target_link_libraries(cubeb PRIVATE
+      "-framework AudioUnit"
+      "-framework CoreAudio"
+      "-framework CoreServices")
+    list(APPEND private_libs_flags
+      "-framework AudioUnit"
+      "-framework CoreAudio"
+      "-framework CoreServices")
+  endif()
+endif()
+'''
+    if needle not in text:
+        raise SystemExit("Unable to locate Cubeb AudioUnit CMake source block")
+    updated = text.replace(needle, replacement, 1)
+    if 'if(CMAKE_SYSTEM_NAME STREQUAL "iOS")' not in updated:
+        raise SystemExit("Cubeb iOS CMake branch was not installed")
+    cmake.write_text(updated, encoding="utf-8")
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(
         description="Apply Mozilla's complete AudioUnit iOS backport to RPCS3's pinned Cubeb submodule"
@@ -80,9 +132,11 @@ def main() -> int:
         if marker not in updated:
             raise SystemExit(f"Applied Cubeb iOS backport failed verification: {marker}")
 
+    patch_cmake_for_ios(cubeb_root)
+
     print(
         "Applied Mozilla Cubeb iOS AudioUnit backport "
-        f"blob {PATCH_BLOB_SHA} to {source}"
+        f"blob {PATCH_BLOB_SHA} and removed the macOS run loop from the iOS target"
     )
     return 0
 
