@@ -135,8 +135,8 @@ public:
 
     display_handle_t handle() const override
     {
-        // RPCS3's Apple Vulkan WSI path consumes a CAMetalLayer through this
-        // opaque handle. The iOS overlay patches the macOS helper accordingly.
+        // RPCS3's Apple Vulkan WSI path consumes the CAMetalLayer through this
+        // opaque handle. The iOS overlay passes this pointer directly to WSI.
         return g_layer_handle.load(std::memory_order_acquire);
     }
 
@@ -177,12 +177,14 @@ int attach_render_view(void* native_view)
         g_metal_layer.pixelFormat = MTLPixelFormatBGRA8Unorm;
         g_metal_layer.framebufferOnly = NO;
         g_metal_layer.opaque = YES;
-        g_metal_layer.hidden = YES;
+        // Visibility is controlled by the Qt render-host widget. Keeping the
+        // sublayer itself visible prevents dependence on a desktop-only show call.
+        g_metal_layer.hidden = NO;
         [g_host_view.layer addSublayer:g_metal_layer];
 
         update_geometry_on_main();
         g_layer_handle.store((__bridge void*)g_metal_layer, std::memory_order_release);
-        g_layer_visible.store(false, std::memory_order_release);
+        g_layer_visible.store(true, std::memory_order_release);
         attached = g_metal_layer.device ? 1 : 0;
     });
     return attached;
