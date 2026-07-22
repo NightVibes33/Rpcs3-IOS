@@ -5,8 +5,12 @@ on:
   push:
     branches: [main]
     paths:
+      - "CoreBridge/**"
+      - "Port/**"
       - "cmake/toolchains/**"
       - "scripts/compile-upstream-probe.sh"
+      - "scripts/configure-upstream-ios.sh"
+      - "scripts/apply-upstream-ios-overlay.py"
       - ".github/workflows/upstream-ios-compile-probe.yml"
 
 permissions:
@@ -33,13 +37,18 @@ jobs:
           test -n "$XCODE_PATH"
           sudo xcode-select -s "$XCODE_PATH/Contents/Developer"
           xcodebuild -version
+          cmake --version
           SDK_VERSION="$(xcrun --sdk iphoneos --show-sdk-version)"
           echo "Using iPhoneOS SDK $SDK_VERSION"
           [[ "$SDK_VERSION" == 26.* ]]
 
-      - name: Run physical-device compile probe
+      - name: Run physical-device translation-unit probe
         shell: bash
         run: bash scripts/compile-upstream-probe.sh
+
+      - name: Build core through upstream CMake
+        shell: bash
+        run: bash scripts/configure-upstream-ios.sh upstream-rpcs3
 
       - name: Upload compile evidence
         uses: actions/upload-artifact@v4
@@ -48,5 +57,7 @@ jobs:
           path: |
             compile-probe/**
             compile-probe.tar.gz
+            cmake-ios-build/**
+            cmake-ios-build.tar.gz
           if-no-files-found: error
           retention-days: 30
