@@ -21,13 +21,9 @@ public:
     explicit RPCS3QtMainWindow(QWidget* parent = nullptr);
     ~RPCS3QtMainWindow() override;
 
-    QWidget* renderHostWidget() const;
-    void setRenderSurfaceActive(bool active);
-
 private:
     std::unique_ptr<Ui::main_window> m_ui;
     QListWidget* m_gameList = nullptr;
-    QWidget* m_renderHost = nullptr;
     QString m_dataRoot;
 
     void configureMainWindow();
