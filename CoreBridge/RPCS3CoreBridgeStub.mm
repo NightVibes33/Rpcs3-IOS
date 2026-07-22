@@ -5,6 +5,7 @@
 #include "RPCS3SELFProbe.h"
 #include "RPCS3SELFLoadPlan.h"
 #include "RPCS3SELFExtractor.h"
+#include "RPCS3IOSBuildManifest.h"
 
 #ifdef RPCS3_IOS_WITH_UPSTREAM_CRYPTO
 #include "sha256.h"
@@ -24,7 +25,7 @@ bool g_platform_initialized = false;
 RPCS3IOSCoreState g_state = RPCS3IOSCoreStateUnavailable;
 std::string g_data_path;
 std::string g_last_boot_sha256;
-std::string g_message = "RPCS3 iOS platform has not been initialized.";
+std::string g_message = "RPCS3 iOS partial-upstream core has not been initialized.";
 
 void set_failure(std::string message)
 {
@@ -107,7 +108,6 @@ bool upstream_crypto_self_test()
 
 RPCS3IOSCoreDiagnostics rpcs3_ios_core_diagnostics(void)
 {
-    const rpcs3::ios::platform_capabilities capabilities = rpcs3::ios::query_platform_capabilities();
     thread_local std::string message_copy;
     thread_local std::string path_copy;
     thread_local std::string hash_copy;
@@ -119,16 +119,20 @@ RPCS3IOSCoreDiagnostics rpcs3_ios_core_diagnostics(void)
 
     RPCS3IOSCoreDiagnostics result = {};
     result.state = g_state;
+    result.capability_level = static_cast<RPCS3IOSCoreCapabilityLevel>(RPCS3_IOS_BUILD_CAPABILITY_LEVEL);
     result.platform_initialized = g_platform_initialized ? 1 : 0;
 #ifdef RPCS3_IOS_WITH_UPSTREAM_CRYPTO
     result.upstream_crypto_available = 1;
 #else
     result.upstream_crypto_available = 0;
 #endif
+    result.upstream_source_count = RPCS3_IOS_BUILD_UPSTREAM_SOURCE_COUNT;
     result.ppu_interpreter_available = 0;
     result.spu_interpreter_available = 0;
-    result.jit_available = capabilities.dynamic_code_supported ? 1 : 0;
-    result.renderer_available = capabilities.metal_available ? 1 : 0;
+    result.jit_available = 0;
+    result.renderer_available = 0;
+    result.upstream_revision = RPCS3_IOS_BUILD_UPSTREAM_REVISION;
+    result.build_classification = RPCS3_IOS_BUILD_CLASSIFICATION;
     result.data_path = path_copy.empty() ? nullptr : path_copy.c_str();
     result.last_boot_sha256 = hash_copy.empty() ? nullptr : hash_copy.c_str();
     result.message = message_copy.c_str();
@@ -167,9 +171,7 @@ int rpcs3_ios_core_initialize(const char *data_path)
     g_data_path = layout.root;
     g_last_boot_sha256.clear();
     g_state = RPCS3IOSCoreStateUnavailable;
-    g_message = capabilities.metal_available
-        ? "Sandbox storage, Metal, upstream SHA-256, ELF probing, and plain SELF reconstruction are ready. PPU/SPU execution is not linked yet."
-        : "Sandbox storage and upstream loader primitives are ready, but no Metal device is available.";
+    g_message = "Partial-upstream core initialized with sandbox storage and loader probes. Emu.System, PPU/SPU execution, JIT, and an RSX renderer are not linked yet.";
     return 1;
 }
 
@@ -228,7 +230,7 @@ int rpcs3_ios_core_boot_elf(const char *elf_path)
         }
 
         g_state = RPCS3IOSCoreStateReady;
-        g_message = probe.description + "; validated and ready for the future PPU loader stage.";
+        g_message = probe.description + "; validated for a future upstream Emu.System loader. No guest instructions were executed.";
         return 1;
     }
 
@@ -279,7 +281,7 @@ int rpcs3_ios_core_boot_elf(const char *elf_path)
 
             g_state = RPCS3IOSCoreStateReady;
             g_message = probe.description + "; " + extraction.description + "; " +
-                extracted_probe.description + "; cached and ready for the future PPU loader stage.";
+                extracted_probe.description + "; cached for a future upstream Emu.System loader. No guest instructions were executed.";
             return 1;
         }
 
