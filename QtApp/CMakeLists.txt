@@ -44,6 +44,8 @@ set(RPCS3_RENDERER_SOURCES
     "${RPCS3_RENDERER_ROOT}/Apple/RPCS3AppleSurface.mm"
     "${RPCS3_RENDERER_ROOT}/Metal/RPCS3MetalRenderer.h"
     "${RPCS3_RENDERER_ROOT}/Metal/RPCS3MetalRenderer.mm"
+    "${RPCS3_RENDERER_ROOT}/Vulkan/RPCS3VulkanContext.h"
+    "${RPCS3_RENDERER_ROOT}/Vulkan/RPCS3VulkanContext.mm"
     "${RPCS3_RENDERER_ROOT}/Vulkan/RPCS3VulkanRenderer.h"
     "${RPCS3_RENDERER_ROOT}/Vulkan/RPCS3VulkanRenderer.mm"
 )
@@ -67,6 +69,7 @@ qt_add_executable(RPCS3QtIOS MANUAL_FINALIZATION
 set_source_files_properties(
     "${RPCS3_RENDERER_ROOT}/Apple/RPCS3AppleSurface.mm"
     "${RPCS3_RENDERER_ROOT}/Metal/RPCS3MetalRenderer.mm"
+    "${RPCS3_RENDERER_ROOT}/Vulkan/RPCS3VulkanContext.mm"
     "${RPCS3_RENDERER_ROOT}/Vulkan/RPCS3VulkanRenderer.mm"
     PROPERTIES COMPILE_OPTIONS "-fobjc-arc"
 )
