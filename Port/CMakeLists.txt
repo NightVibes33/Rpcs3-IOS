@@ -4,9 +4,12 @@ if(NOT DEFINED RPCS3_IOS_PORT_ROOT)
     message(FATAL_ERROR "RPCS3_IOS_PORT_ROOT must point to the iOS port repository")
 endif()
 
+set(RPCS3_IOS_PORT_ROOT "${RPCS3_IOS_PORT_ROOT}")
+
 set(RPCS3_IOS_OBJCXX_SOURCES
     "${RPCS3_IOS_PORT_ROOT}/Port/IOSPlatform.mm"
     "${RPCS3_IOS_PORT_ROOT}/Port/IOSFilesystem.mm"
+    "${RPCS3_IOS_PORT_ROOT}/Port/RPCS3Runtime.mm"
     "${RPCS3_IOS_PORT_ROOT}/CoreBridge/RPCS3CoreBridgeStub.mm"
 )
 
@@ -40,6 +43,7 @@ target_compile_definitions(rpcs3_ios_core PUBLIC
     RPCS3_IOS_WITH_SELF_LOAD_PLAN=1
     RPCS3_IOS_WITH_SELF_EXTRACTOR=1
     RPCS3_IOS_WITH_SFO_METADATA=1
+    RPCS3_IOS_WITH_RUNTIME=1
 )
 target_include_directories(rpcs3_ios_core PUBLIC
     "${RPCS3_IOS_PORT_ROOT}/Port"
@@ -49,6 +53,11 @@ target_include_directories(rpcs3_ios_core PUBLIC
     "${CMAKE_SOURCE_DIR}/rpcs3"
     "${CMAKE_SOURCE_DIR}/rpcs3/Crypto"
     "${CMAKE_SOURCE_DIR}/rpcs3/Loader"
+)
+
+target_link_libraries(rpcs3_ios_core PUBLIC
+    "-framework AVFoundation"
+    "-framework Metal"
 )
 
 set_target_properties(rpcs3_ios_core PROPERTIES
