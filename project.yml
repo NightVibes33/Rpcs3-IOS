@@ -18,6 +18,9 @@ targets:
     sources:
       - path: App
       - path: CoreBridge
+      - path: Port
+        excludes:
+          - portable-sources.txt
     info:
       path: App/Info.plist
     entitlements:
@@ -32,6 +35,12 @@ targets:
         HEADER_SEARCH_PATHS:
           - "$(inherited)"
           - "$(SRCROOT)/CoreBridge"
+          - "$(SRCROOT)/Port"
+        GCC_PREPROCESSOR_DEFINITIONS:
+          - "$(inherited)"
+          - "RPCS3_IOS=1"
+          - "RPCS3_PLATFORM_MOBILE=1"
+          - "RPCS3_PLATFORM_DESKTOP=0"
         LD_RUNPATH_SEARCH_PATHS:
           - "$(inherited)"
           - "@executable_path/Frameworks"
