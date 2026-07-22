@@ -173,12 +173,7 @@ def patch_asmjit_for_ios(upstream_root: Path) -> None:
 
 
 def patch_ffmpeg_for_ios(upstream_root: Path) -> None:
-    """Keep RPCS3's FFmpeg target in the graph without linking host macOS archives.
-
-    A real arm64-iOS FFmpeg build remains required before media decoding can be
-    enabled. This configure-only target lets the upstream graph continue to the
-    next platform dependency instead of accepting incompatible desktop binaries.
-    """
+    """Keep RPCS3's FFmpeg target in the graph without host macOS archives."""
     cmake = upstream_root / "3rdparty/CMakeLists.txt"
     text = cmake.read_text(encoding="utf-8")
     needle = '''# FFMPEG
@@ -196,43 +191,6 @@ elseif(NOT ANDROID)
     if needle not in text:
         raise SystemExit("Unable to locate upstream FFmpeg dependency block")
     cmake.write_text(text.replace(needle, replacement, 1), encoding="utf-8")
-
-
-def patch_metal_layer_for_ios(upstream_root: Path) -> None:
-    source = upstream_root / "rpcs3/Emu/RSX/VK/vkutils/metal_layer.mm"
-    text = source.read_text(encoding="utf-8")
-    needle = '''#pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Wold-style-cast"
-#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
-#pragma GCC diagnostic ignored "-Wmissing-declarations"
-#import <Foundation/Foundation.h>
-#import <AppKit/AppKit.h>
-#import <QuartzCore/QuartzCore.h>
-
-void* GetCAMetalLayerFromMetalView(void* view) { return ((NSView*)view).layer; }
-#pragma GCC diagnostic pop
-'''
-    replacement = '''#pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Wold-style-cast"
-#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
-#pragma GCC diagnostic ignored "-Wmissing-declarations"
-#import <TargetConditionals.h>
-#import <Foundation/Foundation.h>
-#import <QuartzCore/QuartzCore.h>
-
-#if TARGET_OS_IPHONE
-// The iOS GSFrame already supplies the CAMetalLayer itself. Passing it through
-// avoids treating the layer pointer as a UIView and dereferencing invalid memory.
-void* GetCAMetalLayerFromMetalView(void* view) { return view; }
-#else
-#import <AppKit/AppKit.h>
-void* GetCAMetalLayerFromMetalView(void* view) { return ((NSView*)view).layer; }
-#endif
-#pragma GCC diagnostic pop
-'''
-    if needle not in text:
-        raise SystemExit("Unable to locate upstream macOS Metal-layer bridge")
-    source.write_text(text.replace(needle, replacement, 1), encoding="utf-8")
 
 
 def main() -> int:
@@ -253,7 +211,8 @@ def main() -> int:
         patch_libusb_for_ios(args.upstream_root)
         patch_asmjit_for_ios(args.upstream_root)
         patch_ffmpeg_for_ios(args.upstream_root)
-        patch_metal_layer_for_ios(args.upstream_root)
+        # The dedicated runtime-blocker patch owns metal_layer.mm. Keeping the
+        # Apple WSI edit in one place avoids a guaranteed second-patch failure.
 
     print(f"Applied {args.mode} iOS overlay to {cmake}")
     return 0
