@@ -20,7 +20,7 @@ permissions:
 
 concurrency:
   group: rpcs3-ios-upstream-graph-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   probe:
