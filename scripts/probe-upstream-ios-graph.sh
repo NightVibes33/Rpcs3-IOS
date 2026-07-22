@@ -57,6 +57,8 @@ python3 "$TIMEOUT_RUNNER" 3600 cmake \
   -DCMAKE_BUILD_TYPE=Release \
   -DRPCS3_IOS_UPSTREAM_GRAPH=ON \
   -DRPCS3_IOS_PORT_ROOT="$PORT_ROOT" \
+  -DWITH_LLVM=OFF \
+  -DBUILD_LLVM=OFF \
   -DBUILD_LLVM_SUBMODULE=OFF \
   -DUSE_FAUDIO=OFF \
   -DUSE_PRECOMPILED_HEADERS=OFF \
@@ -71,6 +73,7 @@ phase "CMake configure exit status=$status"
   echo "- Requested revision: \`$UPSTREAM_REVISION\`"
   echo "- Resolved commit: \`$(cat "$BUILD/upstream-revision.txt")\`"
   echo "- Configure exit status: \`$status\`"
+  echo "- LLVM is intentionally disabled for this graph stage so the interpreter-based PPU/SPU path can configure before an iOS-safe JIT backend is introduced."
   echo "- This probe enters RPCS3's real dependency/emulator graph without the bootstrap early return."
   if [[ $status -ne 0 ]]; then
     echo "- The tail below is the next concrete porting blocker:"
