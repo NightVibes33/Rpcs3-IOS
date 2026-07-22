@@ -81,6 +81,8 @@ qt_add_executable(RPCS3QtIOS MANUAL_FINALIZATION
     RPCS3RenderWidget.h
     RPCS3RendererIntegration.cpp
     RPCS3RendererIntegration.h
+    RPCS3RuntimeActionOverrides.cpp
+    RPCS3RuntimeActionOverrides.h
     QtCompat.h
     QUiLoader
     ${RPCS3_IOS_CORE_SOURCES}
