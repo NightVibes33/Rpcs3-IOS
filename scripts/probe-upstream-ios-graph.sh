@@ -12,11 +12,13 @@ TIMEOUT_RUNNER="$PORT_ROOT/scripts/run-with-timeout.py"
 PHASE1_COLLECTOR="$PORT_ROOT/scripts/collect-emusystem-phase1-evidence.py"
 FFMPEG_ROOT="${RPCS3_IOS_FFMPEG_ROOT:-$PORT_ROOT/BuildSupport/ffmpeg-ios}"
 MOLTENVK_ROOT="${RPCS3_IOS_MOLTENVK_ROOT:-$PORT_ROOT/BuildSupport/MoltenVK}"
+SPIRV_CROSS_ROOT="${RPCS3_IOS_SPIRV_CROSS_ROOT:-$PORT_ROOT/BuildSupport/SPIRV-Cross}"
 GRAPH_TARGET="${RPCS3_IOS_GRAPH_TARGET:-rpcs3_ios_runtime_link_probe}"
 export RPCS3_IOS_FFMPEG_ROOT="$FFMPEG_ROOT"
 export FFMPEG_IOS_ROOT="$FFMPEG_ROOT"
 export RPCS3_IOS_MOLTENVK_ROOT="$MOLTENVK_ROOT"
 export MOLTENVK_ROOT
+export RPCS3_IOS_SPIRV_CROSS_ROOT="$SPIRV_CROSS_ROOT"
 
 UPSTREAM_REVISION="$(tr -d '[:space:]' < "$REVISION_FILE")"
 test -n "$UPSTREAM_REVISION"
@@ -24,6 +26,7 @@ test -f "$TIMEOUT_RUNNER"
 test -f "$PHASE1_COLLECTOR"
 test -f "$PORT_ROOT/scripts/build-ffmpeg-ios.sh"
 test -f "$PORT_ROOT/scripts/build-moltenvk-ios.sh"
+test -f "$PORT_ROOT/scripts/build-spirv-cross-ios.sh"
 
 rm -rf "$ROOT" "$BUILD"
 mkdir -p "$LOG_DIR"
@@ -60,6 +63,8 @@ phase "Build pinned FFmpeg 7.1 static libraries for arm64 iOS"
 run_timed 3600 bash scripts/build-ffmpeg-ios.sh
 phase "Build pinned MoltenVK static XCFramework for arm64 iOS"
 run_timed 7200 bash scripts/build-moltenvk-ios.sh
+phase "Build pinned SPIRV-Cross static libraries for arm64 iOS"
+run_timed 3600 bash scripts/build-spirv-cross-ios.sh
 
 MOLTENVK_PATH_FILE="$MOLTENVK_ROOT/device-binary-path.txt"
 test -f "$FFMPEG_ROOT/.rpcs3-ios-ffmpeg-n7.1"
@@ -74,6 +79,10 @@ MOLTENVK_BINARY="$MOLTENVK_ROOT/$(tr -d '\r\n' < "$MOLTENVK_PATH_FILE")"
 test -f "$MOLTENVK_BINARY"
 test -f "$MOLTENVK_ROOT/include/vulkan/vulkan.h"
 test -f "$MOLTENVK_ROOT/include/MoltenVK/vk_mvk_moltenvk.h"
+test -f "$SPIRV_CROSS_ROOT/include/spirv_cross/spirv_msl.hpp"
+test -f "$SPIRV_CROSS_ROOT/lib/libspirv-cross-core.a"
+test -f "$SPIRV_CROSS_ROOT/lib/libspirv-cross-glsl.a"
+test -f "$SPIRV_CROSS_ROOT/lib/libspirv-cross-msl.a"
 
 phase "Apply iOS upstream-graph overlays"
 run_timed 120 python3 scripts/apply-upstream-ios-overlay.py "$ROOT" --mode upstream
@@ -96,6 +105,7 @@ python3 "$TIMEOUT_RUNNER" 3600 cmake \
   -DRPCS3_IOS_PORT_ROOT="$PORT_ROOT" \
   -DRPCS3_IOS_FFMPEG_ROOT="$FFMPEG_ROOT" \
   -DRPCS3_IOS_MOLTENVK_ROOT="$MOLTENVK_ROOT" \
+  -DRPCS3_IOS_SPIRV_CROSS_ROOT="$SPIRV_CROSS_ROOT" \
   -DWITH_LLVM=OFF \
   -DBUILD_LLVM=OFF \
   -DBUILD_LLVM_SUBMODULE=OFF \
@@ -169,6 +179,7 @@ fi
   echo "- Nested Qt widgets exported: \`$widget_count\`"
   echo "- FFmpeg install: \`$FFMPEG_ROOT\`"
   echo "- MoltenVK device binary: \`$MOLTENVK_BINARY\`"
+  echo "- SPIRV-Cross install: \`$SPIRV_CROSS_ROOT\`"
   echo "- Configure exit status: \`$configure_status\`"
   echo "- Runtime link exit status: \`$build_status\`"
   echo "- Phase 1 evidence exit status: \`$phase1_status\`"
