@@ -50,32 +50,26 @@ namespace rpcs3::ios::upstream
 {
 namespace
 {
-enum class host_renderer
-{
-    vulkan,
-    metal,
-};
-
 filesystem_layout g_layout;
-host_renderer g_renderer = host_renderer::vulkan;
+renderer_backend g_renderer = renderer_backend::vulkan;
 
-host_renderer requested_renderer()
+renderer_backend requested_renderer()
 {
     const char* value = std::getenv("RPCS3_IOS_RENDERER");
     if (!value || !*value)
-        return host_renderer::vulkan;
+        return renderer_backend::vulkan;
 
     std::string normalized(value);
     std::transform(normalized.begin(), normalized.end(), normalized.begin(), [](unsigned char character)
     {
         return static_cast<char>(std::tolower(character));
     });
-    return normalized == "metal" ? host_renderer::metal : host_renderer::vulkan;
+    return normalized == "metal" ? renderer_backend::metal : renderer_backend::vulkan;
 }
 
-const char* renderer_name(host_renderer renderer)
+const char* renderer_name(renderer_backend renderer)
 {
-    return renderer == host_renderer::metal ? "Metal" : "Vulkan (MoltenVK)";
+    return renderer == renderer_backend::metal ? "Metal" : "Vulkan (MoltenVK)";
 }
 
 void wake(atomic_t<u32>* value)
@@ -143,7 +137,7 @@ EmuCallbacks create_ios_callbacks()
 
     callbacks.init_gs_render = [](utils::serial* archive)
     {
-        if (g_renderer == host_renderer::metal)
+        if (g_renderer == renderer_backend::metal)
         {
             g_fxo->init<rsx::thread, named_thread<rpcs3::ios::render::metal_gs_render>>(archive);
             return;
@@ -301,6 +295,35 @@ void configure_sandbox_vfs(const filesystem_layout& layout)
 }
 } // namespace
 
+bool select_renderer(renderer_backend renderer, std::string& message)
+{
+    if (!Emu.IsStopped())
+    {
+        message = "Stop emulation before switching the RPCS3 renderer.";
+        return false;
+    }
+#if !defined(HAVE_VULKAN)
+    if (renderer == renderer_backend::vulkan)
+    {
+        message = "Vulkan was requested, but VKGSRender was not compiled into this build.";
+        return false;
+    }
+#endif
+
+    g_renderer = renderer;
+    g_cfg.video.renderer.set(renderer == renderer_backend::vulkan
+        ? video_renderer::vulkan
+        : video_renderer::null);
+    setenv("RPCS3_IOS_RENDERER", renderer == renderer_backend::metal ? "metal" : "vulkan", 1);
+    message = std::string("RPCS3 will use ") + renderer_name(renderer) + " on the next boot.";
+    return true;
+}
+
+renderer_backend selected_renderer() noexcept
+{
+    return g_renderer;
+}
+
 runtime_host_status initialize_runtime_host(const filesystem_layout& layout)
 {
     runtime_host_status status;
@@ -309,14 +332,10 @@ runtime_host_status initialize_runtime_host(const filesystem_layout& layout)
     try
     {
         configure_sandbox_vfs(layout);
-        g_renderer = requested_renderer();
+        std::string selection_message;
+        if (!select_renderer(requested_renderer(), selection_message))
+            throw std::runtime_error(selection_message);
 
-        /* RPCS3 understands Vulkan natively. The port-owned Metal renderer uses
-         * the null enum value only as a configuration placeholder; the callback
-         * factory still instantiates metal_gs_render instead of NullGSRender. */
-        g_cfg.video.renderer.set(g_renderer == host_renderer::vulkan
-            ? video_renderer::vulkan
-            : video_renderer::null);
         g_cfg.audio.renderer.set(audio_renderer::null);
         g_cfg.io.keyboard.set(keyboard_handler::null);
         g_cfg.io.mouse.set(mouse_handler::null);
@@ -334,7 +353,8 @@ runtime_host_status initialize_runtime_host(const filesystem_layout& layout)
         status.spu_interpreter = true;
         status.jit = false;
         status.renderer = true;
-        if (g_renderer == host_renderer::vulkan)
+        status.selected_renderer = g_renderer;
+        if (g_renderer == renderer_backend::vulkan)
         {
             status.message = "RPCS3 Emu.System initialized with PPU/SPU interpreters, iOS sandbox VFS, a UIKit CAMetalLayer GS frame, and upstream VKGSRender through MoltenVK.";
         }
@@ -345,10 +365,12 @@ runtime_host_status initialize_runtime_host(const filesystem_layout& layout)
     }
     catch (const std::exception& error)
     {
+        status.selected_renderer = g_renderer;
         status.message = std::string("RPCS3 Emu.System initialization failed while selecting ") + renderer_name(g_renderer) + ": " + error.what();
     }
     catch (...)
     {
+        status.selected_renderer = g_renderer;
         status.message = std::string("RPCS3 Emu.System initialization failed with an unknown exception while selecting ") + renderer_name(g_renderer) + ".";
     }
 
