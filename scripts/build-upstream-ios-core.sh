@@ -33,7 +33,8 @@ mkdir -p "$BUILD/logs" "$PRODUCT_DIR" "$(dirname "$UI_MODEL")"
 # Export the real Qt Designer hierarchy before XcodeGen runs. Because this file
 # lives under App/, XcodeGen copies it into the IPA as a resource consumed by
 # the UIKit menu/tab renderer. It includes nested layouts, tab pages, stacked
-# pages, docks, controls, and QAction identifiers from the pinned RPCS3 tag.
+# pages, docks, controls, QAction identifiers, labels, states, and shortcuts
+# from the pinned RPCS3 tag.
 python3 scripts/export-upstream-qt-ui-model.py "$ROOT" "$UI_MODEL" \
   >"$BUILD/logs/export-qt-ui-model.log" 2>&1
 cp "$UI_MODEL" "$BUILD/rpcs3-qt-ui-model.json"
@@ -77,13 +78,20 @@ grep -q 'sha256' "$BUILD/archive-members.txt"
 python3 - "$UI_MODEL" <<'PY'
 import json, sys
 model = json.load(open(sys.argv[1], encoding="utf-8"))
-assert model["schema"] >= 2
+assert model["schema"] >= 3
 assert model["ui_file_count"] > 0
 assert model["widget_count"] > 0
-assert any(d["file"] == "main_window.ui" for d in model["documents"])
-assert any(d["file"] == "settings_dialog.ui" for d in model["documents"])
+assert model["action_count"] > 0
+main = next(d for d in model["documents"] if d["file"] == "main_window.ui")
+settings = next(d for d in model["documents"] if d["file"] == "settings_dialog.ui")
+actions = {item["name"]: item for item in main["actions"]}
+assert actions["bootGameAct"]["title"]
+assert actions["confCPUAct"]["title"]
+assert actions["sysStopAct"]["title"]
+assert settings["root"]
 PY
 
+UI_ACTION_COUNT="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["action_count"])' "$UI_MODEL")"
 cat > "$BUILD/summary.md" <<EOF
 # RPCS3 iOS pinned upstream core archive
 
@@ -93,6 +101,7 @@ cat > "$BUILD/summary.md" <<EOF
 - Target: \`arm64-apple-ios26.0\`
 - Product: \`$OUTPUT\`
 - Bundled Qt UI model: \`$UI_MODEL\`
+- Exported QAction definitions: \`$UI_ACTION_COUNT\`
 - Checkout includes initialized upstream submodules.
 - The bootstrap archive remains the shipping lane while the separate upstream-graph probe identifies blockers in RPCS3's real build graph.
 EOF
