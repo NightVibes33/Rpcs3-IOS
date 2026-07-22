@@ -48,6 +48,7 @@ qt_add_executable(RPCS3QtIOS MANUAL_FINALIZATION
     main.cpp
     RPCS3QtMainWindow.cpp
     RPCS3QtMainWindow.h
+    RPCS3IOSGameLaunchGuard.cpp
     QtCompat.h
     QUiLoader
     ${RPCS3_UI_FACTORY_HEADER}
