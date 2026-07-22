@@ -4,9 +4,12 @@
 
 #include <memory>
 
-// Attaches a CAMetalLayer-backed child UIView to the native Qt iOS host UIView.
-// The native handle is supplied by QWidget::winId(), which Qt maps to UIView* on iOS.
-int rpcs3_ios_attach_metal_view(void* host_view, int pixel_width, int pixel_height, double refresh_rate);
-void rpcs3_ios_update_metal_view_metrics(int pixel_width, int pixel_height, double refresh_rate);
-bool rpcs3_ios_has_metal_view();
-std::unique_ptr<GSFrameBase> rpcs3_ios_make_gs_frame();
+namespace rpcs3::ios
+{
+// QWidget::winId() is a UIView* on iOS. A runtime-owned CAMetalLayer-backed
+// child view is attached to it and returned to RPCS3 as the Apple display handle.
+bool attach_render_view(void* native_view);
+void detach_render_view();
+bool render_view_ready();
+std::unique_ptr<GSFrameBase> make_gs_frame();
+} // namespace rpcs3::ios
