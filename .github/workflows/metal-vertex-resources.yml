@@ -9,6 +9,7 @@ on:
       - "Renderers/Metal/RPCS3MetalResourceBindings.*"
       - "Renderers/Metal/RPCS3MetalVertexEnvironment.*"
       - "Renderers/Metal/RPCS3MetalVertexResources.*"
+      - "Renderers/Metal/RPCS3MetalRenderer.*"
       - ".github/workflows/metal-vertex-resources.yml"
 
 permissions:
@@ -42,7 +43,7 @@ jobs:
             -H "Accept: application/vnd.github+json" \
             -H "X-GitHub-Api-Version: 2022-11-28" \
             "https://api.github.com/repos/$GITHUB_REPOSITORY/statuses/$GITHUB_SHA" \
-            -d "{\"state\":\"pending\",\"context\":\"$STATUS_CONTEXT\",\"description\":\"Compiling reflected RPCS3 vertex uploads for Metal\",\"target_url\":\"$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID\"}"
+            -d "{\"state\":\"pending\",\"context\":\"$STATUS_CONTEXT\",\"description\":\"Compiling reflected RPCS3 vertex uploads and renderer binding\",\"target_url\":\"$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID\"}"
 
       - name: Select iOS 26 SDK
         shell: bash
@@ -103,12 +104,29 @@ jobs:
             exit "$uploader_status"
           fi
 
+          set +e
+          xcrun --sdk iphoneos clang++ "${OBJCXX_COMMON[@]}" \
+            -c Renderers/Metal/RPCS3MetalRenderer.mm \
+            -o build-metal-vertex-resources/RPCS3MetalRenderer.o \
+            2>&1 | tee build-metal-vertex-resources/RPCS3MetalRenderer-compile.log
+          renderer_status=${PIPESTATUS[0]}
+          set -e
+          if [[ "$renderer_status" -ne 0 ]]; then
+            exit "$renderer_status"
+          fi
+
           file build-metal-vertex-resources/*.o
           for object in build-metal-vertex-resources/*.o; do lipo -info "$object"; done
           nm -gU build-metal-vertex-resources/RPCS3MetalVertexResources.o | c++filt \
             | tee build-metal-vertex-resources/RPCS3MetalVertexResources-symbols.txt
           grep -q 'vertex_resource_set::upload_and_bind' \
             build-metal-vertex-resources/RPCS3MetalVertexResources-symbols.txt
+          nm -gU build-metal-vertex-resources/RPCS3MetalRenderer.o | c++filt \
+            | tee build-metal-vertex-resources/RPCS3MetalRenderer-symbols.txt
+          grep -q 'metal_renderer::upload_and_bind_vertex_resources' \
+            build-metal-vertex-resources/RPCS3MetalRenderer-symbols.txt
+          grep -q 'metal_renderer::uploaded_vertex_resource_bytes' \
+            build-metal-vertex-resources/RPCS3MetalRenderer-symbols.txt
 
       - name: Run record and binding validation tests
         id: host-tests
@@ -192,7 +210,7 @@ jobs:
           set -euo pipefail
           if [[ "${{ steps.compile-ios.outcome }}" == "success" && "${{ steps.host-tests.outcome }}" == "success" ]]; then
             state="success"
-            description="Reflected RPCS3 vertex resources compiled for arm64 iOS"
+            description="Reflected RPCS3 vertex resources and renderer binding compiled for arm64 iOS"
           else
             state="failure"
             description="Metal vertex resource uploader reached a compiler or test blocker"
