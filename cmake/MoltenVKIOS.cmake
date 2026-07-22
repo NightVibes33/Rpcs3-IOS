@@ -7,9 +7,36 @@ function(rpcs3_link_moltenvk target moltenvk_root)
     endif()
 
     set(_xcframework "${moltenvk_root}/MoltenVK.xcframework")
-    set(_framework "${_xcframework}/ios-arm64/MoltenVK.framework")
-    set(_binary "${_framework}/MoltenVK")
     set(_include "${moltenvk_root}/include")
+    set(_binary "")
+
+    if(EXISTS "${moltenvk_root}/device-binary-path.txt")
+        file(STRINGS "${moltenvk_root}/device-binary-path.txt" _relative_binary LIMIT_COUNT 1)
+        string(STRIP "${_relative_binary}" _relative_binary)
+        if(NOT _relative_binary STREQUAL "")
+            set(_binary "${moltenvk_root}/${_relative_binary}")
+        endif()
+    endif()
+
+    if(NOT EXISTS "${_binary}")
+        file(GLOB_RECURSE _moltenvk_candidates LIST_DIRECTORIES false
+            "${_xcframework}/*/MoltenVK.framework/MoltenVK")
+        foreach(_candidate IN LISTS _moltenvk_candidates)
+            string(TOLOWER "${_candidate}" _candidate_lower)
+            if(_candidate_lower MATCHES "simulator|maccatalyst")
+                continue()
+            endif()
+            if(_candidate MATCHES "/ios-[^/]+/MoltenVK\\.framework/MoltenVK$")
+                set(_binary "${_candidate}")
+                break()
+            endif()
+        endforeach()
+    endif()
+
+    if(NOT EXISTS "${_binary}")
+        message(FATAL_ERROR "No arm64 iOS MoltenVK framework binary was found under ${_xcframework}")
+    endif()
+    get_filename_component(_framework "${_binary}" DIRECTORY)
 
     foreach(_required IN ITEMS
         "${_binary}"
@@ -20,6 +47,7 @@ function(rpcs3_link_moltenvk target moltenvk_root)
         endif()
     endforeach()
 
+    message(STATUS "RPCS3 iOS: linking MoltenVK device slice ${_binary}")
     if(NOT TARGET MoltenVK::MoltenVK)
         add_library(MoltenVK::MoltenVK STATIC IMPORTED GLOBAL)
         set_target_properties(MoltenVK::MoltenVK PROPERTIES
