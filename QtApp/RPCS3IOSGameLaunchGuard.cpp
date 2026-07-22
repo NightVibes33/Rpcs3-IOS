@@ -4,6 +4,7 @@
 #include <QDir>
 #include <QFileInfo>
 #include <QListWidget>
+#include <QMainWindow>
 #include <QMessageBox>
 #include <QPointer>
 #include <QStatusBar>
@@ -55,7 +56,7 @@ void installLaunchGuard()
             continue;
 
         list->setProperty("rpcs3IOSLaunchGuardInstalled", true);
-        QObject::disconnect(list, &QListWidget::itemActivated, topLevel, nullptr);
+        QObject::disconnect(list, nullptr, topLevel, nullptr);
 
         QPointer<QWidget> guardedWindow(topLevel);
         QPointer<QListWidget> guardedList(list);
@@ -88,12 +89,8 @@ void installLaunchGuard()
                     return;
                 }
 
-                if (QStatusBar* status = qobject_cast<QMainWindow*>(guardedWindow.data())
-                        ? qobject_cast<QMainWindow*>(guardedWindow.data())->statusBar()
-                        : nullptr)
-                {
-                    status->showMessage(QObject::tr("Booting %1 through upstream Emulator::BootGame…").arg(item->text()));
-                }
+                if (auto* mainWindow = qobject_cast<QMainWindow*>(guardedWindow.data()))
+                    mainWindow->statusBar()->showMessage(QObject::tr("Booting %1 through upstream Emulator::BootGame…").arg(item->text()));
 
                 if (!rpcs3_ios_core_boot_elf(bootPath.toUtf8().constData()))
                 {
