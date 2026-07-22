@@ -60,6 +60,7 @@ run_timed 3600 bash scripts/build-ffmpeg-ios.sh
 phase "Build pinned MoltenVK static XCFramework for arm64 iOS"
 run_timed 7200 bash scripts/build-moltenvk-ios.sh
 
+MOLTENVK_PATH_FILE="$MOLTENVK_ROOT/device-binary-path.txt"
 test -f "$FFMPEG_ROOT/.rpcs3-ios-ffmpeg-n7.1"
 test -f "$FFMPEG_ROOT/include/libavutil/pixfmt.h"
 test -f "$FFMPEG_ROOT/lib/libavcodec.a"
@@ -67,7 +68,9 @@ test -f "$FFMPEG_ROOT/lib/libavformat.a"
 test -f "$FFMPEG_ROOT/lib/libavutil.a"
 test -f "$FFMPEG_ROOT/lib/libswscale.a"
 test -f "$FFMPEG_ROOT/lib/libswresample.a"
-test -f "$MOLTENVK_ROOT/MoltenVK.xcframework/ios-arm64/MoltenVK.framework/MoltenVK"
+test -f "$MOLTENVK_PATH_FILE"
+MOLTENVK_BINARY="$MOLTENVK_ROOT/$(tr -d '\r\n' < "$MOLTENVK_PATH_FILE")"
+test -f "$MOLTENVK_BINARY"
 test -f "$MOLTENVK_ROOT/include/vulkan/vulkan.h"
 test -f "$MOLTENVK_ROOT/include/MoltenVK/vk_mvk_moltenvk.h"
 
@@ -106,9 +109,8 @@ set -e
 phase "CMake configure exit status=$configure_status"
 
 build_status=125
-link_status=125
 if [[ $configure_status -eq 0 ]]; then
-  phase "Compile the real upstream rpcs3_emu target with Vulkan for arm64 iOS"
+  phase "Compile the real upstream rpcs3_emu target with Vulkan and Metal for arm64 iOS"
   set +e
   python3 "$TIMEOUT_RUNNER" 7200 cmake --build "$BUILD/tree" \
     --target rpcs3_emu \
@@ -118,21 +120,8 @@ if [[ $configure_status -eq 0 ]]; then
   build_status=${PIPESTATUS[0]}
   set -e
   phase "rpcs3_emu build exit status=$build_status"
-
-  if [[ $build_status -eq 0 ]]; then
-    phase "Link Emu.System, VKGSRender/MoltenVK, UIKit GSFrame, and native Metal into one iOS executable"
-    set +e
-    python3 "$TIMEOUT_RUNNER" 7200 cmake --build "$BUILD/tree" \
-      --target rpcs3_ios_runtime_link_probe \
-      --config Release \
-      --parallel 3 \
-      2>&1 | tee "$LOG_DIR/build-runtime-link-probe.log"
-    link_status=${PIPESTATUS[0]}
-    set -e
-    phase "runtime link probe exit status=$link_status"
-  fi
 else
-  phase "Skipping compile because configure failed"
+  phase "Skipping rpcs3_emu compile because configure failed"
 fi
 
 phase1_status=125
@@ -153,8 +142,9 @@ fi
 status=$configure_status
 if [[ $configure_status -eq 0 ]]; then
   status=$build_status
-  if [[ $status -eq 0 ]]; then status=$link_status; fi
-  if [[ $phase1_status -ne 0 && $status -eq 0 ]]; then status=$phase1_status; fi
+  if [[ $phase1_status -ne 0 && $status -eq 0 ]]; then
+    status=$phase1_status
+  fi
 fi
 
 ui_file_count="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["ui_file_count"])' "$BUILD/rpcs3-qt-ui-model.json")"
@@ -169,42 +159,44 @@ if [[ -f "$BUILD/phase1-emusystem-evidence.json" ]]; then
 fi
 
 {
-  echo "# RPCS3 iOS Vulkan + Metal upstream graph probe"
+  echo "# RPCS3 iOS real upstream Vulkan and Metal graph probe"
   echo
   echo "- Requested revision: \`$UPSTREAM_REVISION\`"
   echo "- Resolved commit: \`$(cat "$BUILD/upstream-revision.txt")\`"
   echo "- Qt Designer UI files exported: \`$ui_file_count\`"
   echo "- Nested Qt widgets exported: \`$widget_count\`"
+  echo "- Complete UI model: \`$BUILD/rpcs3-qt-ui-model.json\`"
+  echo "- FFmpeg target: \`arm64-apple-ios${DEPLOYMENT_TARGET:-26.0}\`"
   echo "- FFmpeg install: \`$FFMPEG_ROOT\`"
   echo "- MoltenVK install: \`$MOLTENVK_ROOT\`"
-  echo "- Vulkan path: \`RPCS3 VKGSRender -> MoltenVK -> CAMetalLayer\`"
-  echo "- Metal path: \`RPCS3 metal_gs_render -> native Metal command queue -> CAMetalLayer\`"
+  echo "- MoltenVK device binary: \`$MOLTENVK_BINARY\`"
+  echo "- Vulkan path: \`VK_EXT_metal_surface through CAMetalLayer\`"
   echo "- Configure exit status: \`$configure_status\`"
   echo "- rpcs3_emu build exit status: \`$build_status\`"
-  echo "- final runtime link exit status: \`$link_status\`"
   echo "- Phase 1 evidence exit status: \`$phase1_status\`"
   echo "- Upstream Emu/System.cpp configured: \`$system_cpp_configured\`"
   echo "- Upstream Emu/System.cpp object built: \`$system_cpp_object_built\`"
   echo "- Configured upstream Emu source files: \`$configured_emu_source_count\`"
-  echo "- LLVM remains disabled; PPU/SPU interpreter execution is the current CPU lane."
-  echo "- Vulkan uses RPCS3's existing full RSX implementation. Native Metal has a real surface, device, queue, drawable, and present path; RSX state/shader/texture translation remains under implementation."
+  echo "- Phase 1 evidence: \`$BUILD/phase1-emusystem-evidence.json\`"
+  echo "- LLVM is intentionally disabled so interpreter-based PPU/SPU paths compile before entitlement-dependent JIT work."
+  echo "- Pinned FFmpeg and MoltenVK are real arm64-iOS dependencies in the upstream graph."
+  echo "- RPCS3's existing Vulkan RSX sources are compiled against MoltenVK; the native Metal GS renderer is compiled in the same rpcs3_emu target."
+  echo "- Compilation is not treated as physical-device guest execution until the Qt host and Emu callbacks are linked into one IPA."
   if [[ $configure_status -ne 0 ]]; then
     echo "- Configure tail:"
+    echo
     echo '```text'
-    tail -n 120 "$LOG_DIR/configure.log"
+    tail -n 100 "$LOG_DIR/configure.log"
     echo '```'
   elif [[ $build_status -ne 0 ]]; then
-    echo "- Emulator compile tail:"
+    echo "- The build tail below is the next concrete runtime porting blocker:"
+    echo
     echo '```text'
-    tail -n 160 "$LOG_DIR/build-rpcs3-emu.log"
-    echo '```'
-  elif [[ $link_status -ne 0 ]]; then
-    echo "- Final renderer/runtime link tail:"
-    echo '```text'
-    tail -n 180 "$LOG_DIR/build-runtime-link-probe.log"
+    tail -n 140 "$LOG_DIR/build-rpcs3-emu.log"
     echo '```'
   elif [[ $phase1_status -ne 0 ]]; then
-    echo "- Evidence validation tail:"
+    echo "- The target compiled, but Phase 1 source evidence validation failed:"
+    echo
     echo '```text'
     tail -n 100 "$LOG_DIR/phase1-emusystem-evidence.log"
     echo '```'
