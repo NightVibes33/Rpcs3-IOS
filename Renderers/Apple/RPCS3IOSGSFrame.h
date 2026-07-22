@@ -44,7 +44,8 @@ public:
                          u32 width,
                          u32 height,
                          bool is_bgra) override;
-    void update_title(double fps = 0.0) override;
+
+    void update_title(double fps = 0.0);
 
 private:
     bool ensure_surface() const;
