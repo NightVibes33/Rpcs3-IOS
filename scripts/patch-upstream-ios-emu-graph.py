@@ -126,6 +126,7 @@ if(RPCS3_IOS_UPSTREAM_GRAPH)
     target_compile_definitions(rpcs3_ios_upstream_runtime PRIVATE RPCS3_IOS=1)
     target_link_libraries(rpcs3_ios_upstream_runtime PRIVATE
         rpcs3_emu
+        "-framework Foundation"
         "-framework UIKit"
         "-framework QuartzCore"
         "-framework Metal"
