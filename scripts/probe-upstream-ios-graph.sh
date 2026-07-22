@@ -9,10 +9,12 @@ REVISION_FILE="$PORT_ROOT/UPSTREAM_RPCS3_REVISION"
 LOG_DIR="$BUILD/logs"
 PHASE_LOG="$LOG_DIR/phases.log"
 TIMEOUT_RUNNER="$PORT_ROOT/scripts/run-with-timeout.py"
+PHASE1_COLLECTOR="$PORT_ROOT/scripts/collect-emusystem-phase1-evidence.py"
 
 UPSTREAM_REVISION="$(tr -d '[:space:]' < "$REVISION_FILE")"
 test -n "$UPSTREAM_REVISION"
 test -f "$TIMEOUT_RUNNER"
+test -f "$PHASE1_COLLECTOR"
 
 rm -rf "$ROOT" "$BUILD"
 mkdir -p "$LOG_DIR"
@@ -61,6 +63,7 @@ python3 "$TIMEOUT_RUNNER" 3600 cmake \
   -B "$BUILD/tree" \
   -DCMAKE_TOOLCHAIN_FILE="$TOOLCHAIN" \
   -DCMAKE_BUILD_TYPE=Release \
+  -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
   -DRPCS3_IOS_UPSTREAM_GRAPH=ON \
   -DRPCS3_IOS_PORT_ROOT="$PORT_ROOT" \
   -DWITH_LLVM=OFF \
@@ -90,13 +93,39 @@ else
   phase "Skipping rpcs3_emu compile because configure failed"
 fi
 
+phase1_status=125
+if [[ $configure_status -eq 0 ]]; then
+  phase "Collect Phase 1 Emu.System evidence"
+  set +e
+  python3 "$PHASE1_COLLECTOR" \
+    --compile-commands "$BUILD/tree/compile_commands.json" \
+    --build-root "$BUILD/tree" \
+    --build-status "$build_status" \
+    --output "$BUILD/phase1-emusystem-evidence.json" \
+    2>&1 | tee "$LOG_DIR/phase1-emusystem-evidence.log"
+  phase1_status=${PIPESTATUS[0]}
+  set -e
+  phase "Phase 1 evidence exit status=$phase1_status"
+fi
+
 status=$configure_status
 if [[ $configure_status -eq 0 ]]; then
   status=$build_status
+  if [[ $phase1_status -ne 0 && $status -eq 0 ]]; then
+    status=$phase1_status
+  fi
 fi
 
 ui_file_count="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["ui_file_count"])' "$BUILD/rpcs3-qt-ui-model.json")"
 widget_count="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("widget_count", 0))' "$BUILD/rpcs3-qt-ui-model.json")"
+system_cpp_configured="unknown"
+system_cpp_object_built="unknown"
+configured_emu_source_count="unknown"
+if [[ -f "$BUILD/phase1-emusystem-evidence.json" ]]; then
+  system_cpp_configured="$(python3 -c 'import json,sys; print(str(json.load(open(sys.argv[1]))["system_cpp_configured"]).lower())' "$BUILD/phase1-emusystem-evidence.json")"
+  system_cpp_object_built="$(python3 -c 'import json,sys; print(str(json.load(open(sys.argv[1]))["system_cpp_object_built"]).lower())' "$BUILD/phase1-emusystem-evidence.json")"
+  configured_emu_source_count="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["configured_emu_source_count"])' "$BUILD/phase1-emusystem-evidence.json")"
+fi
 
 {
   echo "# RPCS3 iOS real upstream graph probe"
@@ -108,12 +137,15 @@ widget_count="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).
   echo "- Complete UI model: \`$BUILD/rpcs3-qt-ui-model.json\`"
   echo "- Configure exit status: \`$configure_status\`"
   echo "- rpcs3_emu build exit status: \`$build_status\`"
-  echo "- LLVM is intentionally disabled for this graph stage so the interpreter-based PPU/SPU path can compile before an iOS-safe JIT backend is introduced."
-  echo "- Desktop Qt is excluded from the binary, but every upstream .ui document is exported as the UIKit conversion source, including layout-wrapped controls, nested tabs, stacked pages, toolboxes, docks, and QAction identifiers."
-  echo "- The iOS no-host-USB backend now matches the pinned libusb backend API instead of using a stale clock callback field."
-  echo "- Cubeb keeps its AudioUnit stream backend while macOS-only AudioObject device enumeration and listener code is excluded on iOS."
-  echo "- Curl is built from RPCS3's pinned submodule for arm64 iOS instead of locating incompatible host libraries."
-  echo "- This probe now compiles the real upstream rpcs3_emu target instead of treating successful CMake generation as completion."
+  echo "- Phase 1 evidence exit status: \`$phase1_status\`"
+  echo "- Upstream Emu/System.cpp configured: \`$system_cpp_configured\`"
+  echo "- Upstream Emu/System.cpp object built: \`$system_cpp_object_built\`"
+  echo "- Configured upstream Emu source files: \`$configured_emu_source_count\`"
+  echo "- Phase 1 evidence: \`$BUILD/phase1-emusystem-evidence.json\`"
+  echo "- LLVM is intentionally disabled so interpreter-based PPU/SPU paths compile before any entitlement-dependent JIT work."
+  echo "- Desktop Qt is excluded from the binary while upstream Qt UI documents remain the source for UIKit conversion."
+  echo "- This probe compiles the real upstream rpcs3_emu target and separately proves whether System.cpp entered the build."
+  echo "- Compilation is not treated as physical-device Emu.System initialization or guest execution."
   if [[ $configure_status -ne 0 ]]; then
     echo "- Configure tail:"
     echo
@@ -125,6 +157,12 @@ widget_count="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).
     echo
     echo '```text'
     tail -n 140 "$LOG_DIR/build-rpcs3-emu.log"
+    echo '```'
+  elif [[ $phase1_status -ne 0 ]]; then
+    echo "- The target compiled, but Phase 1 source evidence validation failed:"
+    echo
+    echo '```text'
+    tail -n 100 "$LOG_DIR/phase1-emusystem-evidence.log"
     echo '```'
   fi
 } > "$BUILD/summary.md"
