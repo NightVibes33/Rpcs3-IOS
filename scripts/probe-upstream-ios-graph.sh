@@ -44,6 +44,7 @@ run_timed 3600 git -C "$ROOT" submodule update --init --recursive --depth 1 --jo
 
 phase "Apply iOS upstream-graph overlay"
 run_timed 120 python3 scripts/apply-upstream-ios-overlay.py "$ROOT" --mode upstream
+run_timed 120 python3 scripts/patch-upstream-ios-emu-graph.py "$ROOT"
 
 git -C "$ROOT" rev-parse HEAD | tee "$BUILD/upstream-revision.txt"
 git -C "$ROOT" submodule status --recursive > "$BUILD/upstream-submodules.txt"
@@ -74,6 +75,7 @@ phase "CMake configure exit status=$status"
   echo "- Resolved commit: \`$(cat "$BUILD/upstream-revision.txt")\`"
   echo "- Configure exit status: \`$status\`"
   echo "- LLVM is intentionally disabled for this graph stage so the interpreter-based PPU/SPU path can configure before an iOS-safe JIT backend is introduced."
+  echo "- Desktop Qt/rpcs3qt are excluded; UIKit remains the host UI while upstream rpcs3/Emu and Emu.System stay in the graph."
   echo "- This probe enters RPCS3's real dependency/emulator graph without the bootstrap early return."
   if [[ $status -ne 0 ]]; then
     echo "- The tail below is the next concrete porting blocker:"
