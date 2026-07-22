@@ -19,6 +19,13 @@ def patch_top_level_graph(upstream_root: Path) -> None:
 
     replace_once(
         cmake,
+        'set(CMAKE_CXX_STANDARD 23)\n',
+        'set(CMAKE_CXX_STANDARD 23)\n\nif(RPCS3_IOS_FULL_QT_FRONTEND)\n    add_compile_definitions(RPCS3_IOS=1)\nendif()\n',
+        "iOS full frontend compile definition",
+    )
+
+    replace_once(
+        cmake,
         '''if (NOT ANDROID)
     # Qt
     # finds Qt libraries and setups custom commands for MOC and UIC
@@ -27,13 +34,11 @@ def patch_top_level_graph(upstream_root: Path) -> None:
     include(${CMAKE_SOURCE_DIR}/3rdparty/qt6.cmake)
 endif()
 ''',
-        '''if (RPCS3_IOS_UPSTREAM_GRAPH)
+        '''if (RPCS3_IOS_UPSTREAM_GRAPH AND NOT RPCS3_IOS_FULL_QT_FRONTEND)
     message(STATUS "RPCS3 iOS: excluding the desktop Qt host from the emulator-core graph")
 elseif (NOT ANDROID)
-    # Qt
-    # finds Qt libraries and setups custom commands for MOC and UIC
-    # Must be done here because generated MOC and UIC targets cant
-    # be found otherwise
+    # The full iOS frontend lane deliberately uses RPCS3's real Qt target. Qt's
+    # iOS toolchain supplies the same Widgets APIs used by the macOS build.
     include(${CMAKE_SOURCE_DIR}/3rdparty/qt6.cmake)
 endif()
 ''',
@@ -46,9 +51,10 @@ endif()
     add_subdirectory(rpcs3qt)
 endif()
 ''',
-        '''if (RPCS3_IOS_UPSTREAM_GRAPH)
-    message(STATUS "RPCS3 iOS: the external Qt Widgets iOS app owns the host UI; preserving rpcs3/Emu")
+        '''if (RPCS3_IOS_UPSTREAM_GRAPH AND NOT RPCS3_IOS_FULL_QT_FRONTEND)
+    message(STATUS "RPCS3 iOS: external Qt app owns the host UI in runtime-only mode")
 elseif (NOT ANDROID)
+    message(STATUS "RPCS3 iOS: compiling the complete upstream rpcs3_ui target")
     add_subdirectory(rpcs3qt)
 endif()
 ''',
@@ -60,12 +66,78 @@ endif()
         '''if (NOT ANDROID)
     # Build rpcs3_lib
 ''',
-        '''if (RPCS3_IOS_UPSTREAM_GRAPH)
+        '''if (RPCS3_IOS_UPSTREAM_GRAPH AND NOT RPCS3_IOS_FULL_QT_FRONTEND)
     message(STATUS "RPCS3 iOS: rpcs3_emu is the host-linkable upstream target")
 elseif (NOT ANDROID)
+    if(RPCS3_IOS_FULL_QT_FRONTEND)
+        message(STATUS "RPCS3 iOS: building upstream rpcs3_lib and rpcs3 executable for iOS")
+    endif()
     # Build rpcs3_lib
 ''',
         "desktop rpcs3_lib",
+    )
+
+    replace_once(
+        cmake,
+        '''    elseif(APPLE)
+        target_sources(rpcs3 PRIVATE rpcs3.icns update_helper.sh)
+        set_source_files_properties(update_helper.sh PROPERTIES MACOSX_PACKAGE_LOCATION Resources)
+        set_target_properties(rpcs3
+            PROPERTIES
+                MACOSX_BUNDLE_INFO_PLIST "${CMAKE_CURRENT_SOURCE_DIR}/rpcs3.plist.in")
+    endif()
+''',
+        '''    elseif(APPLE AND RPCS3_IOS_FULL_QT_FRONTEND)
+        # Qt/CMake generate an iOS bundle plist. The macOS icon, updater helper,
+        # and desktop plist are intentionally not embedded in the iPhone app.
+    elseif(APPLE)
+        target_sources(rpcs3 PRIVATE rpcs3.icns update_helper.sh)
+        set_source_files_properties(update_helper.sh PROPERTIES MACOSX_PACKAGE_LOCATION Resources)
+        set_target_properties(rpcs3
+            PROPERTIES
+                MACOSX_BUNDLE_INFO_PLIST "${CMAKE_CURRENT_SOURCE_DIR}/rpcs3.plist.in")
+    endif()
+''',
+        "Apple executable resources",
+    )
+
+    # macdeployqt and macOS bundle resources are not valid for an iPhone target.
+    replace_once(
+        cmake,
+        '''    if(APPLE)
+        qt_finalize_target(rpcs3)
+        add_custom_command(TARGET rpcs3 POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy ${CMAKE_CURRENT_SOURCE_DIR}/rpcs3.icns $<TARGET_FILE_DIR:rpcs3>/../Resources/rpcs3.icns
+            COMMAND ${CMAKE_COMMAND} -E copy_directory ${CMAKE_SOURCE_DIR}/bin/Icons $<TARGET_FILE_DIR:rpcs3>/../Resources/Icons
+            COMMAND ${CMAKE_COMMAND} -E copy_directory ${CMAKE_SOURCE_DIR}/bin/GuiConfigs $<TARGET_FILE_DIR:rpcs3>/../Resources/GuiConfigs
+            COMMAND "${MACDEPLOYQT_EXECUTABLE}" "${PROJECT_BINARY_DIR}/bin/rpcs3.app" "$<$<CONFIG:Debug,RelWithDebInfo>:-no-strip>")
+''',
+        '''    if(APPLE AND RPCS3_IOS_FULL_QT_FRONTEND)
+        qt_finalize_target(rpcs3)
+        set_target_properties(rpcs3 PROPERTIES
+            OUTPUT_NAME "RPCS3-iOS"
+            MACOSX_BUNDLE TRUE
+            MACOSX_BUNDLE_BUNDLE_NAME "RPCS3"
+            MACOSX_BUNDLE_GUI_IDENTIFIER "com.nightvibes33.rpcs3ios"
+            XCODE_ATTRIBUTE_PRODUCT_BUNDLE_IDENTIFIER "com.nightvibes33.rpcs3ios"
+            XCODE_ATTRIBUTE_IPHONEOS_DEPLOYMENT_TARGET "26.0"
+            XCODE_ATTRIBUTE_TARGETED_DEVICE_FAMILY "1,2"
+            XCODE_ATTRIBUTE_SUPPORTS_MACCATALYST "NO"
+            XCODE_ATTRIBUTE_CODE_SIGNING_ALLOWED "NO"
+            XCODE_ATTRIBUTE_CODE_SIGNING_REQUIRED "NO")
+        add_custom_command(TARGET rpcs3 POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E make_directory $<TARGET_BUNDLE_CONTENT_DIR:rpcs3>/Resources
+            COMMAND ${CMAKE_COMMAND} -E copy_directory ${CMAKE_SOURCE_DIR}/bin/Icons $<TARGET_BUNDLE_CONTENT_DIR:rpcs3>/Resources/Icons
+            COMMAND ${CMAKE_COMMAND} -E copy_directory ${CMAKE_SOURCE_DIR}/bin/GuiConfigs $<TARGET_BUNDLE_CONTENT_DIR:rpcs3>/Resources/GuiConfigs)
+    elseif(APPLE)
+        qt_finalize_target(rpcs3)
+        add_custom_command(TARGET rpcs3 POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy ${CMAKE_CURRENT_SOURCE_DIR}/rpcs3.icns $<TARGET_FILE_DIR:rpcs3>/../Resources/rpcs3.icns
+            COMMAND ${CMAKE_COMMAND} -E copy_directory ${CMAKE_SOURCE_DIR}/bin/Icons $<TARGET_FILE_DIR:rpcs3>/../Resources/Icons
+            COMMAND ${CMAKE_COMMAND} -E copy_directory ${CMAKE_SOURCE_DIR}/bin/GuiConfigs $<TARGET_FILE_DIR:rpcs3>/../Resources/GuiConfigs
+            COMMAND "${MACDEPLOYQT_EXECUTABLE}" "${PROJECT_BINARY_DIR}/bin/rpcs3.app" "$<$<CONFIG:Debug,RelWithDebInfo>:-no-strip>")
+''',
+        "Apple deployment block",
     )
 
 
@@ -107,9 +179,6 @@ if(RPCS3_IOS_UPSTREAM_GRAPH)
         POSITION_INDEPENDENT_CODE ON
     )
 
-    # A single embeddable product for the Qt iOS application. Linking this
-    # framework resolves rpcs3_emu and every transitive static dependency once,
-    # avoiding a manually maintained duplicate link list in the host project.
     add_library(rpcs3_ios_upstream_runtime SHARED
         "{bridge_source.as_posix()}"
         "{gs_frame_source.as_posix()}"
@@ -189,7 +258,7 @@ def main() -> int:
     patch_ios_runtime_dependencies(args.upstream_root)
     add_runtime_bridge_targets(args.upstream_root)
 
-    print(f"Patched upstream emulator graph, CAMetalLayer GSFrame, shared runtime framework, and Emu.BootGame link probe: {args.upstream_root}")
+    print(f"Patched upstream graph for both runtime-only and full Qt frontend iOS lanes: {args.upstream_root}")
     return 0
 
 
