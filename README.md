@@ -8,6 +8,8 @@ Experimental native iOS 26 porting project for RPCS3. The repository converts RP
 > [!WARNING]
 > This is **not yet a playable PS3 emulator**. The current IPA builds and launches, but full PPU/SPU execution, PS3 syscalls, RSX rendering, game boot, firmware installation, and VSH/XMB execution are not complete. No game compatibility is claimed.
 
+Implementation progress is tracked in [`ROADMAP_STATUS.md`](ROADMAP_STATUS.md) against the exit criteria in [`REAL_RPCS3_IOS_BUILD_PLAN.md`](REAL_RPCS3_IOS_BUILD_PLAN.md).
+
 ## Current status
 
 | Area | Status | What that means |
@@ -89,7 +91,7 @@ The `upstream-graph-probe.yml` workflow is intentionally separate from the shipp
 4. Configures RPCS3 for arm64 iOS with desktop Qt and LLVM JIT disabled for the interpreter-first bring-up stage.
 5. Attempts to compile the real `rpcs3_emu` target and uploads the next concrete compiler failure as evidence.
 
-A green configuration step alone is not treated as completion. The workflow records the actual `rpcs3_emu` build exit status.
+A green configuration step alone is not treated as completion. The workflow records the actual `rpcs3_emu` build exit status and separate Phase 1 evidence for upstream `Emu/System.cpp`.
 
 ## Next engineering milestones
 
@@ -107,6 +109,7 @@ A green configuration step alone is not treated as completion. The workflow reco
 | `CoreBridge/` | C/Objective-C++ boundary between the iOS application and the upstream-derived core archive. |
 | `Port/` | iOS-specific core sources and portability shims used by the shipping archive. |
 | `scripts/` | Upstream cloning, UI export, overlays, validation, packaging, and graph-probe automation. |
+| `ROADMAP_STATUS.md` | Live phase-by-phase implementation status and evidence gates. |
 | `REAL_RPCS3_IOS_BUILD_PLAN.md` | Detailed engineering plan and subsystem bring-up order. |
 
 ## Legal and project notice
