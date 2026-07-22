@@ -20,11 +20,14 @@ int main(int argc, char* argv[])
     QCoreApplication::setOrganizationDomain(QStringLiteral("com.nightvibes33"));
     application.setProperty("RPCS3QtBuildMarker", QString::fromLatin1(RPCS3_QT_BUILD_MARKER));
 
-    const int initialized = rpcs3_ios_core_initialize(nullptr);
-
     RPCS3QtMainWindow window;
     RPCS3InstallRendererIntegration(&window);
     window.showMaximized();
+
+    /* Allow Qt's iOS platform plugin to create the real UIWindow/UIView tree
+     * before Emu.Init asks the GS frame callback for a CAMetalLayer host. */
+    application.processEvents();
+    const int initialized = rpcs3_ios_core_initialize(nullptr);
 
     if (!initialized)
     {
