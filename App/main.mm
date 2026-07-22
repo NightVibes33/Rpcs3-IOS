@@ -7,6 +7,8 @@
 #import "RPCS3Sidebar.h"
 #import "RPCS3Settings.h"
 #import "RPCS3Utilities.h"
+#import "RPCS3UpstreamMenuModel.h"
+#import "RPCS3UpstreamUIController.h"
 
 static NSString *RPCS3Root(void) {
     RPCS3IOSCoreDiagnostics d = rpcs3_ios_core_diagnostics();
@@ -53,7 +55,30 @@ static NSString *RPCS3Root(void) {
 - (void)viewDidLoad {
     [super viewDidLoad]; self.title=@"RPCS3"; self.collectionView.backgroundColor=UIColor.systemBackgroundColor; [self.collectionView registerClass:RPCS3GameCell.class forCellWithReuseIdentifier:@"game"];
     self.navigationItem.rightBarButtonItems=@[[[UIBarButtonItem alloc] initWithBarButtonSystemItem:UIBarButtonSystemItemAdd target:self action:@selector(importGame)],[[UIBarButtonItem alloc] initWithImage:[UIImage systemImageNamed:@"arrow.clockwise"] style:UIBarButtonItemStylePlain target:self action:@selector(reloadItems)]];
+    __weak RPCS3LibraryController *weakSelf=self;
+    UIMenu *upstreamMenu=RPCS3CreateUpstreamMainMenu(^(NSString *identifier){ [weakSelf runUpstreamAction:identifier]; });
+    self.navigationItem.leftBarButtonItem=[[UIBarButtonItem alloc] initWithImage:[UIImage systemImageNamed:@"line.3.horizontal"] menu:upstreamMenu];
     UISearchController *search=[[UISearchController alloc] initWithSearchResultsController:nil]; search.searchResultsUpdater=self; search.obscuresBackgroundDuringPresentation=NO; search.searchBar.placeholder=@"Search games or title IDs"; self.navigationItem.searchController=search; self.navigationItem.hidesSearchBarWhenScrolling=NO; [self reloadItems];
+}
+- (void)runUpstreamAction:(NSString *)identifier {
+    NSDictionary<NSString *,NSArray<NSString *> *> *routes=@{
+        @"confCPUAct":@[@"settings_dialog.ui",@"coreTab"], @"confGPUAct":@[@"settings_dialog.ui",@"gpuTab"],
+        @"confAudioAct":@[@"settings_dialog.ui",@"audioTab"], @"confIOAct":@[@"settings_dialog.ui",@"ioTab"],
+        @"confSystemAct":@[@"settings_dialog.ui",@"systemTab"], @"confNetwrkAct":@[@"settings_dialog.ui",@"networkTab"],
+        @"confAdvAct":@[@"settings_dialog.ui",@"advancedTab"], @"confEmuAct":@[@"settings_dialog.ui",@"emulatorTab"],
+        @"confGuiAct":@[@"settings_dialog.ui",@"guiTab"], @"confPadsAct":@[@"pad_settings_dialog.ui",@""],
+        @"confCamerasAct":@[@"camera_settings_dialog.ui",@""], @"actionPS_Move_Tracker":@[@"ps_move_tracker_dialog.ui",@""],
+        @"confShortcutsAct":@[@"shortcut_dialog.ui",@""], @"actionMusic_Player":@[@"music_player_dialog.ui",@""],
+        @"patchCreatorAct":@[@"patch_creator_dialog.ui",@""], @"actionManage_Game_Patches":@[@"patch_manager_dialog.ui",@""],
+        @"toolsVfsDialogAct":@[@"vfs_tool_dialog.ui",@""], @"aboutAct":@[@"about_dialog.ui",@""]
+    };
+    NSArray<NSString *> *route=routes[identifier];
+    if(route){[self.navigationController pushViewController:[[RPCS3UpstreamUIDocumentController alloc] initWithDocumentFile:route[0] preferredPageName:route[1]] animated:YES];return;}
+    if([identifier isEqualToString:@"bootGameAct"]||[identifier isEqualToString:@"addGamesAct"]||[identifier isEqualToString:@"addIsoGamesAct"]){[self importGame];return;}
+    if([identifier isEqualToString:@"refreshGameListAct"]){[self reloadItems];return;}
+    if([identifier isEqualToString:@"sysStopAct"]){rpcs3_ios_core_stop();return;}
+    UIAlertController *alert=[UIAlertController alertControllerWithTitle:identifier message:@"This original RPCS3 QAction is preserved in the converted menu. Its emulator-core command is not connected yet." preferredStyle:UIAlertControllerStyleAlert];
+    [alert addAction:[UIAlertAction actionWithTitle:@"OK" style:UIAlertActionStyleDefault handler:nil]]; [self presentViewController:alert animated:YES completion:nil];
 }
 - (void)viewWillAppear:(BOOL)animated { [super viewWillAppear:animated]; [self reloadItems]; }
 - (void)reloadItems { self.allItems=[RPCS3GameLibrary scanRoot:RPCS3Root()]; [self updateSearchResultsForSearchController:self.navigationItem.searchController]; }
@@ -87,7 +112,7 @@ static NSString *RPCS3Root(void) {
 - (UITableViewCell *)tableView:(UITableView *)tableView cellForRowAtIndexPath:(NSIndexPath *)indexPath { UITableViewCell *cell=[tableView dequeueReusableCellWithIdentifier:@"row"]?:[[UITableViewCell alloc] initWithStyle:UITableViewCellStyleSubtitle reuseIdentifier:@"row"]; NSArray *titles=indexPath.section==0?@[@"Install Firmware",@"Install Packages",@"Import Keys / Licenses"]:@[@"Settings",@"Pads"]; NSArray *icons=indexPath.section==0?@[@"shippingbox",@"archivebox",@"key"]:@[@"gearshape",@"gamecontroller"]; cell.textLabel.text=titles[indexPath.row]; cell.imageView.image=[UIImage systemImageNamed:icons[indexPath.row]]; cell.accessoryType=UITableViewCellAccessoryDisclosureIndicator; return cell; }
 - (void)tableView:(UITableView *)tableView didSelectRowAtIndexPath:(NSIndexPath *)indexPath {
     [tableView deselectRowAtIndexPath:indexPath animated:YES];
-    if(indexPath.section==1){ UIViewController *controller=indexPath.row==0?[[RPCS3SettingsController alloc] initWithStyle:UITableViewStyleInsetGrouped]:[[RPCS3PadsController alloc] initWithStyle:UITableViewStyleInsetGrouped]; [self.navigationController pushViewController:controller animated:YES]; return; }
+    if(indexPath.section==1){NSString *file=indexPath.row==0?@"settings_dialog.ui":@"pad_settings_dialog.ui";[self.navigationController pushViewController:[[RPCS3UpstreamUIDocumentController alloc] initWithDocumentFile:file] animated:YES];return;}
     self.kind=indexPath.row; UIDocumentPickerViewController *picker=[[UIDocumentPickerViewController alloc] initForOpeningContentTypes:@[UTTypeData] asCopy:YES]; picker.delegate=self; picker.allowsMultipleSelection=indexPath.row==2; [self presentViewController:picker animated:YES completion:nil];
 }
 - (void)documentPicker:(UIDocumentPickerViewController *)controller didPickDocumentsAtURLs:(NSArray<NSURL *> *)urls { (void)controller; NSString *folder=self.kind==0?@"firmware":self.kind==1?@"packages":@"keys"; NSString *path=[RPCS3Root() stringByAppendingPathComponent:folder]; [NSFileManager.defaultManager createDirectoryAtPath:path withIntermediateDirectories:YES attributes:nil error:nil]; for(NSURL *source in urls){ BOOL scoped=[source startAccessingSecurityScopedResource]; NSURL *destination=[NSURL fileURLWithPath:[path stringByAppendingPathComponent:source.lastPathComponent?:NSUUID.UUID.UUIDString]]; [NSFileManager.defaultManager removeItemAtURL:destination error:nil]; [NSFileManager.defaultManager copyItemAtURL:source toURL:destination error:nil]; if(scoped)[source stopAccessingSecurityScopedResource]; } }
@@ -96,19 +121,18 @@ static NSString *RPCS3Root(void) {
 static UINavigationController *RPCS3GamesNavigation(void) { return [[UINavigationController alloc] initWithRootViewController:[[RPCS3LibraryController alloc] init]]; }
 static UINavigationController *RPCS3ManageNavigation(void) { return [[UINavigationController alloc] initWithRootViewController:[[RPCS3ManageController alloc] initWithStyle:UITableViewStyleInsetGrouped]]; }
 static UINavigationController *RPCS3UtilitiesNavigation(void) { return [[UINavigationController alloc] initWithRootViewController:[[RPCS3UtilitiesController alloc] initWithStyle:UITableViewStyleInsetGrouped]]; }
+static UINavigationController *RPCS3UpstreamNavigation(void) { return [[UINavigationController alloc] initWithRootViewController:[[RPCS3UpstreamUIBrowserController alloc] initWithStyle:UITableViewStyleInsetGrouped]]; }
 
 static UITabBarController *RPCS3Tabs(void) {
-    UINavigationController *games=RPCS3GamesNavigation(); UINavigationController *manage=RPCS3ManageNavigation(); UINavigationController *utilities=RPCS3UtilitiesNavigation();
-    games.tabBarItem=[[UITabBarItem alloc] initWithTitle:@"Games" image:[UIImage systemImageNamed:@"square.grid.2x2"] tag:0]; manage.tabBarItem=[[UITabBarItem alloc] initWithTitle:@"Manage" image:[UIImage systemImageNamed:@"tray.full"] tag:1]; utilities.tabBarItem=[[UITabBarItem alloc] initWithTitle:@"Utilities" image:[UIImage systemImageNamed:@"wrench.and.screwdriver"] tag:2]; UITabBarController *tabs=[[UITabBarController alloc] init]; tabs.viewControllers=@[games,manage,utilities]; return tabs;
+    UINavigationController *games=RPCS3GamesNavigation(),*manage=RPCS3ManageNavigation(),*utilities=RPCS3UtilitiesNavigation(),*upstream=RPCS3UpstreamNavigation();
+    games.tabBarItem=[[UITabBarItem alloc] initWithTitle:@"Games" image:[UIImage systemImageNamed:@"square.grid.2x2"] tag:0]; manage.tabBarItem=[[UITabBarItem alloc] initWithTitle:@"Manage" image:[UIImage systemImageNamed:@"tray.full"] tag:1]; utilities.tabBarItem=[[UITabBarItem alloc] initWithTitle:@"Utilities" image:[UIImage systemImageNamed:@"wrench.and.screwdriver"] tag:2]; upstream.tabBarItem=[[UITabBarItem alloc] initWithTitle:@"RPCS3 UI" image:[UIImage systemImageNamed:@"rectangle.3.group"] tag:3]; UITabBarController *tabs=[[UITabBarController alloc] init]; tabs.viewControllers=@[games,manage,utilities,upstream]; return tabs;
 }
 static UIViewController *RPCS3RootController(void) {
     if(UIDevice.currentDevice.userInterfaceIdiom!=UIUserInterfaceIdiomPad)return RPCS3Tabs();
     UISplitViewController *split=[[UISplitViewController alloc] initWithStyle:UISplitViewControllerStyleDoubleColumn];
-    NSArray<UIViewController *> *destinations=@[RPCS3GamesNavigation(),RPCS3ManageNavigation(),RPCS3UtilitiesNavigation()];
-    RPCS3SidebarController *sidebar=[[RPCS3SidebarController alloc] initWithSplitViewController:split titles:@[@"Games",@"Manage",@"Utilities"] icons:@[@"square.grid.2x2",@"tray.full",@"wrench.and.screwdriver"] destinations:destinations];
-    [split setViewController:[[UINavigationController alloc] initWithRootViewController:sidebar] forColumn:UISplitViewControllerColumnPrimary];
-    [split setViewController:destinations.firstObject forColumn:UISplitViewControllerColumnSecondary];
-    split.preferredDisplayMode=UISplitViewControllerDisplayModeOneBesideSecondary; split.preferredPrimaryColumnWidthFraction=0.24; split.minimumPrimaryColumnWidth=240; split.maximumPrimaryColumnWidth=320; return split;
+    NSArray<UIViewController *> *destinations=@[RPCS3GamesNavigation(),RPCS3ManageNavigation(),RPCS3UtilitiesNavigation(),RPCS3UpstreamNavigation()];
+    RPCS3SidebarController *sidebar=[[RPCS3SidebarController alloc] initWithSplitViewController:split titles:@[@"Games",@"Manage",@"Utilities",@"RPCS3 UI"] icons:@[@"square.grid.2x2",@"tray.full",@"wrench.and.screwdriver",@"rectangle.3.group"] destinations:destinations];
+    [split setViewController:[[UINavigationController alloc] initWithRootViewController:sidebar] forColumn:UISplitViewControllerColumnPrimary]; [split setViewController:destinations.firstObject forColumn:UISplitViewControllerColumnSecondary]; split.preferredDisplayMode=UISplitViewControllerDisplayModeOneBesideSecondary; split.preferredPrimaryColumnWidthFraction=0.24; split.minimumPrimaryColumnWidth=240; split.maximumPrimaryColumnWidth=320; return split;
 }
 
 @interface AppDelegate : UIResponder <UIApplicationDelegate>
