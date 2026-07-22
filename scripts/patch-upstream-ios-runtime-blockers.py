@@ -130,6 +130,55 @@ def patch_ios_config_dir(upstream_root: Path) -> None:
     source.write_text(text.replace(needle, replacement, 1), encoding="utf-8")
 
 
+def patch_ios_metal_surface(upstream_root: Path) -> None:
+    """Make RPCS3's Apple Vulkan surface helper accept the iOS CAMetalLayer.
+
+    The upstream implementation assumes its opaque Apple handle is an NSView.
+    The iOS GSFrame already returns a CAMetalLayer directly, so the iOS branch
+    must pass that layer to vkCreateMetalSurfaceEXT without importing AppKit.
+    """
+
+    source = upstream_root / "rpcs3/Emu/RSX/VK/vkutils/metal_layer.mm"
+    text = source.read_text(encoding="utf-8")
+    marker = "RPCS3 iOS CAMetalLayer handle"
+    if marker in text:
+        return
+
+    needle = '''#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wold-style-cast"
+#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
+#pragma GCC diagnostic ignored "-Wmissing-declarations"
+#import <Foundation/Foundation.h>
+#import <AppKit/AppKit.h>
+#import <QuartzCore/QuartzCore.h>
+
+void* GetCAMetalLayerFromMetalView(void* view) { return ((NSView*)view).layer; }
+#pragma GCC diagnostic pop
+'''
+    replacement = '''#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wold-style-cast"
+#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
+#pragma GCC diagnostic ignored "-Wmissing-declarations"
+#import <Foundation/Foundation.h>
+#import <TargetConditionals.h>
+#import <QuartzCore/QuartzCore.h>
+
+#if TARGET_OS_IPHONE
+// RPCS3 iOS CAMetalLayer handle: GSFrameBase::handle() already returns the
+// layer owned by the native Qt render host, not a UIView wrapper.
+void* GetCAMetalLayerFromMetalView(void* layer) { return layer; }
+#else
+#import <AppKit/AppKit.h>
+void* GetCAMetalLayerFromMetalView(void* view) { return ((NSView*)view).layer; }
+#endif
+#pragma GCC diagnostic pop
+'''
+
+    if needle not in text:
+        raise SystemExit("Unable to locate upstream macOS metal_layer.mm implementation")
+    source.write_text(text.replace(needle, replacement, 1), encoding="utf-8")
+
+
 def patch_ffmpeg_target(upstream_root: Path, ffmpeg_root: Path) -> None:
     cmake = upstream_root / "3rdparty/CMakeLists.txt"
     text = cmake.read_text(encoding="utf-8")
@@ -203,10 +252,12 @@ def main() -> int:
     verify_ffmpeg_install(args.ffmpeg_root)
     patched_calls = patch_desktop_jit_write_toggles(args.upstream_root)
     patch_ios_config_dir(args.upstream_root)
+    patch_ios_metal_surface(args.upstream_root)
     patch_ffmpeg_target(args.upstream_root, args.ffmpeg_root)
 
     print(f"Guarded {patched_calls} desktop-only JIT write-protection calls for iOS")
     print("Made RPCS3_CONFIG_DIR authoritative for the shared iOS dev_hdd0/dev_flash tree")
+    print("Patched RPCS3's Apple Vulkan WSI helper to consume the iOS CAMetalLayer handle")
     print(f"Linked RPCS3's upstream graph to FFmpeg at {args.ffmpeg_root.resolve()}")
     return 0
 
