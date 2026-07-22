@@ -14,12 +14,26 @@ DEPLOYMENT_TARGET="${DEPLOYMENT_TARGET:-26.0}"
 export RPCS3_IOS_FFMPEG_ROOT="$FFMPEG_ROOT"
 export FFMPEG_IOS_ROOT="$FFMPEG_ROOT"
 
+print_failure_logs() {
+  local status=$?
+  if [[ $status -ne 0 && -d "$BUILD/logs" ]]; then
+    echo "RPCS3 upstream runtime framework build failed (status=$status)."
+    while IFS= read -r log; do
+      echo
+      echo "===== tail: $log ====="
+      tail -n 160 "$log" || true
+    done < <(find "$BUILD/logs" -maxdepth 1 -type f -name '*.log' -print | sort)
+  fi
+  exit "$status"
+}
+trap print_failure_logs EXIT
+
 command -v cmake >/dev/null
 command -v git >/dev/null
 command -v python3 >/dev/null
 command -v xcrun >/dev/null
 
- test -f "$REVISION_FILE"
+test -f "$REVISION_FILE"
 UPSTREAM_REVISION="$(tr -d '[:space:]' < "$REVISION_FILE")"
 test -n "$UPSTREAM_REVISION"
 
@@ -103,12 +117,13 @@ cat > "$BUILD/summary.md" <<EOF
 - Resolved commit: \`$UPSTREAM_SHA\`
 - Product: \`$OUTPUT\`
 - Target: \`arm64-apple-ios$DEPLOYMENT_TARGET\`
-- PPU lane: upstream interpreter
-- SPU lane: upstream precise interpreter
-- Renderer lane: Null RSX until Metal is connected
+- PPU lane: upstream static interpreter
+- SPU lane: upstream static interpreter
+- Renderer lane: upstream NullGSRender until Metal is connected
 - Exported installer: upstream \`package_reader::extract_data\`
 - Exported lifecycle: initialize, install PKG, BootGame, pause, resume, stop, state
 - Data root: host-selected RPCS3 sandbox through RPCS3_CONFIG_DIR
 EOF
 
 cat "$BUILD/summary.md"
+trap - EXIT
