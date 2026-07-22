@@ -1,0 +1,206 @@
+name: Validate Metal Vertex Resources
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [metal-live-programs]
+    paths:
+      - "Renderers/Metal/RPCS3MetalGeometryPacket.*"
+      - "Renderers/Metal/RPCS3MetalResourceBindings.*"
+      - "Renderers/Metal/RPCS3MetalVertexEnvironment.*"
+      - "Renderers/Metal/RPCS3MetalVertexResources.*"
+      - ".github/workflows/metal-vertex-resources.yml"
+
+permissions:
+  contents: read
+  statuses: write
+
+concurrency:
+  group: metal-vertex-resources-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  compile:
+    name: Compile Metal vertex resource uploader
+    runs-on: macos-26
+    timeout-minutes: 20
+    env:
+      STATUS_CONTEXT: "RPCS3 Metal vertex resources"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Publish pending status
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          curl --fail --silent --show-error --max-time 30 \
+            -X POST \
+            -H "Authorization: Bearer $GITHUB_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "https://api.github.com/repos/$GITHUB_REPOSITORY/statuses/$GITHUB_SHA" \
+            -d "{\"state\":\"pending\",\"context\":\"$STATUS_CONTEXT\",\"description\":\"Compiling reflected RPCS3 vertex uploads for Metal\",\"target_url\":\"$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID\"}"
+
+      - name: Select iOS 26 SDK
+        shell: bash
+        run: |
+          set -euo pipefail
+          sdk="$(xcrun --sdk iphoneos --show-sdk-version 2>/dev/null || true)"
+          if [[ "$sdk" != 26.* ]]; then
+            while IFS= read -r app; do
+              developer="$app/Contents/Developer"
+              candidate="$(DEVELOPER_DIR="$developer" xcrun --sdk iphoneos --show-sdk-version 2>/dev/null || true)"
+              if [[ "$candidate" == 26.* ]]; then
+                sudo xcode-select -s "$developer"
+                break
+              fi
+            done < <(find -L /Applications -maxdepth 1 -name 'Xcode*.app' -print | sort)
+          fi
+          xcodebuild -version
+          xcrun --sdk iphoneos --show-sdk-version
+
+      - name: Compile uploader for arm64 iOS
+        id: compile-ios
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p build-metal-vertex-resources
+          SDK="$(xcrun --sdk iphoneos --show-sdk-path)"
+          CPP_COMMON=(
+            -std=c++20
+            -arch arm64
+            -miphoneos-version-min=26.0
+            -isysroot "$SDK"
+            -Wall -Wextra -Werror
+          )
+          OBJCXX_COMMON=(
+            "${CPP_COMMON[@]}"
+            -fobjc-arc
+            -fmodules
+          )
+
+          xcrun --sdk iphoneos clang++ "${CPP_COMMON[@]}" \
+            -c Renderers/Metal/RPCS3MetalVertexEnvironment.cpp \
+            -o build-metal-vertex-resources/RPCS3MetalVertexEnvironment.o
+          xcrun --sdk iphoneos clang++ "${CPP_COMMON[@]}" \
+            -c Renderers/Metal/RPCS3MetalGeometryPacket.cpp \
+            -o build-metal-vertex-resources/RPCS3MetalGeometryPacket.o
+          xcrun --sdk iphoneos clang++ "${CPP_COMMON[@]}" \
+            -c Renderers/Metal/RPCS3MetalResourceBindings.cpp \
+            -o build-metal-vertex-resources/RPCS3MetalResourceBindings.o
+
+          set +e
+          xcrun --sdk iphoneos clang++ "${OBJCXX_COMMON[@]}" \
+            -c Renderers/Metal/RPCS3MetalVertexResources.mm \
+            -o build-metal-vertex-resources/RPCS3MetalVertexResources.o \
+            2>&1 | tee build-metal-vertex-resources/RPCS3MetalVertexResources-compile.log
+          uploader_status=${PIPESTATUS[0]}
+          set -e
+          if [[ "$uploader_status" -ne 0 ]]; then
+            exit "$uploader_status"
+          fi
+
+          file build-metal-vertex-resources/*.o
+          for object in build-metal-vertex-resources/*.o; do lipo -info "$object"; done
+          nm -gU build-metal-vertex-resources/RPCS3MetalVertexResources.o | c++filt \
+            | tee build-metal-vertex-resources/RPCS3MetalVertexResources-symbols.txt
+          grep -q 'vertex_resource_set::upload_and_bind' \
+            build-metal-vertex-resources/RPCS3MetalVertexResources-symbols.txt
+
+      - name: Run record and binding validation tests
+        id: host-tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat > build-metal-vertex-resources/tests.cpp <<'CPP'
+          #include "Renderers/Metal/RPCS3MetalGeometryPacket.h"
+          #include "Renderers/Metal/RPCS3MetalResourceBindings.h"
+          #include <cassert>
+          #include <string>
+          #include <vector>
+
+          using namespace rpcs3::ios::render::metal_rsx;
+
+          shader_resource_binding resource(shader_resource_kind kind,
+                                           std::uint32_t binding,
+                                           std::uint32_t metal_index)
+          {
+              shader_resource_binding value;
+              value.kind = kind;
+              value.descriptor_set = 0;
+              value.descriptor_binding = binding;
+              value.metal_index = metal_index;
+              return value;
+          }
+
+          int main()
+          {
+              static_assert(sizeof(vertex_context_record) == 96);
+              static_assert(sizeof(draw_parameters_record) == 168);
+
+              std::string error;
+              geometry_packet packet;
+              packet.valid = true;
+              packet.vertex_count = 3;
+              packet.draw_count = 3;
+              packet.persistent_vertex_bytes.resize(48);
+              packet.persistent_byte_count = 48;
+              packet.vertex_context.scale_offset_matrix[0] = 1.0f;
+              packet.vertex_context.scale_offset_matrix[5] = 1.0f;
+              packet.vertex_context.scale_offset_matrix[10] = 1.0f;
+              packet.vertex_context.scale_offset_matrix[15] = 1.0f;
+              assert(validate_geometry_packet(packet, error));
+
+              vertex_resource_bindings bindings;
+              std::vector<shader_resource_binding> resources = {
+                  resource(shader_resource_kind::sampled_image, 0, 2),
+                  resource(shader_resource_kind::sampled_image, 1, 3),
+                  resource(shader_resource_kind::storage_buffer, 2, 4),
+                  resource(shader_resource_kind::storage_buffer, 3, 5),
+              };
+              assert(resolve_vertex_resource_bindings(resources, bindings, error));
+              assert(bindings.complete());
+              return 0;
+          }
+          CPP
+          clang++ -std=c++20 -Wall -Wextra -Werror -I. \
+            Renderers/Metal/RPCS3MetalVertexEnvironment.cpp \
+            Renderers/Metal/RPCS3MetalGeometryPacket.cpp \
+            Renderers/Metal/RPCS3MetalResourceBindings.cpp \
+            build-metal-vertex-resources/tests.cpp \
+            -o build-metal-vertex-resources/tests
+          build-metal-vertex-resources/tests
+
+      - name: Upload evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: RPCS3-Metal-vertex-resources
+          path: build-metal-vertex-resources/**
+          if-no-files-found: warn
+          retention-days: 30
+
+      - name: Publish final status
+        if: always()
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [[ "${{ steps.compile-ios.outcome }}" == "success" && "${{ steps.host-tests.outcome }}" == "success" ]]; then
+            state="success"
+            description="Reflected RPCS3 vertex resources compiled for arm64 iOS"
+          else
+            state="failure"
+            description="Metal vertex resource uploader reached a compiler or test blocker"
+          fi
+          curl --fail --silent --show-error --max-time 30 \
+            -X POST \
+            -H "Authorization: Bearer $GITHUB_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "https://api.github.com/repos/$GITHUB_REPOSITORY/statuses/$GITHUB_SHA" \
+            -d "{\"state\":\"$state\",\"context\":\"$STATUS_CONTEXT\",\"description\":\"$description\",\"target_url\":\"$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID\"}"
