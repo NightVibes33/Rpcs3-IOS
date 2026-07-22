@@ -107,6 +107,7 @@ jobs:
           nm -gU "$CORE_ARCHIVE" | grep -q '_rpcs3_ios_core_boot_elf'
           nm -gU "$CORE_ARCHIVE" | grep -q '_mbedtls_sha256_ret'
           nm -gU "$CORE_ARCHIVE" | grep -q 'probe_ps3_elf'
+          nm -gU "$CORE_ARCHIVE" | grep -q 'probe_ps3_self'
           file "$BIN"
           lipo -info "$BIN"
           xcrun vtool -show-build "$BIN" || true
