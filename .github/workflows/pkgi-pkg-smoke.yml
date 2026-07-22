@@ -1,0 +1,132 @@
+name: PKGi PKG install and boot-contract smoke test
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - "CoreBridge/**"
+      - "QtApp/**"
+      - "scripts/smoke-test-pkgi-pkg.py"
+      - "scripts/validate-ios-pkg-boot-contract.py"
+      - "scripts/build-qt-ios-app.sh"
+      - ".github/workflows/pkgi-pkg-smoke.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pkgi-pkg-smoke-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  pkgi-smoke:
+    name: Exact PKGi v1.3.0 install and visible-boot contract
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      EXPECTED_SHA256: "259b0b635399e2c3e92ad3152de167ca7b79389e1e3c965f43912b4d23b5e701"
+      RELEASE_API: "https://api.github.com/repos/bucanero/pkgi-ps3/releases/tags/v1.3.0"
+      EVIDENCE_DIR: "${{ github.workspace }}/pkgi-smoke-evidence"
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download the exact official PKGi fixture
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$EVIDENCE_DIR/downloads"
+          curl --fail --location --silent --show-error --max-time 60 \
+            -H "Authorization: Bearer $GITHUB_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "$RELEASE_API" > "$EVIDENCE_DIR/release-v1.3.0.json"
+
+          found=0
+          index=0
+          while IFS= read -r asset_url; do
+            test -n "$asset_url"
+            candidate="$EVIDENCE_DIR/downloads/asset-$index"
+            echo "Checking release asset: $asset_url"
+            curl --fail --location --silent --show-error --max-time 120 \
+              "$asset_url" -o "$candidate"
+            digest="$(sha256sum "$candidate" | awk '{print $1}')"
+            echo "$digest  $asset_url" >> "$EVIDENCE_DIR/release-asset-sha256.txt"
+            if [[ "$digest" == "$EXPECTED_SHA256" ]]; then
+              mv "$candidate" "$EVIDENCE_DIR/pkgi-ps3.pkg"
+              printf '%s\n' "$asset_url" > "$EVIDENCE_DIR/pkgi-source-url.txt"
+              found=1
+              break
+            fi
+            rm -f "$candidate"
+            index=$((index + 1))
+          done < <(jq -r '.assets[].browser_download_url' "$EVIDENCE_DIR/release-v1.3.0.json")
+
+          [[ "$found" == 1 ]] || {
+            echo "No v1.3.0 release asset matched the uploaded PKGi fixture SHA-256."
+            exit 1
+          }
+          echo "$EXPECTED_SHA256  pkgi-ps3.pkg" | sha256sum --check --strict
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        working-directory: ${{ env.EVIDENCE_DIR }}
+
+      - name: Decrypt and install the exact PKGi package
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/smoke-test-pkgi-pkg.py \
+            --pkg "$EVIDENCE_DIR/pkgi-ps3.pkg" \
+            --extract-root "$EVIDENCE_DIR/installed-vfs" \
+            --output "$EVIDENCE_DIR/pkgi-package-smoke.json" \
+            | tee "$EVIDENCE_DIR/pkgi-package-smoke.log"
+
+          test -f "$EVIDENCE_DIR/installed-vfs/dev_hdd0/game/NP00PKGI3/PARAM.SFO"
+          test -f "$EVIDENCE_DIR/installed-vfs/dev_hdd0/game/NP00PKGI3/ICON0.PNG"
+          test -f "$EVIDENCE_DIR/installed-vfs/dev_hdd0/game/NP00PKGI3/USRDIR/EBOOT.BIN"
+          test "$(stat -c %s "$EVIDENCE_DIR/installed-vfs/dev_hdd0/game/NP00PKGI3/USRDIR/EBOOT.BIN")" = "1604208"
+
+      - name: Validate the iOS install-to-visible-boot call chain
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/validate-ios-pkg-boot-contract.py \
+            --repo "$GITHUB_WORKSPACE" \
+            --output "$EVIDENCE_DIR/ios-pkg-boot-contract.json" \
+            | tee "$EVIDENCE_DIR/ios-pkg-boot-contract.log"
+
+      - name: Publish smoke-test summary
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY' >> "$GITHUB_STEP_SUMMARY"
+          import json
+          from pathlib import Path
+          import os
+
+          root = Path(os.environ["EVIDENCE_DIR"])
+          package = json.loads((root / "pkgi-package-smoke.json").read_text())
+          contract = json.loads((root / "ios-pkg-boot-contract.json").read_text())
+          print("# PKGi package smoke test")
+          print()
+          print(f"- Exact fixture SHA-256: `{package['sha256']}`")
+          print(f"- Title: **{package['title']}** (`{package['title_id']}`)")
+          print(f"- Version: `{package['version']}`")
+          print(f"- Installed path: `{package['install_path']}`")
+          print(f"- Boot target: `{package['boot_path']}`")
+          print(f"- EBOOT SELF bytes: `{package['eboot_size']}`")
+          print(f"- Install/visible-boot contract: **{contract['result']}**")
+          print()
+          print("This runner proves package authenticity, decryption, VFS installation, SELF discovery, and the compiled-source boot call chain. Physical iOS rendering, input, audio, networking, and sustained gameplay still require a signed IPA on a real device.")
+          PY
+
+      - name: Upload PKGi smoke evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pkgi-v1.3.0-install-boot-smoke
+          path: pkgi-smoke-evidence/**
+          if-no-files-found: error
+          retention-days: 30
