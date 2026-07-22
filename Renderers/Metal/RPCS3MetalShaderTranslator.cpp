@@ -18,6 +18,41 @@ spv::ExecutionModel execution_model(shader_stage stage) noexcept
         ? spv::ExecutionModelVertex
         : spv::ExecutionModelFragment;
 }
+
+struct pending_resource
+{
+    shader_resource_kind kind;
+    spirv_cross::Resource resource;
+};
+
+void append_resources(std::vector<pending_resource>& destination,
+                      shader_resource_kind kind,
+                      const spirv_cross::SmallVector<spirv_cross::Resource>& resources)
+{
+    for (const auto& resource : resources)
+        destination.push_back({kind, resource});
+}
+
+shader_resource_binding reflect_resource(spirv_cross::CompilerMSL& compiler,
+                                         const pending_resource& pending)
+{
+    shader_resource_binding result;
+    result.kind = pending.kind;
+    result.spirv_id = pending.resource.id;
+    result.name = pending.resource.name.empty()
+        ? compiler.get_name(pending.resource.id)
+        : pending.resource.name;
+
+    if (compiler.has_decoration(pending.resource.id, spv::DecorationDescriptorSet))
+        result.descriptor_set = compiler.get_decoration(pending.resource.id, spv::DecorationDescriptorSet);
+    if (compiler.has_decoration(pending.resource.id, spv::DecorationBinding))
+        result.descriptor_binding = compiler.get_decoration(pending.resource.id, spv::DecorationBinding);
+
+    result.metal_index = compiler.get_automatic_msl_resource_binding(pending.resource.id);
+    result.metal_secondary_index =
+        compiler.get_automatic_msl_resource_binding_secondary(pending.resource.id);
+    return result;
+}
 } // namespace
 
 bool translate_spirv_to_msl(
@@ -66,6 +101,17 @@ bool translate_spirv_to_msl(
         options.pad_fragment_output_components = true;
         compiler.set_msl_options(options);
 
+        const auto shader_resources = compiler.get_shader_resources();
+        std::vector<pending_resource> pending_resources;
+        append_resources(pending_resources, shader_resource_kind::uniform_buffer, shader_resources.uniform_buffers);
+        append_resources(pending_resources, shader_resource_kind::storage_buffer, shader_resources.storage_buffers);
+        append_resources(pending_resources, shader_resource_kind::sampled_image, shader_resources.sampled_images);
+        append_resources(pending_resources, shader_resource_kind::separate_image, shader_resources.separate_images);
+        append_resources(pending_resources, shader_resource_kind::separate_sampler, shader_resources.separate_samplers);
+        append_resources(pending_resources, shader_resource_kind::storage_image, shader_resources.storage_images);
+        append_resources(pending_resources, shader_resource_kind::subpass_input, shader_resources.subpass_inputs);
+        append_resources(pending_resources, shader_resource_kind::push_constant, shader_resources.push_constant_buffers);
+
         output.entry_point = compiler.get_cleansed_entry_point_name(entry->name, entry->execution_model);
         output.source = compiler.compile();
         if (output.source.empty() || output.entry_point.empty())
@@ -75,6 +121,10 @@ bool translate_spirv_to_msl(
             output.stage = stage;
             return false;
         }
+
+        output.resources.reserve(pending_resources.size());
+        for (const auto& pending : pending_resources)
+            output.resources.push_back(reflect_resource(compiler, pending));
 
         error.clear();
         return true;
