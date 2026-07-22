@@ -3,6 +3,7 @@
 #import "RPCS3CoreBridge.h"
 #import "RPCS3GameLibrary.h"
 #import "RPCS3GameDetails.h"
+#import "RPCS3Sidebar.h"
 
 static NSString *RPCS3Root(void) {
     RPCS3IOSCoreDiagnostics d = rpcs3_ios_core_diagnostics();
@@ -90,13 +91,22 @@ static NSString *RPCS3Root(void) {
 - (void)viewDidLoad { [super viewDidLoad]; self.title=@"Utilities"; self.view.backgroundColor=UIColor.systemBackgroundColor; UILabel *label=[[UILabel alloc] init]; label.translatesAutoresizingMaskIntoConstraints=NO; label.numberOfLines=0; label.font=[UIFont preferredFontForTextStyle:UIFontTextStyleBody]; RPCS3IOSCoreDiagnostics d=rpcs3_ios_core_diagnostics(); label.text=[NSString stringWithFormat:@"Core state: %d\nMetal: %@\nJIT: %@\nData: %@",d.state,d.renderer_available?@"Available":@"Unavailable",d.jit_available?@"Available":@"Unavailable",RPCS3Root()]; [self.view addSubview:label]; [NSLayoutConstraint activateConstraints:@[[label.topAnchor constraintEqualToAnchor:self.view.safeAreaLayoutGuide.topAnchor constant:24],[label.leadingAnchor constraintEqualToAnchor:self.view.safeAreaLayoutGuide.leadingAnchor constant:20],[label.trailingAnchor constraintEqualToAnchor:self.view.safeAreaLayoutGuide.trailingAnchor constant:-20]]]; }
 @end
 
+static UINavigationController *RPCS3GamesNavigation(void) { return [[UINavigationController alloc] initWithRootViewController:[[RPCS3LibraryController alloc] init]]; }
+static UINavigationController *RPCS3ManageNavigation(void) { return [[UINavigationController alloc] initWithRootViewController:[[RPCS3ManageController alloc] initWithStyle:UITableViewStyleInsetGrouped]]; }
+static UINavigationController *RPCS3UtilitiesNavigation(void) { return [[UINavigationController alloc] initWithRootViewController:[[RPCS3StatusController alloc] init]]; }
+
 static UITabBarController *RPCS3Tabs(void) {
-    UINavigationController *games=[[UINavigationController alloc] initWithRootViewController:[[RPCS3LibraryController alloc] init]]; UINavigationController *manage=[[UINavigationController alloc] initWithRootViewController:[[RPCS3ManageController alloc] initWithStyle:UITableViewStyleInsetGrouped]]; UINavigationController *utilities=[[UINavigationController alloc] initWithRootViewController:[[RPCS3StatusController alloc] init]];
+    UINavigationController *games=RPCS3GamesNavigation(); UINavigationController *manage=RPCS3ManageNavigation(); UINavigationController *utilities=RPCS3UtilitiesNavigation();
     games.tabBarItem=[[UITabBarItem alloc] initWithTitle:@"Games" image:[UIImage systemImageNamed:@"square.grid.2x2"] tag:0]; manage.tabBarItem=[[UITabBarItem alloc] initWithTitle:@"Manage" image:[UIImage systemImageNamed:@"tray.full"] tag:1]; utilities.tabBarItem=[[UITabBarItem alloc] initWithTitle:@"Utilities" image:[UIImage systemImageNamed:@"wrench.and.screwdriver"] tag:2]; UITabBarController *tabs=[[UITabBarController alloc] init]; tabs.viewControllers=@[games,manage,utilities]; return tabs;
 }
 static UIViewController *RPCS3RootController(void) {
     if(UIDevice.currentDevice.userInterfaceIdiom!=UIUserInterfaceIdiomPad)return RPCS3Tabs();
-    UISplitViewController *split=[[UISplitViewController alloc] initWithStyle:UISplitViewControllerStyleDoubleColumn]; [split setViewController:RPCS3Tabs() forColumn:UISplitViewControllerColumnPrimary]; [split setViewController:[[UINavigationController alloc] initWithRootViewController:[[RPCS3LibraryController alloc] init]] forColumn:UISplitViewControllerColumnSecondary]; split.preferredDisplayMode=UISplitViewControllerDisplayModeOneBesideSecondary; split.preferredPrimaryColumnWidthFraction=0.28; return split;
+    UISplitViewController *split=[[UISplitViewController alloc] initWithStyle:UISplitViewControllerStyleDoubleColumn];
+    NSArray<UIViewController *> *destinations=@[RPCS3GamesNavigation(),RPCS3ManageNavigation(),RPCS3UtilitiesNavigation()];
+    RPCS3SidebarController *sidebar=[[RPCS3SidebarController alloc] initWithSplitViewController:split titles:@[@"Games",@"Manage",@"Utilities"] icons:@[@"square.grid.2x2",@"tray.full",@"wrench.and.screwdriver"] destinations:destinations];
+    [split setViewController:[[UINavigationController alloc] initWithRootViewController:sidebar] forColumn:UISplitViewControllerColumnPrimary];
+    [split setViewController:destinations.firstObject forColumn:UISplitViewControllerColumnSecondary];
+    split.preferredDisplayMode=UISplitViewControllerDisplayModeOneBesideSecondary; split.preferredPrimaryColumnWidthFraction=0.24; split.minimumPrimaryColumnWidth=240; split.maximumPrimaryColumnWidth=320; return split;
 }
 
 @interface AppDelegate : UIResponder <UIApplicationDelegate>
