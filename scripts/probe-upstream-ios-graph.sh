@@ -47,6 +47,7 @@ run_timed 180 python3 scripts/export-upstream-qt-ui-model.py "$ROOT" "$BUILD/rpc
 
 phase "Apply iOS upstream-graph overlay"
 run_timed 120 python3 scripts/apply-upstream-ios-overlay.py "$ROOT" --mode upstream
+run_timed 120 python3 scripts/patch-upstream-ios-libusb-api.py "$ROOT"
 run_timed 120 python3 scripts/patch-upstream-ios-emu-graph.py "$ROOT"
 
 git -C "$ROOT" rev-parse HEAD | tee "$BUILD/upstream-revision.txt"
@@ -94,6 +95,7 @@ if [[ $configure_status -eq 0 ]]; then
 fi
 
 ui_file_count="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["ui_file_count"])' "$BUILD/rpcs3-qt-ui-model.json")"
+widget_count="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("widget_count", 0))' "$BUILD/rpcs3-qt-ui-model.json")"
 
 {
   echo "# RPCS3 iOS real upstream graph probe"
@@ -101,11 +103,13 @@ ui_file_count="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))
   echo "- Requested revision: \`$UPSTREAM_REVISION\`"
   echo "- Resolved commit: \`$(cat "$BUILD/upstream-revision.txt")\`"
   echo "- Qt Designer UI files exported: \`$ui_file_count\`"
+  echo "- Nested Qt widgets exported: \`$widget_count\`"
   echo "- Complete UI model: \`$BUILD/rpcs3-qt-ui-model.json\`"
   echo "- Configure exit status: \`$configure_status\`"
   echo "- rpcs3_emu build exit status: \`$build_status\`"
   echo "- LLVM is intentionally disabled for this graph stage so the interpreter-based PPU/SPU path can compile before an iOS-safe JIT backend is introduced."
-  echo "- Desktop Qt is excluded from the binary, but every upstream .ui document is exported as the UIKit conversion source, including nested menus, tabs, stacked pages, toolboxes, docks, and QAction identifiers."
+  echo "- Desktop Qt is excluded from the binary, but every upstream .ui document is exported as the UIKit conversion source, including layout-wrapped controls, nested tabs, stacked pages, toolboxes, docks, and QAction identifiers."
+  echo "- The iOS no-host-USB backend now matches the pinned libusb backend API instead of using a stale clock callback field."
   echo "- Curl is built from RPCS3's pinned submodule for arm64 iOS instead of locating incompatible host libraries."
   echo "- This probe now compiles the real upstream rpcs3_emu target instead of treating successful CMake generation as completion."
   if [[ $configure_status -ne 0 ]]; then
