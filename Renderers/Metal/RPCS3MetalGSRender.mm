@@ -260,6 +260,7 @@ bool metal_gs_render::prepare_live_geometry_packet()
     std::uint32_t draw_count = 0;
     std::uint32_t min_index = 0;
     std::uint32_t max_index = 0;
+    std::uint32_t vertex_index_base = 0;
     std::uint32_t vertex_index_offset = 0;
     bool indexed = false;
     bool topology_rewritten = false;
@@ -360,7 +361,8 @@ bool metal_gs_render::prepare_live_geometry_packet()
             vertex_base = vertex_count
                 ? rsx::get_index_from_base(min_index, rsx::method_registers.vertex_data_base_index())
                 : 0;
-            vertex_index_offset = min_index;
+            vertex_index_base = min_index;
+            vertex_index_offset = rsx::method_registers.vertex_data_base_index();
         }
     }, command);
 
@@ -386,6 +388,17 @@ bool metal_gs_render::prepare_live_geometry_packet()
             ? nullptr
             : m_geometry_packet.transient_vertex_bytes.data());
 
+    auto& parameters = m_geometry_packet.draw_parameters;
+    parameters.vertex_base_index = vertex_index_base;
+    parameters.vertex_index_offset = vertex_index_offset;
+    parameters.draw_id = 0;
+    parameters.xform_constants_offset = 0;
+    parameters.vs_context_offset = 0;
+    parameters.fs_constants_offset = 0;
+    parameters.fs_context_offset = 0;
+    parameters.fs_texture_base_index = 0;
+    parameters.fs_stipple_pattern_offset = 0;
+
     // Preserve RPCS3's exact vertex-pull descriptor encoding. Offsets are zero
     // based because persistent and transient streams become separate Metal
     // resources, matching the original Vulkan binding model.
@@ -394,9 +407,17 @@ bool metal_gs_render::prepare_live_geometry_packet()
         current_vp_metadata,
         vertex_base,
         vertex_count,
-        m_geometry_packet.vertex_layout_state.data(),
+        parameters.attrib_data.data(),
         0,
         0);
+
+    auto& context = m_geometry_packet.vertex_context;
+    m_draw_processor.fill_scale_offset_data(context.scale_offset_matrix.data(), false);
+    m_draw_processor.fill_user_clip_data(&context.user_clip_configuration_bits);
+    context.transform_branch_bits = rsx::method_registers.transform_branch_bits();
+    context.point_size = rsx::method_registers.point_size() * rsx::get_resolution_scale();
+    context.z_near = rsx::method_registers.clip_min();
+    context.z_far = rsx::method_registers.clip_max();
 
     m_geometry_packet.gcm_primitive = gcm_primitive;
     m_geometry_packet.vertex_base = vertex_base;
@@ -404,6 +425,7 @@ bool metal_gs_render::prepare_live_geometry_packet()
     m_geometry_packet.draw_count = draw_count;
     m_geometry_packet.min_index = min_index;
     m_geometry_packet.max_index = max_index;
+    m_geometry_packet.vertex_index_base = vertex_index_base;
     m_geometry_packet.vertex_index_offset = vertex_index_offset;
     m_geometry_packet.persistent_byte_count = required.first;
     m_geometry_packet.transient_byte_count = required.second;
@@ -449,9 +471,9 @@ void metal_gs_render::flip(const rsx::display_flip_info_t& info)
 void metal_gs_render::end()
 {
     // Resolve live RPCS3 programs, validate the translated Metal bindings, and
-    // convert the live draw's RSX vertex/index memory plus descriptor table into
-    // host-side packet bytes. Metal resource submission remains disabled until
-    // the vertex context, constants, and fragment resources are all bound.
+    // convert the live draw's RSX vertex/index memory plus exact shader-visible
+    // environment records into host-side packet bytes. Metal submission remains
+    // disabled until transform constants and fragment resources are all bound.
     analyse_current_rsx_pipeline();
     capture_rsx_draw_state();
     prepare_live_program_pipeline();
