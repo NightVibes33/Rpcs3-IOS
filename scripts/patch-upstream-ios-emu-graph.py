@@ -144,11 +144,12 @@ def add_runtime_bridge_targets(upstream_root: Path) -> None:
     port_root = Path(__file__).resolve().parent.parent
     bridge_source = port_root / "CoreBridge/RPCS3UpstreamRuntimeBridge.cpp"
     firmware_source = port_root / "CoreBridge/RPCS3UpstreamFirmwareInstaller.cpp"
+    pad_source = port_root / "CoreBridge/RPCS3IOSPadBridge.cpp"
     bridge_header = port_root / "CoreBridge/RPCS3UpstreamRuntimeBridge.h"
     probe_source = port_root / "CoreBridge/RPCS3UpstreamRuntimeLinkProbe.cpp"
     gs_frame_header = port_root / "Port/iOS/RPCS3IOSGSFrame.h"
     gs_frame_source = port_root / "Port/iOS/RPCS3IOSGSFrame.mm"
-    for source in (bridge_source, firmware_source, bridge_header, probe_source, gs_frame_header, gs_frame_source):
+    for source in (bridge_source, firmware_source, pad_source, bridge_header, probe_source, gs_frame_header, gs_frame_source):
         if not source.is_file():
             raise SystemExit(f"Missing upstream runtime bridge source: {source}")
 
@@ -167,6 +168,7 @@ if(RPCS3_IOS_UPSTREAM_GRAPH)
     add_library(rpcs3_ios_upstream_bridge STATIC
         "{bridge_source.as_posix()}"
         "{firmware_source.as_posix()}"
+        "{pad_source.as_posix()}"
     )
     target_include_directories(rpcs3_ios_upstream_bridge PUBLIC
         "{(port_root / 'CoreBridge').as_posix()}"
@@ -183,6 +185,7 @@ if(RPCS3_IOS_UPSTREAM_GRAPH)
     add_library(rpcs3_ios_upstream_runtime SHARED
         "{bridge_source.as_posix()}"
         "{firmware_source.as_posix()}"
+        "{pad_source.as_posix()}"
         "{gs_frame_source.as_posix()}"
     )
     set_source_files_properties("{gs_frame_source.as_posix()}" PROPERTIES
@@ -260,7 +263,7 @@ def main() -> int:
     patch_ios_runtime_dependencies(args.upstream_root)
     add_runtime_bridge_targets(args.upstream_root)
 
-    print(f"Patched upstream graph for runtime, firmware installer, and full Qt frontend iOS lanes: {args.upstream_root}")
+    print(f"Patched upstream graph for runtime, firmware installer, touch pad, and full Qt frontend iOS lanes: {args.upstream_root}")
     return 0
 
 
