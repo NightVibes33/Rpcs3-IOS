@@ -1,6 +1,7 @@
 #pragma once
 
-#include <array>
+#include "RPCS3MetalVertexEnvironment.h"
+
 #include <cstddef>
 #include <cstdint>
 #include <string>
@@ -27,10 +28,8 @@ struct geometry_packet
     std::vector<std::byte> transient_vertex_bytes;
     std::vector<std::byte> index_bytes;
 
-    // RPCS3 encodes 16 vertex attributes as two signed 32-bit descriptor words
-    // each. The generated Vulkan-style vertex shader consumes this table while
-    // pulling data from the persistent and transient storage buffers.
-    std::array<std::int32_t, 32> vertex_layout_state{};
+    vertex_context_record vertex_context{};
+    draw_parameters_record draw_parameters{};
 
     std::uint32_t gcm_primitive = 0;
     std::uint32_t vertex_base = 0;
@@ -38,6 +37,7 @@ struct geometry_packet
     std::uint32_t draw_count = 0;
     std::uint32_t min_index = 0;
     std::uint32_t max_index = 0;
+    std::uint32_t vertex_index_base = 0;
     std::uint32_t vertex_index_offset = 0;
     std::uint32_t persistent_byte_count = 0;
     std::uint32_t transient_byte_count = 0;
