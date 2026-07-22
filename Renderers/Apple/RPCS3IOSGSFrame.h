@@ -44,7 +44,10 @@ public:
                          u32 width,
                          u32 height,
                          bool is_bgra) override;
-    void update_title(double fps = 0.0) override;
+
+    // GSFrameBase v0.0.40 no longer declares update_title, but the iOS frame
+    // retains this helper for host-side status updates.
+    void update_title(double fps = 0.0);
 
 private:
     bool ensure_surface() const;
