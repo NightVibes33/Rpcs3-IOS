@@ -3,14 +3,16 @@ name: Build RPCS3 Qt iOS Unsigned IPA
 on:
   workflow_dispatch:
   push:
-    branches: [main]
+    branches: [main, renderer-backends]
     paths:
       - "QtApp/**"
+      - "Renderers/**"
       - "CoreBridge/**"
       - "Port/**"
       - "cmake/**"
       - "scripts/**"
       - "UPSTREAM_RPCS3_REVISION"
+      - "MOLTENVK_REVISION"
       - ".github/workflows/build-ios.yml"
 
 permissions:
@@ -25,13 +27,14 @@ jobs:
   build:
     name: Real Qt Widgets arm64 IPA
     runs-on: macos-26
-    timeout-minutes: 120
+    timeout-minutes: 240
 
     env:
       DEPLOYMENT_TARGET: "26.0"
       QT_VERSION: "6.11.1"
       QT_ROOT: "${{ github.workspace }}/.qt"
       QT_APP_BUILD: "${{ github.workspace }}/qt-ios-build"
+      MOLTENVK_ROOT: "${{ github.workspace }}/BuildSupport/MoltenVK"
       CI_LOGS: "${{ github.workspace }}/ci-logs"
       STATUS_CONTEXT: "RPCS3 Qt iOS IPA"
 
@@ -134,6 +137,39 @@ jobs:
           path: ${{ env.QT_ROOT }}
           key: ${{ steps.qt-cache.outputs.cache-primary-key }}
 
+      - name: Restore MoltenVK iOS cache
+        id: moltenvk-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: ${{ env.MOLTENVK_ROOT }}
+          key: moltenvk-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('MOLTENVK_REVISION') }}-ios-v1
+
+      - name: Build pinned MoltenVK for iOS
+        if: steps.moltenvk-cache.outputs.cache-hit != 'true'
+        shell: bash
+        run: |
+          set -o pipefail
+          bash scripts/build-moltenvk-ios.sh 2>&1 | tee "$CI_LOGS/moltenvk-console.log"
+
+      - name: Verify MoltenVK package
+        shell: bash
+        run: |
+          set -euo pipefail
+          MVK_BIN="$MOLTENVK_ROOT/MoltenVK.xcframework/ios-arm64/MoltenVK.framework/MoltenVK"
+          test -f "$MVK_BIN"
+          test -f "$MOLTENVK_ROOT/include/vulkan/vulkan.h"
+          test -f "$MOLTENVK_ROOT/include/MoltenVK/vk_mvk_moltenvk.h"
+          file "$MVK_BIN" | tee "$CI_LOGS/moltenvk-file.txt"
+          lipo -info "$MVK_BIN" | tee "$CI_LOGS/moltenvk-lipo.txt"
+          grep -q 'arm64' "$CI_LOGS/moltenvk-lipo.txt"
+
+      - name: Save MoltenVK iOS cache
+        if: steps.moltenvk-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ${{ env.MOLTENVK_ROOT }}
+          key: ${{ steps.moltenvk-cache.outputs.cache-primary-key }}
+
       - name: Build upstream-derived RPCS3 core archive
         shell: bash
         run: |
@@ -154,6 +190,7 @@ jobs:
           APP="$(cat "$QT_APP_BUILD/app-path.txt")"
           BIN="$APP/RPCS3-iOS"
           CORE_ARCHIVE="$GITHUB_WORKSPACE/BuildSupport/librpcs3-ios-core.a"
+          MOLTENVK_BINARY="$MOLTENVK_ROOT/MoltenVK.xcframework/ios-arm64/MoltenVK.framework/MoltenVK"
           UI_SOURCE="$GITHUB_WORKSPACE/QtApp/Generated/ui/main_window.ui"
           UI_HEADER="$(find "$QT_APP_BUILD" -type f -name ui_main_window.h -print | head -n 1)"
           UI_FACTORY="$GITHUB_WORKSPACE/QtApp/Generated/RPCS3QtUiFactory.cpp"
@@ -165,6 +202,7 @@ jobs:
           test -d "$APP"
           test -f "$BIN"
           test -f "$CORE_ARCHIVE"
+          test -f "$MOLTENVK_BINARY"
           test -f "$UI_SOURCE"
           test -f "$UI_HEADER"
           test -f "$UI_FACTORY"
@@ -191,9 +229,15 @@ jobs:
           grep -q 'arm64' "$BIN_FILE"
           strings "$BIN" > "$BIN_STRINGS"
           grep -q 'RPCS3 Qt iOS upstream main_window.ui' "$BIN_STRINGS"
+          grep -q 'Vulkan (MoltenVK)' "$BIN_STRINGS"
+          grep -q 'Run GPU Self-Test' "$BIN_STRINGS"
+          grep -q 'Native Metal submitted and presented a frame' "$BIN_STRINGS"
+          grep -q 'MoltenVK submitted and presented a Vulkan frame through Metal' "$BIN_STRINGS"
           nm -gU "$BIN" > "$BIN_SYMBOLS"
           grep -q '_rpcs3_ios_core_initialize' "$BIN_SYMBOLS"
           grep -q '_rpcs3_ios_core_boot_elf' "$BIN_SYMBOLS"
+          grep -q '_vkCreateInstance' "$BIN_SYMBOLS"
+          grep -q '_MTLCreateSystemDefaultDevice' "$BIN_SYMBOLS"
           [[ "$APP" == *Release* ]] || { echo "Refusing non-Release product path: $APP"; exit 1; }
           echo "app=$APP" >> "$GITHUB_OUTPUT"
 
@@ -239,6 +283,7 @@ jobs:
             qt-ios-build/**
             cmake-ios-build/**
             cmake-ios-build.tar.gz
+            BuildSupport/MoltenVK/revision.txt
           if-no-files-found: warn
           retention-days: 30
 
@@ -248,7 +293,7 @@ jobs:
         run: |
           set -euo pipefail
           case "${{ job.status }}" in
-            success) state="success"; description="RPCS3 Qt iOS unsigned IPA built successfully" ;;
+            success) state="success"; description="RPCS3 Qt iOS Vulkan+Metal IPA built successfully" ;;
             cancelled) state="error"; description="RPCS3 Qt iOS build was cancelled" ;;
             *) state="failure"; description="RPCS3 Qt iOS build failed" ;;
           esac
