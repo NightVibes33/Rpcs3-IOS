@@ -1,6 +1,5 @@
 #include "RPCS3QtMainWindow.h"
 #include "RPCS3CoreBridge.h"
-#include "RPCS3UpstreamRuntimeBridge.h"
 
 #include <QAction>
 #include <QApplication>
@@ -79,6 +78,22 @@ void setGameSurfaceVisible(RPCS3QtMainWindow& window, QWidget* renderHost, bool 
         gameList->setVisible(!visible);
     if (renderHost)
         renderHost->setVisible(visible);
+}
+
+bool attachVisibleRenderSurface(RPCS3QtMainWindow& window, QWidget* renderHost)
+{
+    if (!renderHost)
+        return false;
+
+    setGameSurfaceVisible(window, renderHost, true);
+    QApplication::processEvents();
+    const WId nativeId = renderHost->winId();
+    if (!nativeId || !rpcs3_ios_core_set_render_view(reinterpret_cast<void*>(nativeId)))
+    {
+        setGameSurfaceVisible(window, renderHost, false);
+        return false;
+    }
+    return true;
 }
 
 void bindPlayablePackageFlow(RPCS3QtMainWindow& window, QWidget* renderHost)
@@ -161,16 +176,19 @@ void bindPlayablePackageFlow(RPCS3QtMainWindow& window, QWidget* renderHost)
             return;
         }
 
-        if (!renderHost || !rpcs3_ios_upstream_render_view_ready())
+        if (!attachVisibleRenderSurface(window, renderHost))
         {
+            const RPCS3IOSCoreDiagnostics diagnostics = rpcs3_ios_core_diagnostics();
             QMessageBox::critical(
                 &window,
                 QObject::tr("Renderer Surface Missing"),
-                QObject::tr("The package installed, but the native iOS CAMetalLayer surface is not attached. The title was not started."));
+                diagnostics.message
+                    ? QString::fromUtf8(diagnostics.message)
+                    : QObject::tr("The package installed, but the native iOS CAMetalLayer surface could not be attached."));
             return;
         }
 
-        window.statusBar()->showMessage(QObject::tr("Booting installed title through upstream Emu.BootGame…"));
+        window.statusBar()->showMessage(QObject::tr("Booting installed title through upstream Emu.BootGame and VKGSRender…"));
         QApplication::setOverrideCursor(QCursor(Qt::WaitCursor));
         const int booted = rpcs3_ios_core_boot_elf(installedBootPath.toUtf8().constData());
         QApplication::restoreOverrideCursor();
@@ -190,15 +208,8 @@ void bindPlayablePackageFlow(RPCS3QtMainWindow& window, QWidget* renderHost)
             return;
         }
 
-        setGameSurfaceVisible(window, renderHost, true);
-        QMessageBox::information(
-            &window,
-            QObject::tr("Installed PKG Boot Started"),
-            QObject::tr("RPCS3 installed the package and accepted its boot path through the real upstream Emulator::BootGame pipeline.\n\nInstalled path: %1\n\nThe native CAMetalLayer surface is attached. Visible output still depends on the Vulkan/MoltenVK renderer build replacing the current Null RSX fallback.\n\n%2")
-                .arg(installedBootPath,
-                     bootDiagnostics.message
-                         ? QString::fromUtf8(bootDiagnostics.message)
-                         : QString()));
+        window.statusBar()->showMessage(
+            QObject::tr("Installed title started through RPCS3 Vulkan over MoltenVK"), 6000);
     });
 
     if (QAction* stopAction = window.findChild<QAction*>(QStringLiteral("sysStopAct")))
@@ -232,12 +243,14 @@ int main(int argc, char* argv[])
     if (renderHost)
     {
         const WId nativeId = renderHost->winId();
-        renderSurfaceAttached = rpcs3_ios_upstream_set_render_view(reinterpret_cast<void*>(nativeId));
+        renderSurfaceAttached = nativeId
+            ? rpcs3_ios_core_set_render_view(reinterpret_cast<void*>(nativeId))
+            : 0;
     }
 
     QObject::connect(&application, &QCoreApplication::aboutToQuit, []()
     {
-        rpcs3_ios_upstream_clear_render_view();
+        rpcs3_ios_core_clear_render_view();
     });
 
     if (!initialized || !renderSurfaceAttached)
