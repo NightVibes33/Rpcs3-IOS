@@ -10,7 +10,37 @@ set(CMAKE_AUTORCC ON)
 
 option(RPCS3_IOS_UNIFIED_UPSTREAM "Link the Qt iOS host directly to the upstream rpcs3_emu graph" OFF)
 
+# RPCS3's cross-compile graph can restrict package lookup to the iOS SDK.
+# Qt's target CMake packages live beside Qt6Config.cmake outside that SDK, so
+# pin each requested target component and temporarily allow both rooted and
+# non-rooted package lookup while Qt resolves its target and host dependencies.
+if(CMAKE_SYSTEM_NAME STREQUAL "iOS" AND DEFINED Qt6_DIR)
+    get_filename_component(RPCS3_IOS_QT_CMAKE_ROOT "${Qt6_DIR}/.." ABSOLUTE)
+    foreach(component IN ITEMS Core Gui Widgets)
+        set(component_dir "${RPCS3_IOS_QT_CMAKE_ROOT}/Qt6${component}")
+        if(NOT EXISTS "${component_dir}/Qt6${component}Config.cmake")
+            message(FATAL_ERROR "Missing Qt iOS component package: ${component_dir}/Qt6${component}Config.cmake")
+        endif()
+        set(Qt6${component}_DIR "${component_dir}" CACHE PATH "Pinned Qt iOS ${component} package" FORCE)
+    endforeach()
+endif()
+
+set(RPCS3_IOS_HAD_PACKAGE_ROOT_MODE FALSE)
+if(DEFINED CMAKE_FIND_ROOT_PATH_MODE_PACKAGE)
+    set(RPCS3_IOS_HAD_PACKAGE_ROOT_MODE TRUE)
+    set(RPCS3_IOS_SAVED_PACKAGE_ROOT_MODE "${CMAKE_FIND_ROOT_PATH_MODE_PACKAGE}")
+endif()
+if(CMAKE_CROSSCOMPILING)
+    set(CMAKE_FIND_ROOT_PATH_MODE_PACKAGE BOTH)
+endif()
 find_package(Qt6 6.8 REQUIRED COMPONENTS Core Gui Widgets)
+if(CMAKE_CROSSCOMPILING)
+    if(RPCS3_IOS_HAD_PACKAGE_ROOT_MODE)
+        set(CMAKE_FIND_ROOT_PATH_MODE_PACKAGE "${RPCS3_IOS_SAVED_PACKAGE_ROOT_MODE}")
+    else()
+        unset(CMAKE_FIND_ROOT_PATH_MODE_PACKAGE)
+    endif()
+endif()
 qt_standard_project_setup()
 
 set(RPCS3_PORT_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/..")
