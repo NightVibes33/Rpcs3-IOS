@@ -2,9 +2,6 @@
 
 #include <cstdint>
 
-#ifdef __OBJC__
-#import <Metal/Metal.h>
-
 namespace rpcs3::ios::render::metal_rsx
 {
 struct stencil_face_state
@@ -38,7 +35,13 @@ struct color_blend_state
     std::uint32_t alpha_equation = 0x8006;
     std::uint32_t color_write_mask = 0x01010101;
 };
+} // namespace rpcs3::ios::render::metal_rsx
 
+#ifdef __OBJC__
+#import <Metal/Metal.h>
+
+namespace rpcs3::ios::render::metal_rsx
+{
 void configure_depth_stencil_descriptor(
     MTLDepthStencilDescriptor* descriptor,
     const depth_stencil_state& state);
