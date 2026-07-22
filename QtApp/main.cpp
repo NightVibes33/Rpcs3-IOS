@@ -25,15 +25,14 @@
 
 namespace
 {
-QString uniquePackageDestination(const QString& directory, const QString& fileName)
+QString uniqueStagingDestination(const QString& directory, const QString& fileName,
+                                 const QString& fallbackBase, const QString& fallbackSuffix)
 {
     QDir destination(directory);
     const QFileInfo source(fileName);
-    const QString base = source.completeBaseName().isEmpty()
-        ? QStringLiteral("package")
-        : source.completeBaseName();
+    const QString base = source.completeBaseName().isEmpty() ? fallbackBase : source.completeBaseName();
     const QString suffix = source.suffix().isEmpty()
-        ? QStringLiteral(".pkg")
+        ? fallbackSuffix
         : QStringLiteral(".") + source.suffix();
 
     QString candidate = destination.filePath(base + suffix);
@@ -51,6 +50,14 @@ QString uniquePackageDestination(const QString& directory, const QString& fileNa
         .arg(base)
         .arg(QDateTime::currentMSecsSinceEpoch())
         .arg(suffix));
+}
+
+QString diagnosticsMessage()
+{
+    const RPCS3IOSCoreDiagnostics diagnostics = rpcs3_ios_core_diagnostics();
+    return diagnostics.message
+        ? QString::fromUtf8(diagnostics.message)
+        : QObject::tr("RPCS3 returned no diagnostic message.");
 }
 
 QWidget* createNativeRenderHost(RPCS3QtMainWindow& window)
@@ -96,17 +103,130 @@ bool attachVisibleRenderSurface(RPCS3QtMainWindow& window, QWidget* renderHost)
     return true;
 }
 
+void updateFirmwareDependentActions(RPCS3QtMainWindow& window)
+{
+    const bool ready = rpcs3_ios_core_firmware_ready() != 0;
+    if (QAction* packageAction = window.findChild<QAction*>(QStringLiteral("bootInstallPkgAct")))
+    {
+        packageAction->setEnabled(ready);
+        packageAction->setToolTip(ready
+            ? QObject::tr("Install a PS3 PKG through RPCS3")
+            : QObject::tr("Install official PS3 firmware first"));
+    }
+    if (QAction* vshAction = window.findChild<QAction*>(QStringLiteral("bootVSHAct")))
+        vshAction->setEnabled(ready);
+}
+
+void bindFirmwareFlow(RPCS3QtMainWindow& window)
+{
+    QAction* firmwareAction = window.findChild<QAction*>(QStringLiteral("bootInstallPupAct"));
+    if (!firmwareAction)
+        return;
+
+    QObject::disconnect(firmwareAction, nullptr, &window, nullptr);
+    QObject::connect(firmwareAction, &QAction::triggered, &window, [&window]()
+    {
+        if (rpcs3_ios_core_firmware_ready())
+        {
+            const char* currentVersionRaw = rpcs3_ios_core_firmware_version();
+            const QString currentVersion = currentVersionRaw ? QString::fromUtf8(currentVersionRaw) : QString();
+            const QString prompt = currentVersion.isEmpty()
+                ? QObject::tr("PS3 firmware is already installed. Replace the current dev_flash installation?")
+                : QObject::tr("PS3 firmware %1 is already installed. Replace the current dev_flash installation?")
+                      .arg(currentVersion);
+            if (QMessageBox::question(&window, QObject::tr("Reinstall PS3 Firmware"), prompt,
+                                      QMessageBox::Yes | QMessageBox::No, QMessageBox::No) != QMessageBox::Yes)
+                return;
+        }
+
+        const QString selected = QFileDialog::getOpenFileName(
+            &window,
+            QObject::tr("Install Official PS3 Firmware"),
+            QStandardPaths::writableLocation(QStandardPaths::DocumentsLocation),
+            QObject::tr("PS3 update file (PS3UPDAT.PUP *.pup *.PUP);;All files (*)"));
+        if (selected.isEmpty())
+            return;
+
+        const RPCS3IOSCoreDiagnostics before = rpcs3_ios_core_diagnostics();
+        const QString dataRoot = before.data_path ? QString::fromUtf8(before.data_path) : QString();
+        if (dataRoot.isEmpty())
+        {
+            QMessageBox::critical(&window, QObject::tr("Firmware Installation Failed"),
+                                  QObject::tr("The RPCS3 sandbox data root is unavailable."));
+            return;
+        }
+
+        const QString firmwareDirectory = QDir(dataRoot).filePath(QStringLiteral("firmware"));
+        if (!QDir().mkpath(firmwareDirectory))
+        {
+            QMessageBox::critical(&window, QObject::tr("Firmware Installation Failed"),
+                                  QObject::tr("Unable to create the firmware staging directory."));
+            return;
+        }
+
+        const QString stagedPath = uniqueStagingDestination(
+            firmwareDirectory, QFileInfo(selected).fileName(), QStringLiteral("PS3UPDAT"), QStringLiteral(".PUP"));
+        if (!QFile::copy(selected, stagedPath))
+        {
+            QMessageBox::critical(&window, QObject::tr("Firmware Installation Failed"),
+                                  QObject::tr("Unable to copy PS3UPDAT.PUP into the RPCS3 sandbox."));
+            return;
+        }
+
+        window.statusBar()->showMessage(
+            QObject::tr("Validating PUP hashes, decrypting SCE packages, and installing dev_flash…"));
+        QApplication::setOverrideCursor(QCursor(Qt::WaitCursor));
+        QApplication::processEvents();
+        const int installed = rpcs3_ios_core_install_firmware(stagedPath.toUtf8().constData());
+        QApplication::restoreOverrideCursor();
+
+        if (!installed)
+        {
+            updateFirmwareDependentActions(window);
+            QMessageBox::critical(&window, QObject::tr("Firmware Installation Failed"), diagnosticsMessage());
+            return;
+        }
+
+        updateFirmwareDependentActions(window);
+        const char* versionRaw = rpcs3_ios_core_firmware_version();
+        const QString version = versionRaw ? QString::fromUtf8(versionRaw) : QString();
+        window.statusBar()->showMessage(
+            version.isEmpty()
+                ? QObject::tr("PS3 firmware installed and dev_flash validated")
+                : QObject::tr("PS3 firmware %1 installed and dev_flash validated").arg(version),
+            7000);
+        QMessageBox::information(
+            &window,
+            QObject::tr("PS3 Firmware Installed"),
+            version.isEmpty()
+                ? QObject::tr("RPCS3 installed the official firmware and validated dev_flash/vsh/module/vsh.self. PKG installation is now enabled.")
+                : QObject::tr("RPCS3 installed firmware %1 and validated dev_flash/vsh/module/vsh.self. PKG installation is now enabled.")
+                      .arg(version));
+    });
+
+    updateFirmwareDependentActions(window);
+}
+
 void bindPlayablePackageFlow(RPCS3QtMainWindow& window, QWidget* renderHost)
 {
     QAction* installAction = window.findChild<QAction*>(QStringLiteral("bootInstallPkgAct"));
     if (!installAction)
         return;
 
-    // Replace the temporary staging-only handler installed by the generic
-    // upstream QAction router with the real package_reader installation path.
     QObject::disconnect(installAction, nullptr, &window, nullptr);
     QObject::connect(installAction, &QAction::triggered, &window, [&window, renderHost]()
     {
+        if (!rpcs3_ios_core_firmware_ready())
+        {
+            QMessageBox::warning(
+                &window,
+                QObject::tr("PS3 Firmware Required"),
+                QObject::tr("Install an official PS3UPDAT.PUP before installing or booting a PKG."));
+            if (QAction* firmwareAction = window.findChild<QAction*>(QStringLiteral("bootInstallPupAct")))
+                firmwareAction->trigger();
+            return;
+        }
+
         const QString selected = QFileDialog::getOpenFileName(
             &window,
             QObject::tr("Install PS3 Package"),
@@ -132,7 +252,8 @@ void bindPlayablePackageFlow(RPCS3QtMainWindow& window, QWidget* renderHost)
             return;
         }
 
-        const QString stagedPath = uniquePackageDestination(packageDirectory, QFileInfo(selected).fileName());
+        const QString stagedPath = uniqueStagingDestination(
+            packageDirectory, QFileInfo(selected).fileName(), QStringLiteral("package"), QStringLiteral(".pkg"));
         if (!QFile::copy(selected, stagedPath))
         {
             QMessageBox::critical(&window, QObject::tr("PKG Installation Failed"),
@@ -141,7 +262,7 @@ void bindPlayablePackageFlow(RPCS3QtMainWindow& window, QWidget* renderHost)
         }
 
         window.statusBar()->showMessage(QObject::tr("Installing %1 through RPCS3 package_reader…")
-                                        .arg(QFileInfo(selected).fileName()));
+                                         .arg(QFileInfo(selected).fileName()));
         QApplication::setOverrideCursor(QCursor(Qt::WaitCursor));
         const int installed = rpcs3_ios_core_install_pkg(stagedPath.toUtf8().constData());
         QApplication::restoreOverrideCursor();
@@ -178,13 +299,11 @@ void bindPlayablePackageFlow(RPCS3QtMainWindow& window, QWidget* renderHost)
 
         if (!attachVisibleRenderSurface(window, renderHost))
         {
-            const RPCS3IOSCoreDiagnostics diagnostics = rpcs3_ios_core_diagnostics();
             QMessageBox::critical(
                 &window,
                 QObject::tr("Renderer Surface Missing"),
-                diagnostics.message
-                    ? QString::fromUtf8(diagnostics.message)
-                    : QObject::tr("The package installed, but the native iOS CAMetalLayer surface could not be attached."));
+                QObject::tr("The package installed, but RPCS3 could not attach its iOS CAMetalLayer surface.\n\n%1")
+                    .arg(diagnosticsMessage()));
             return;
         }
 
@@ -220,6 +339,24 @@ void bindPlayablePackageFlow(RPCS3QtMainWindow& window, QWidget* renderHost)
         });
     }
 }
+
+void showFirmwareOnboarding(RPCS3QtMainWindow& window)
+{
+    if (rpcs3_ios_core_firmware_ready())
+        return;
+
+    const QMessageBox::StandardButton result = QMessageBox::question(
+        &window,
+        QObject::tr("Install PS3 Firmware"),
+        QObject::tr("RPCS3 needs an official PS3UPDAT.PUP before PKG applications such as PKGi can be installed and booted. Firmware is installed once and remains in the app's dev_flash storage.\n\nInstall firmware now?"),
+        QMessageBox::Yes | QMessageBox::No,
+        QMessageBox::Yes);
+    if (result == QMessageBox::Yes)
+    {
+        if (QAction* firmwareAction = window.findChild<QAction*>(QStringLiteral("bootInstallPupAct")))
+            firmwareAction->trigger();
+    }
+}
 } // namespace
 
 int main(int argc, char* argv[])
@@ -235,6 +372,7 @@ int main(int argc, char* argv[])
 
     RPCS3QtMainWindow window;
     QWidget* renderHost = createNativeRenderHost(window);
+    bindFirmwareFlow(window);
     bindPlayablePackageFlow(window, renderHost);
     window.showMaximized();
     application.processEvents();
@@ -255,7 +393,8 @@ int main(int argc, char* argv[])
 
     if (!initialized || !renderSurfaceAttached)
     {
-        QTimer::singleShot(0, &window, [&window, initialized, renderSurfaceAttached]() {
+        QTimer::singleShot(0, &window, [&window, initialized, renderSurfaceAttached]()
+        {
             const RPCS3IOSCoreDiagnostics diagnostics = rpcs3_ios_core_diagnostics();
             const QString detail = diagnostics.message
                 ? QString::fromUtf8(diagnostics.message)
@@ -268,6 +407,10 @@ int main(int argc, char* argv[])
                          renderSurfaceAttached ? QStringLiteral("yes") : QStringLiteral("no"),
                          detail));
         });
+    }
+    else
+    {
+        QTimer::singleShot(0, &window, [&window]() { showFirmwareOnboarding(window); });
     }
 
     return application.exec();
