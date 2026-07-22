@@ -47,7 +47,7 @@ static NSString *YesNo(int value) { return value ? @"yes" : @"no"; }
     status.translatesAutoresizingMaskIntoConstraints = NO;
     status.numberOfLines = 0;
     status.font = [UIFont preferredFontForTextStyle:UIFontTextStyleHeadline];
-    status.text = @"Real-device iOS 26 shell with a replaceable RPCS3 core bridge.";
+    status.text = @"Real-device iOS 26 shell with sandbox storage and a replaceable RPCS3 core bridge.";
 
     self.textView = [[UITextView alloc] init];
     self.textView.translatesAutoresizingMaskIntoConstraints = NO;
@@ -87,14 +87,17 @@ static NSString *YesNo(int value) { return value ? @"yes" : @"no"; }
     UIDevice *device = UIDevice.currentDevice;
     RPCS3IOSCoreDiagnostics core = rpcs3_ios_core_diagnostics();
     NSString *coreMessage = core.message ? [NSString stringWithUTF8String:core.message] : @"none";
+    NSString *dataPath = core.data_path ? [NSString stringWithUTF8String:core.data_path] : @"not initialized";
 
     self.textView.text = [NSString stringWithFormat:
         @"Build target: arm64 iPhoneOS 26.0+\n"
          "Core state: %d\n"
+         "Platform initialized: %@\n"
          "PPU interpreter: %@\n"
          "SPU interpreter: %@\n"
          "JIT backend: %@\n"
          "Renderer backend: %@\n"
+         "Sandbox data root: %@\n"
          "Core message: %@\n\n"
          "Device model: %@\n"
          "System: %@ %@\n"
@@ -104,8 +107,9 @@ static NSString *YesNo(int value) { return value ? @"yes" : @"no"; }
          "Thermal state: %ld\n"
          "Metal device: %@\n\n"
          "JIT probe: %@",
-         core.state, YesNo(core.ppu_interpreter_available), YesNo(core.spu_interpreter_available),
-         YesNo(core.jit_available), YesNo(core.renderer_available), coreMessage,
+         core.state, YesNo(core.platform_initialized),
+         YesNo(core.ppu_interpreter_available), YesNo(core.spu_interpreter_available),
+         YesNo(core.jit_available), YesNo(core.renderer_available), dataPath, coreMessage,
          DeviceModel(), device.systemName, device.systemVersion,
          (long)process.processorCount, ByteString(process.physicalMemory),
          process.lowPowerModeEnabled ? @"enabled" : @"disabled",
@@ -120,6 +124,7 @@ static NSString *YesNo(int value) { return value ? @"yes" : @"no"; }
 @implementation AppDelegate
 - (BOOL)application:(UIApplication *)application didFinishLaunchingWithOptions:(NSDictionary *)launchOptions {
     (void)application; (void)launchOptions;
+    rpcs3_ios_core_initialize(nullptr);
     self.window = [[UIWindow alloc] initWithFrame:UIScreen.mainScreen.bounds];
     self.window.rootViewController = [[UINavigationController alloc] initWithRootViewController:[[MainViewController alloc] init]];
     [self.window makeKeyAndVisible];
