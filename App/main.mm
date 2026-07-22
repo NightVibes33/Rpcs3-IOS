@@ -1,8 +1,8 @@
 #import <UIKit/UIKit.h>
 #import <Metal/Metal.h>
-#import <mach/mach.h>
 #import <sys/mman.h>
 #import <sys/sysctl.h>
+#import "RPCS3CoreBridge.h"
 
 static NSString *ByteString(uint64_t value) {
     return [NSByteCountFormatter stringFromByteCount:(long long)value countStyle:NSByteCountFormatterCountStyleMemory];
@@ -23,13 +23,15 @@ static NSString *JITProbe(void) {
 #ifdef MAP_JIT
     size_t pageSize = (size_t)getpagesize();
     void *memory = mmap(NULL, pageSize, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANON | MAP_JIT, -1, 0);
-    if (memory == MAP_FAILED) return @"MAP_JIT allocation failed (expected without an active JIT-capable signing/runtime path).";
+    if (memory == MAP_FAILED) return @"MAP_JIT allocation failed.";
     munmap(memory, pageSize);
-    return @"MAP_JIT allocation succeeded. This does not yet prove executable guest code is permitted.";
+    return @"MAP_JIT allocation succeeded; executable guest-code execution remains unverified.";
 #else
     return @"MAP_JIT is not exposed by this SDK.";
 #endif
 }
+
+static NSString *YesNo(int value) { return value ? @"yes" : @"no"; }
 
 @interface MainViewController : UIViewController
 @property(nonatomic, strong) UITextView *textView;
@@ -45,7 +47,7 @@ static NSString *JITProbe(void) {
     status.translatesAutoresizingMaskIntoConstraints = NO;
     status.numberOfLines = 0;
     status.font = [UIFont preferredFontForTextStyle:UIFontTextStyleHeadline];
-    status.text = @"Diagnostic shell only — the RPCS3 emulator core is not linked yet.";
+    status.text = @"Real-device iOS 26 shell with a replaceable RPCS3 core bridge.";
 
     self.textView = [[UITextView alloc] init];
     self.textView.translatesAutoresizingMaskIntoConstraints = NO;
@@ -76,7 +78,6 @@ static NSString *JITProbe(void) {
         [refresh.centerXAnchor constraintEqualToAnchor:guide.centerXAnchor],
         [refresh.bottomAnchor constraintEqualToAnchor:guide.bottomAnchor constant:-16]
     ]];
-
     [self refreshDiagnostics];
 }
 
@@ -84,11 +85,17 @@ static NSString *JITProbe(void) {
     id<MTLDevice> gpu = MTLCreateSystemDefaultDevice();
     NSProcessInfo *process = NSProcessInfo.processInfo;
     UIDevice *device = UIDevice.currentDevice;
+    RPCS3IOSCoreDiagnostics core = rpcs3_ios_core_diagnostics();
+    NSString *coreMessage = core.message ? [NSString stringWithUTF8String:core.message] : @"none";
 
     self.textView.text = [NSString stringWithFormat:
-        @"App milestone: native iOS 26 diagnostic shell\n"
-         "RPCS3 core: not linked\n"
-         "Renderer: not linked\n\n"
+        @"Build target: arm64 iPhoneOS 26.0+\n"
+         "Core state: %d\n"
+         "PPU interpreter: %@\n"
+         "SPU interpreter: %@\n"
+         "JIT backend: %@\n"
+         "Renderer backend: %@\n"
+         "Core message: %@\n\n"
          "Device model: %@\n"
          "System: %@ %@\n"
          "Processor count: %ld\n"
@@ -96,13 +103,13 @@ static NSString *JITProbe(void) {
          "Low Power Mode: %@\n"
          "Thermal state: %ld\n"
          "Metal device: %@\n\n"
-         "JIT probe: %@\n\n"
-         "Next engineering gate: compile isolated RPCS3 interpreter subsystems into a static arm64-apple-ios library.",
+         "JIT probe: %@",
+         core.state, YesNo(core.ppu_interpreter_available), YesNo(core.spu_interpreter_available),
+         YesNo(core.jit_available), YesNo(core.renderer_available), coreMessage,
          DeviceModel(), device.systemName, device.systemVersion,
          (long)process.processorCount, ByteString(process.physicalMemory),
          process.lowPowerModeEnabled ? @"enabled" : @"disabled",
-         (long)process.thermalState,
-         gpu.name ?: @"unavailable", JITProbe()];
+         (long)process.thermalState, gpu.name ?: @"unavailable", JITProbe()];
 }
 @end
 
@@ -112,9 +119,9 @@ static NSString *JITProbe(void) {
 
 @implementation AppDelegate
 - (BOOL)application:(UIApplication *)application didFinishLaunchingWithOptions:(NSDictionary *)launchOptions {
+    (void)application; (void)launchOptions;
     self.window = [[UIWindow alloc] initWithFrame:UIScreen.mainScreen.bounds];
-    MainViewController *root = [[MainViewController alloc] init];
-    self.window.rootViewController = [[UINavigationController alloc] initWithRootViewController:root];
+    self.window.rootViewController = [[UINavigationController alloc] initWithRootViewController:[[MainViewController alloc] init]];
     [self.window makeKeyAndVisible];
     return YES;
 }
