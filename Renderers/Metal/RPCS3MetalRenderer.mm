@@ -1,4 +1,5 @@
 #include "RPCS3MetalRenderer.h"
+#include "RPCS3MetalResourceBinder.h"
 #include "../Apple/RPCS3AppleSurface.h"
 
 #import <Metal/Metal.h>
@@ -310,23 +311,21 @@ bool metal_renderer::submit_draw(const metal_rsx::draw_submission& submission,
             ? (__bridge id<MTLDepthStencilState>)submission.depth_stencil_state
             : nil;
 
-        id<MTLBuffer> vertex_buffer = [m_impl->device
-            newBufferWithBytes:submission.vertex_buffer.bytes
-                         length:submission.vertex_buffer.byte_count
-                        options:MTLResourceStorageModeShared];
-        if (!vertex_buffer)
-        {
-            error = "Metal could not upload the translated vertex buffer.";
-            m_impl->status.message = error;
-            return false;
-        }
-
         [m_impl->current_encoder setRenderPipelineState:pipeline];
         if (depth_stencil)
             [m_impl->current_encoder setDepthStencilState:depth_stencil];
         [m_impl->current_encoder setStencilFrontReferenceValue:submission.stencil_reference_front
                                             backReferenceValue:submission.stencil_reference_back];
-        [m_impl->current_encoder setVertexBuffer:vertex_buffer offset:0 atIndex:0];
+
+        if (!metal_rsx::bind_draw_resources(
+                (__bridge void*)m_impl->device,
+                (__bridge void*)m_impl->current_encoder,
+                submission,
+                error))
+        {
+            m_impl->status.message = error;
+            return false;
+        }
 
         const MTLPrimitiveType primitive = static_cast<MTLPrimitiveType>(submission.primitive_type);
         if (submission.indexed())
