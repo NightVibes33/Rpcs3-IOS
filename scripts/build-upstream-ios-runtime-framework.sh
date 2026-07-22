@@ -8,11 +8,13 @@ PORT_ROOT="$(pwd)"
 TOOLCHAIN="$PORT_ROOT/cmake/toolchains/ios-arm64.cmake"
 REVISION_FILE="$PORT_ROOT/UPSTREAM_RPCS3_REVISION"
 FFMPEG_ROOT="${RPCS3_IOS_FFMPEG_ROOT:-$PORT_ROOT/BuildSupport/ffmpeg-ios}"
+MOLTENVK_ROOT="${MOLTENVK_IOS_ROOT:-$PORT_ROOT/BuildSupport/moltenvk-ios}"
 OUTPUT="$PORT_ROOT/$PRODUCT_DIR/RPCS3UpstreamRuntime.framework"
 DEPLOYMENT_TARGET="${DEPLOYMENT_TARGET:-26.0}"
 
 export RPCS3_IOS_FFMPEG_ROOT="$FFMPEG_ROOT"
 export FFMPEG_IOS_ROOT="$FFMPEG_ROOT"
+export MOLTENVK_IOS_ROOT="$MOLTENVK_ROOT"
 
 print_failure_logs() {
   local status=$?
@@ -34,6 +36,7 @@ command -v python3 >/dev/null
 command -v xcrun >/dev/null
 
 test -f "$REVISION_FILE"
+test -f "$PORT_ROOT/scripts/build-moltenvk-ios.sh"
 UPSTREAM_REVISION="$(tr -d '[:space:]' < "$REVISION_FILE")"
 test -n "$UPSTREAM_REVISION"
 
@@ -50,6 +53,11 @@ git -C "$ROOT" submodule update --init --recursive --depth 1 --jobs 4 \
 
 bash scripts/build-ffmpeg-ios.sh \
   >"$BUILD/logs/ffmpeg.log" 2>&1
+bash scripts/build-moltenvk-ios.sh \
+  >"$BUILD/logs/moltenvk.log" 2>&1
+
+test -f "$MOLTENVK_ROOT/include/vulkan/vulkan.h"
+test -f "$MOLTENVK_ROOT/lib/libMoltenVK.a"
 
 python3 scripts/apply-upstream-ios-overlay.py "$ROOT" --mode upstream \
   >"$BUILD/logs/overlay.log" 2>&1
@@ -76,7 +84,10 @@ cmake \
   -DWITH_LLVM=OFF \
   -DBUILD_LLVM=OFF \
   -DBUILD_LLVM_SUBMODULE=OFF \
-  -DUSE_VULKAN=OFF \
+  -DUSE_VULKAN=ON \
+  -DUSE_SYSTEM_MVK=ON \
+  -DVulkan_INCLUDE_DIR="$MOLTENVK_ROOT/include" \
+  -DVulkan_LIBRARY="$MOLTENVK_ROOT/lib/libMoltenVK.a" \
   -DUSE_OPENGL=OFF \
   -DUSE_SYSTEM_CURL=OFF \
   -DUSE_FAUDIO=OFF \
@@ -102,6 +113,8 @@ lipo -info "$OUTPUT/RPCS3UpstreamRuntime" | tee "$BUILD/framework-architectures.
 otool -L "$OUTPUT/RPCS3UpstreamRuntime" | tee "$BUILD/framework-linked-libraries.txt"
 nm -gU "$OUTPUT/RPCS3UpstreamRuntime" > "$BUILD/framework-symbols.txt"
 
+grep -q '_rpcs3_ios_upstream_set_render_view' "$BUILD/framework-symbols.txt"
+grep -q '_rpcs3_ios_upstream_render_view_ready' "$BUILD/framework-symbols.txt"
 grep -q '_rpcs3_ios_upstream_initialize' "$BUILD/framework-symbols.txt"
 grep -q '_rpcs3_ios_upstream_install_pkg' "$BUILD/framework-symbols.txt"
 grep -q '_rpcs3_ios_upstream_last_installed_boot_path' "$BUILD/framework-symbols.txt"
@@ -109,6 +122,8 @@ grep -q '_rpcs3_ios_upstream_boot_game' "$BUILD/framework-symbols.txt"
 grep -q '_rpcs3_ios_upstream_pause' "$BUILD/framework-symbols.txt"
 grep -q '_rpcs3_ios_upstream_resume' "$BUILD/framework-symbols.txt"
 grep -q '_rpcs3_ios_upstream_stop' "$BUILD/framework-symbols.txt"
+grep -q '_vkCreateInstance' "$BUILD/framework-symbols.txt"
+grep -q '_vkCreateMetalSurfaceEXT' "$BUILD/framework-symbols.txt"
 
 cat > "$BUILD/summary.md" <<EOF
 # RPCS3 upstream iOS runtime framework
@@ -119,9 +134,11 @@ cat > "$BUILD/summary.md" <<EOF
 - Target: \`arm64-apple-ios$DEPLOYMENT_TARGET\`
 - PPU lane: upstream static interpreter
 - SPU lane: upstream static interpreter
-- Renderer lane: upstream NullGSRender until Metal is connected
+- Renderer lane: upstream Vulkan through pinned MoltenVK, with Null fallback
+- Native surface: Qt iOS \`UIView\` hosting a runtime-owned \`CAMetalLayer\`
+- MoltenVK: \`$(cat "$MOLTENVK_ROOT/version.txt")\`
 - Exported installer: upstream \`package_reader::extract_data\`
-- Exported lifecycle: initialize, install PKG, BootGame, pause, resume, stop, state
+- Exported lifecycle: render surface, initialize, install PKG, BootGame, pause, resume, stop, state
 - Data root: host-selected RPCS3 sandbox through RPCS3_CONFIG_DIR
 EOF
 
