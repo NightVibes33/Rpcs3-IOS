@@ -50,7 +50,7 @@ jobs:
             -H "Accept: application/vnd.github+json" \
             -H "X-GitHub-Api-Version: 2022-11-28" \
             "https://api.github.com/repos/$GITHUB_REPOSITORY/statuses/$GITHUB_SHA" \
-            -d "{\"state\":\"pending\",\"context\":\"$STATUS_CONTEXT\",\"description\":\"Compiling native Metal draws, SPIR-V translation, and MSL functions\",\"target_url\":\"$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID\"}"
+            -d "{\"state\":\"pending\",\"context\":\"$STATUS_CONTEXT\",\"description\":\"Compiling live Metal renderer shader translation and draw submission\",\"target_url\":\"$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID\"}"
 
       - name: Select iOS 26 SDK
         shell: bash
@@ -160,6 +160,10 @@ jobs:
 
           file build-metal-rsx/*.o
           for object in build-metal-rsx/*.o; do lipo -info "$object"; done
+          nm -gU build-metal-rsx/RPCS3MetalRenderer.o | c++filt \
+            | tee build-metal-rsx/RPCS3MetalRenderer-symbols.txt
+          grep -q 'metal_renderer::compile_spirv_shader' build-metal-rsx/RPCS3MetalRenderer-symbols.txt
+          grep -q 'metal_renderer::cached_shader_count' build-metal-rsx/RPCS3MetalRenderer-symbols.txt
 
       - name: Run primitive and draw submission tests on host
         id: host-tests
@@ -235,7 +239,7 @@ jobs:
           set -euo pipefail
           if [[ "${{ steps.spirv-cross.outcome }}" == "success" && "${{ steps.compile-ios.outcome }}" == "success" && "${{ steps.host-tests.outcome }}" == "success" ]]; then
             state="success"
-            description="Native Metal draws, SPIR-V translation, and MSL functions compiled"
+            description="Live Metal renderer shader translation and draw submission compiled"
           else
             state="failure"
             description="Native Metal RSX translation reached a compiler or test blocker"
