@@ -28,8 +28,11 @@ qt_add_executable(RPCS3QtIOS MANUAL_FINALIZATION
     main.cpp
     RPCS3QtMainWindow.cpp
     RPCS3QtMainWindow.h
+    QtCompat.h
     ${RPCS3_MAIN_WINDOW_UI}
 )
+
+target_precompile_headers(RPCS3QtIOS PRIVATE QtCompat.h)
 
 qt_add_resources(RPCS3QtIOS "rpcs3_upstream_ui"
     PREFIX "/rpcs3/ui"
