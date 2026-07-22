@@ -108,6 +108,8 @@ jobs:
           nm -gU "$CORE_ARCHIVE" | grep -q '_mbedtls_sha256_ret'
           nm -gU "$CORE_ARCHIVE" | grep -q 'probe_ps3_elf'
           nm -gU "$CORE_ARCHIVE" | grep -q 'probe_ps3_self'
+          nm -gU "$CORE_ARCHIVE" | grep -q 'build_plain_self_load_plan'
+          nm -gU "$CORE_ARCHIVE" | grep -q 'extract_plain_self_to_elf'
           file "$BIN"
           lipo -info "$BIN"
           xcrun vtool -show-build "$BIN" || true
