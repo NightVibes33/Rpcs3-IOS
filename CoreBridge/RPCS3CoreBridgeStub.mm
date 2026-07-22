@@ -1,6 +1,7 @@
 #include "RPCS3CoreBridge.h"
 #include "IOSFilesystem.h"
 #include "IOSPlatform.h"
+#include "RPCS3ELFProbe.h"
 
 #ifdef RPCS3_IOS_WITH_UPSTREAM_CRYPTO
 #include "sha256.h"
@@ -32,8 +33,7 @@ void set_failure(std::string message)
 std::string hex_encode(const unsigned char* bytes, std::size_t size)
 {
     static constexpr char digits[] = "0123456789abcdef";
-    std::string output;
-    output.resize(size * 2);
+    std::string output(size * 2, '\0');
     for (std::size_t index = 0; index < size; ++index)
     {
         output[index * 2] = digits[bytes[index] >> 4];
@@ -46,9 +46,7 @@ bool sha256_bytes(const unsigned char* bytes, std::size_t size, std::string& out
 {
     std::array<unsigned char, 32> digest{};
     if (mbedtls_sha256_ret(bytes, size, digest.data(), 0) != 0)
-    {
         return false;
-    }
     output = hex_encode(digest.data(), digest.size());
     return true;
 }
@@ -70,8 +68,7 @@ bool sha256_file(std::ifstream& stream, std::string& output)
     {
         stream.read(reinterpret_cast<char*>(buffer.data()), static_cast<std::streamsize>(buffer.size()));
         const std::streamsize count = stream.gcount();
-        if (count > 0 && mbedtls_sha256_update_ret(
-                &context, buffer.data(), static_cast<std::size_t>(count)) != 0)
+        if (count > 0 && mbedtls_sha256_update_ret(&context, buffer.data(), static_cast<std::size_t>(count)) != 0)
         {
             mbedtls_sha256_free(&context);
             return false;
@@ -88,9 +85,7 @@ bool sha256_file(std::ifstream& stream, std::string& output)
     const int status = mbedtls_sha256_finish_ret(&context, digest.data());
     mbedtls_sha256_free(&context);
     if (status != 0)
-    {
         return false;
-    }
 
     output = hex_encode(digest.data(), digest.size());
     return true;
@@ -109,9 +104,7 @@ bool upstream_crypto_self_test()
 
 RPCS3IOSCoreDiagnostics rpcs3_ios_core_diagnostics(void)
 {
-    const rpcs3::ios::platform_capabilities capabilities =
-        rpcs3::ios::query_platform_capabilities();
-
+    const rpcs3::ios::platform_capabilities capabilities = rpcs3::ios::query_platform_capabilities();
     thread_local std::string message_copy;
     thread_local std::string path_copy;
     thread_local std::string hash_copy;
@@ -142,9 +135,7 @@ RPCS3IOSCoreDiagnostics rpcs3_ios_core_diagnostics(void)
 int rpcs3_ios_core_initialize(const char *data_path)
 {
     std::lock_guard lock(g_mutex);
-
-    const rpcs3::ios::filesystem_layout layout =
-        rpcs3::ios::prepare_filesystem_layout(data_path);
+    const rpcs3::ios::filesystem_layout layout = rpcs3::ios::prepare_filesystem_layout(data_path);
     if (!layout.ready)
     {
         g_platform_initialized = false;
@@ -152,8 +143,7 @@ int rpcs3_ios_core_initialize(const char *data_path)
         return 0;
     }
 
-    const rpcs3::ios::platform_capabilities capabilities =
-        rpcs3::ios::query_platform_capabilities();
+    const rpcs3::ios::platform_capabilities capabilities = rpcs3::ios::query_platform_capabilities();
     if (!capabilities.physical_device)
     {
         g_platform_initialized = false;
@@ -174,34 +164,25 @@ int rpcs3_ios_core_initialize(const char *data_path)
     g_data_path = layout.root;
     g_last_boot_sha256.clear();
     g_state = RPCS3IOSCoreStateUnavailable;
-#ifdef RPCS3_IOS_WITH_UPSTREAM_CRYPTO
     g_message = capabilities.metal_available
-        ? "Sandbox storage, Metal, and upstream RPCS3 SHA-256 are ready. PPU/SPU execution is not linked yet."
-        : "Sandbox storage and upstream RPCS3 SHA-256 are ready, but no Metal device is available.";
-#else
-    g_message = capabilities.metal_available
-        ? "Sandbox storage and Metal are ready. The upstream RPCS3 interpreter core is not linked yet."
-        : "Sandbox storage is ready, but no Metal device is available.";
-#endif
+        ? "Sandbox storage, Metal, upstream SHA-256, and RPCS3 ELF types are ready. PPU/SPU execution is not linked yet."
+        : "Sandbox storage and upstream loader primitives are ready, but no Metal device is available.";
     return 1;
 }
 
 int rpcs3_ios_core_boot_elf(const char *elf_path)
 {
     std::lock_guard lock(g_mutex);
-
     if (!g_platform_initialized)
     {
         set_failure("Initialize the iOS platform before loading an ELF");
         return 0;
     }
-
     if (!elf_path || !*elf_path)
     {
         set_failure("No ELF path was supplied");
         return 0;
     }
-
     if (!rpcs3::ios::path_is_within_app_container(elf_path))
     {
         set_failure("Boot input must be copied into the RPCS3 app container first");
@@ -215,29 +196,32 @@ int rpcs3_ios_core_boot_elf(const char *elf_path)
         return 0;
     }
 
-    std::ifstream stream(elf_path, std::ios::binary);
-    std::array<unsigned char, 4> magic{};
-    stream.read(reinterpret_cast<char*>(magic.data()), static_cast<std::streamsize>(magic.size()));
-    if (stream.gcount() != static_cast<std::streamsize>(magic.size()) ||
-        magic[0] != 0x7f || magic[1] != 'E' || magic[2] != 'L' || magic[3] != 'F')
+    const rpcs3::ios::elf_probe_result probe = rpcs3::ios::probe_ps3_elf(elf_path);
+    if (!probe.valid)
     {
-        set_failure("Boot input does not contain an ELF header");
+        set_failure(probe.description);
+        return 0;
+    }
+    if (!probe.ps3_compatible)
+    {
+        set_failure(probe.description);
         return 0;
     }
 
+    std::ifstream stream(elf_path, std::ios::binary);
 #ifdef RPCS3_IOS_WITH_UPSTREAM_CRYPTO
     if (!sha256_file(stream, g_last_boot_sha256))
     {
         set_failure("Unable to calculate the boot ELF SHA-256");
         return 0;
     }
-    g_message = "ELF header and SHA-256 validated inside the app sandbox; interpreter execution is not linked yet.";
 #else
     g_last_boot_sha256.clear();
-    g_message = "ELF header validated inside the app sandbox; interpreter execution is not linked yet.";
 #endif
-    g_state = RPCS3IOSCoreStateUnavailable;
-    return 0;
+
+    g_state = RPCS3IOSCoreStateReady;
+    g_message = probe.description + "; validated and ready for the future PPU loader stage.";
+    return 1;
 }
 
 void rpcs3_ios_core_stop(void)
