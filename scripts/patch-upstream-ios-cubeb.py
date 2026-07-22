@@ -2,37 +2,43 @@
 from __future__ import annotations
 
 import argparse
-import base64
-import json
+import hashlib
 import subprocess
 import tempfile
 import urllib.request
 from pathlib import Path
 
 # Mozilla vendors the same Cubeb revision used by pinned RPCS3 and applies this
-# complete iOS AudioUnit compile/runtime patch. Address the immutable Git blob
-# directly so later gecko-dev branch changes cannot alter the graph build.
+# complete iOS AudioUnit compile/runtime patch. Download the public raw file,
+# then verify its immutable Git blob SHA before applying it. This avoids the
+# unauthenticated GitHub REST API rate limit that previously stopped CI.
 PATCH_BLOB_SHA = "465ae0f98a159751136c62c6d5ba49c5f983bd65"
-PATCH_API_URL = (
-    "https://api.github.com/repos/mozilla/gecko-dev/git/blobs/" + PATCH_BLOB_SHA
+PATCH_RAW_URL = (
+    "https://raw.githubusercontent.com/mozilla/gecko-dev/master/"
+    "media/libcubeb/0003-audiounit-ios-compile-fixes.patch"
 )
+
+
+def git_blob_sha(content: bytes) -> str:
+    header = f"blob {len(content)}\0".encode("ascii")
+    return hashlib.sha1(header + content).hexdigest()
 
 
 def download_patch() -> bytes:
     request = urllib.request.Request(
-        PATCH_API_URL,
-        headers={
-            "Accept": "application/vnd.github+json",
-            "User-Agent": "RPCS3-iOS-upstream-graph",
-        },
+        PATCH_RAW_URL,
+        headers={"User-Agent": "RPCS3-iOS-upstream-graph"},
     )
     with urllib.request.urlopen(request, timeout=60) as response:
-        payload = json.load(response)
+        content = response.read()
 
-    if payload.get("sha") != PATCH_BLOB_SHA or payload.get("encoding") != "base64":
-        raise SystemExit("Mozilla Cubeb patch blob response failed verification")
+    actual_sha = git_blob_sha(content)
+    if actual_sha != PATCH_BLOB_SHA:
+        raise SystemExit(
+            "Mozilla Cubeb patch blob verification failed: "
+            f"expected {PATCH_BLOB_SHA}, received {actual_sha}"
+        )
 
-    content = base64.b64decode(payload["content"], validate=False)
     required = (
         b"diff --git a/src/cubeb_audiounit.cpp",
         b"#if TARGET_OS_IPHONE",
