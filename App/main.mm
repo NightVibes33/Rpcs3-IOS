@@ -5,6 +5,7 @@
 #import "RPCS3GameDetails.h"
 #import "RPCS3Sidebar.h"
 #import "RPCS3Settings.h"
+#import "RPCS3Utilities.h"
 
 static NSString *RPCS3Root(void) {
     RPCS3IOSCoreDiagnostics d = rpcs3_ios_core_diagnostics();
@@ -91,14 +92,9 @@ static NSString *RPCS3Root(void) {
 - (void)documentPicker:(UIDocumentPickerViewController *)controller didPickDocumentsAtURLs:(NSArray<NSURL *> *)urls { (void)controller; NSString *folder=self.kind==0?@"firmware":self.kind==1?@"packages":@"keys"; NSString *path=[RPCS3Root() stringByAppendingPathComponent:folder]; [NSFileManager.defaultManager createDirectoryAtPath:path withIntermediateDirectories:YES attributes:nil error:nil]; for(NSURL *source in urls){ BOOL scoped=[source startAccessingSecurityScopedResource]; NSURL *destination=[NSURL fileURLWithPath:[path stringByAppendingPathComponent:source.lastPathComponent?:NSUUID.UUID.UUIDString]]; [NSFileManager.defaultManager removeItemAtURL:destination error:nil]; [NSFileManager.defaultManager copyItemAtURL:source toURL:destination error:nil]; if(scoped)[source stopAccessingSecurityScopedResource]; } }
 @end
 
-@interface RPCS3StatusController : UIViewController @end
-@implementation RPCS3StatusController
-- (void)viewDidLoad { [super viewDidLoad]; self.title=@"Utilities"; self.view.backgroundColor=UIColor.systemBackgroundColor; UILabel *label=[[UILabel alloc] init]; label.translatesAutoresizingMaskIntoConstraints=NO; label.numberOfLines=0; label.font=[UIFont preferredFontForTextStyle:UIFontTextStyleBody]; RPCS3IOSCoreDiagnostics d=rpcs3_ios_core_diagnostics(); label.text=[NSString stringWithFormat:@"Core state: %d\nMetal: %@\nJIT: %@\nData: %@",d.state,d.renderer_available?@"Available":@"Unavailable",d.jit_available?@"Available":@"Unavailable",RPCS3Root()]; [self.view addSubview:label]; [NSLayoutConstraint activateConstraints:@[[label.topAnchor constraintEqualToAnchor:self.view.safeAreaLayoutGuide.topAnchor constant:24],[label.leadingAnchor constraintEqualToAnchor:self.view.safeAreaLayoutGuide.leadingAnchor constant:20],[label.trailingAnchor constraintEqualToAnchor:self.view.safeAreaLayoutGuide.trailingAnchor constant:-20]]]; }
-@end
-
 static UINavigationController *RPCS3GamesNavigation(void) { return [[UINavigationController alloc] initWithRootViewController:[[RPCS3LibraryController alloc] init]]; }
 static UINavigationController *RPCS3ManageNavigation(void) { return [[UINavigationController alloc] initWithRootViewController:[[RPCS3ManageController alloc] initWithStyle:UITableViewStyleInsetGrouped]]; }
-static UINavigationController *RPCS3UtilitiesNavigation(void) { return [[UINavigationController alloc] initWithRootViewController:[[RPCS3StatusController alloc] init]]; }
+static UINavigationController *RPCS3UtilitiesNavigation(void) { return [[UINavigationController alloc] initWithRootViewController:[[RPCS3UtilitiesController alloc] initWithStyle:UITableViewStyleInsetGrouped]]; }
 
 static UITabBarController *RPCS3Tabs(void) {
     UINavigationController *games=RPCS3GamesNavigation(); UINavigationController *manage=RPCS3ManageNavigation(); UINavigationController *utilities=RPCS3UtilitiesNavigation();
