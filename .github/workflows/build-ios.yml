@@ -6,6 +6,8 @@ on:
     branches: [main]
     paths:
       - "App/**"
+      - "CoreBridge/**"
+      - "Port/**"
       - "project.yml"
       - "scripts/**"
       - ".github/workflows/build-ios.yml"
@@ -80,19 +82,27 @@ jobs:
             CODE_SIGN_IDENTITY='' \
             clean build
 
-      - name: Validate device bundle
+      - name: Validate core archive and device bundle
         id: bundle
         shell: bash
         run: |
           set -euo pipefail
-          APP="$DERIVED_DATA/Build/Products/Release-iphoneos/RPCS3-iOS.app"
+          PRODUCT_DIR="$DERIVED_DATA/Build/Products/Release-iphoneos"
+          APP="$PRODUCT_DIR/RPCS3-iOS.app"
           BIN="$APP/RPCS3-iOS"
+          CORE_ARCHIVE="$PRODUCT_DIR/libRPCS3-iOS-Core.a"
           test -d "$APP"
           test -f "$BIN"
+          test -f "$CORE_ARCHIVE"
+          file "$CORE_ARCHIVE"
+          xcrun ar -t "$CORE_ARCHIVE"
+          nm -gU "$CORE_ARCHIVE" | grep -q '_rpcs3_ios_core_initialize'
+          nm -gU "$CORE_ARCHIVE" | grep -q '_rpcs3_ios_core_boot_elf'
           file "$BIN"
           lipo -info "$BIN"
           xcrun vtool -show-build "$BIN" || true
           file "$BIN" | grep -q 'arm64'
+          nm -gU "$BIN" | grep -q '_rpcs3_ios_core_initialize'
           [[ "$APP" == *Release-iphoneos* ]] || { echo "Refusing non-device product path."; exit 1; }
           echo "app=$APP" >> "$GITHUB_OUTPUT"
 
