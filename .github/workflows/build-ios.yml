@@ -1,16 +1,16 @@
-name: Build iOS 26 Unsigned IPA
+name: Build RPCS3 Qt iOS Unsigned IPA
 
 on:
   workflow_dispatch:
   push:
     branches: [main]
     paths:
-      - "App/**"
+      - "QtApp/**"
       - "CoreBridge/**"
       - "Port/**"
       - "cmake/**"
-      - "project.yml"
       - "scripts/**"
+      - "UPSTREAM_RPCS3_REVISION"
       - ".github/workflows/build-ios.yml"
 
 permissions:
@@ -18,20 +18,22 @@ permissions:
   statuses: write
 
 concurrency:
-  group: ios26-${{ github.ref }}
+  group: rpcs3-qt-ios-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
   build:
-    name: Real-device arm64 IPA
+    name: Real Qt Widgets arm64 IPA
     runs-on: macos-26
     timeout-minutes: 120
 
     env:
       DEPLOYMENT_TARGET: "26.0"
-      DERIVED_DATA: "${{ github.workspace }}/DerivedData"
+      QT_VERSION: "6.11.1"
+      QT_ROOT: "${{ github.workspace }}/.qt"
+      QT_APP_BUILD: "${{ github.workspace }}/qt-ios-build"
       CI_LOGS: "${{ github.workspace }}/ci-logs"
-      STATUS_CONTEXT: "RPCS3 iOS 26 IPA"
+      STATUS_CONTEXT: "RPCS3 Qt iOS IPA"
 
     steps:
       - name: Checkout
@@ -47,7 +49,7 @@ jobs:
             -H "Accept: application/vnd.github+json" \
             -H "X-GitHub-Api-Version: 2022-11-28" \
             "https://api.github.com/repos/$GITHUB_REPOSITORY/statuses/$GITHUB_SHA" \
-            -d "{\"state\":\"pending\",\"context\":\"$STATUS_CONTEXT\",\"description\":\"iOS 26 IPA build is running\",\"target_url\":\"$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID\"}"
+            -d "{\"state\":\"pending\",\"context\":\"$STATUS_CONTEXT\",\"description\":\"RPCS3 Qt iOS build is running\",\"target_url\":\"$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID\"}"
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -88,14 +90,38 @@ jobs:
           echo "iphoneos SDK: $SDK_VERSION" | tee "$CI_LOGS/sdk-version.txt"
           [[ "$SDK_VERSION" == 26.* ]] || { echo "Expected iOS 26 SDK, got $SDK_VERSION"; exit 1; }
 
-      - name: Install XcodeGen
+      - name: Cache Qt for iOS
+        id: qt-cache
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.QT_ROOT }}
+          key: qt-${{ runner.os }}-${{ runner.arch }}-ios-${{ env.QT_VERSION }}-qttools-v1
+
+      - name: Install Qt for iOS and host tools
+        if: steps.qt-cache.outputs.cache-hit != 'true'
         shell: bash
         run: |
           set -euo pipefail
-          if ! command -v xcodegen >/dev/null 2>&1; then
-            brew install xcodegen
-          fi
-          xcodegen --version | tee "$CI_LOGS/xcodegen-version.txt"
+          python3 -m pip install --user --upgrade aqtinstall
+          IOS_ARCH="$(python3 -m aqt list-qt mac ios --arch "$QT_VERSION" | tr ' ' '\n' | sed '/^$/d' | head -n 1)"
+          test -n "$IOS_ARCH"
+          echo "Installing Qt $QT_VERSION for iOS architecture $IOS_ARCH"
+          MODULES="$(python3 -m aqt list-qt mac ios --modules "$QT_VERSION" "$IOS_ARCH")"
+          grep -qw qttools <<<"$MODULES" || { echo "Qt UiTools module is unavailable for this iOS package"; exit 1; }
+          python3 -m aqt install-qt mac ios "$QT_VERSION" "$IOS_ARCH" \
+            --autodesktop \
+            -m qttools \
+            -O "$QT_ROOT"
+
+      - name: Verify Qt toolchains
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -x "$QT_ROOT/$QT_VERSION/ios/bin/qt-cmake"
+          test -x "$QT_ROOT/$QT_VERSION/macos/bin/qt-cmake"
+          test -x "$QT_ROOT/$QT_VERSION/macos/libexec/uic" || test -x "$QT_ROOT/$QT_VERSION/macos/bin/uic"
+          "$QT_ROOT/$QT_VERSION/ios/bin/qt-cmake" --version | tee "$CI_LOGS/qt-cmake-version.txt"
+          find "$QT_ROOT/$QT_VERSION/ios" -maxdepth 3 -iname '*UiTools*' -print | tee "$CI_LOGS/qt-uitools-files.txt"
 
       - name: Build upstream-derived RPCS3 core archive
         shell: bash
@@ -103,62 +129,53 @@ jobs:
           set -o pipefail
           bash scripts/build-upstream-ios-core.sh 2>&1 | tee "$CI_LOGS/core-build-console.log"
 
-      - name: Generate Xcode project
+      - name: Build actual RPCS3 Qt iOS application
         shell: bash
         run: |
           set -o pipefail
-          xcodegen generate --spec project.yml 2>&1 | tee "$CI_LOGS/xcodegen.log"
+          bash scripts/build-qt-ios-app.sh 2>&1 | tee "$CI_LOGS/qt-app-build-console.log"
 
-      - name: Build unsigned physical-device app
-        shell: bash
-        run: |
-          set -o pipefail
-          xcodebuild \
-            -project RPCS3-iOS.xcodeproj \
-            -scheme RPCS3-iOS \
-            -configuration Release \
-            -sdk iphoneos \
-            -destination 'generic/platform=iOS' \
-            -derivedDataPath "$DERIVED_DATA" \
-            IPHONEOS_DEPLOYMENT_TARGET="$DEPLOYMENT_TARGET" \
-            ARCHS=arm64 \
-            ONLY_ACTIVE_ARCH=YES \
-            CODE_SIGNING_ALLOWED=NO \
-            CODE_SIGNING_REQUIRED=NO \
-            CODE_SIGN_IDENTITY='' \
-            clean build 2>&1 | tee "$CI_LOGS/xcodebuild.log"
-
-      - name: Validate upstream core and device bundle
+      - name: Validate real Qt main window and device bundle
         id: bundle
         shell: bash
         run: |
           set -euo pipefail
-          PRODUCT_DIR="$DERIVED_DATA/Build/Products/Release-iphoneos"
-          APP="$PRODUCT_DIR/RPCS3-iOS.app"
+          APP="$(cat "$QT_APP_BUILD/app-path.txt")"
           BIN="$APP/RPCS3-iOS"
           CORE_ARCHIVE="$GITHUB_WORKSPACE/BuildSupport/librpcs3-ios-core.a"
+          UI_SOURCE="$GITHUB_WORKSPACE/QtApp/Generated/ui/main_window.ui"
+          UI_HEADER="$(find "$QT_APP_BUILD" -type f -name ui_main_window.h -print | head -n 1)"
+
           test -d "$APP"
           test -f "$BIN"
           test -f "$CORE_ARCHIVE"
+          test -f "$UI_SOURCE"
+          test -f "$UI_HEADER"
+
+          grep -q '<class>main_window</class>' "$UI_SOURCE"
+          grep -q 'name="menuFile"' "$UI_SOURCE"
+          grep -q 'name="bootVSHAct"' "$UI_SOURCE"
+          grep -q 'class Ui_main_window' "$UI_HEADER"
+          grep -q 'bootGameAct' "$UI_HEADER"
+          grep -q 'menuConfiguration' "$UI_HEADER"
+
           file "$CORE_ARCHIVE"
           lipo -info "$CORE_ARCHIVE"
           xcrun ar -t "$CORE_ARCHIVE"
           nm -gU "$CORE_ARCHIVE" | grep -q '_rpcs3_ios_core_initialize'
           nm -gU "$CORE_ARCHIVE" | grep -q '_rpcs3_ios_core_boot_elf'
-          nm -gU "$CORE_ARCHIVE" | grep -q '_mbedtls_sha256_ret'
-          nm -gU "$CORE_ARCHIVE" | grep -q 'probe_ps3_elf'
-          nm -gU "$CORE_ARCHIVE" | grep -q 'probe_ps3_self'
-          nm -gU "$CORE_ARCHIVE" | grep -q 'build_plain_self_load_plan'
-          nm -gU "$CORE_ARCHIVE" | grep -q 'extract_plain_self_to_elf'
+
           file "$BIN"
           lipo -info "$BIN"
           xcrun vtool -show-build "$BIN" || true
           file "$BIN" | grep -q 'arm64'
+          strings "$BIN" | grep -q 'RPCS3 Qt iOS upstream main_window.ui'
           nm -gU "$BIN" | grep -q '_rpcs3_ios_core_initialize'
-          [[ "$APP" == *Release-iphoneos* ]] || { echo "Refusing non-device product path."; exit 1; }
+          nm -gU "$BIN" | grep -q '_rpcs3_ios_core_boot_elf'
+          [[ "$APP" == *Release* ]] || { echo "Refusing non-Release product path: $APP"; exit 1; }
           echo "app=$APP" >> "$GITHUB_OUTPUT"
 
-      - name: Package unsigned IPA
+      - name: Package unsigned Qt IPA
         shell: bash
         run: |
           set -euo pipefail
@@ -168,16 +185,16 @@ jobs:
           rm -rf Payload/RPCS3-iOS.app/_CodeSignature
           rm -f Payload/RPCS3-iOS.app/embedded.mobileprovision
           SHORT_SHA="$(printf '%s' "$GITHUB_SHA" | cut -c1-7)"
-          IPA="output/RPCS3-iOS-iOS26-${SHORT_SHA}-unsigned.ipa"
+          IPA="output/RPCS3-Qt-iOS26-${SHORT_SHA}-unsigned.ipa"
           /usr/bin/ditto -c -k --sequesterRsrc --keepParent Payload "$IPA"
           shasum -a 256 "$IPA" > "$IPA.sha256"
           unzip -l "$IPA"
           ls -lh output
 
-      - name: Upload unsigned IPA
+      - name: Upload unsigned Qt IPA
         uses: actions/upload-artifact@v4
         with:
-          name: RPCS3-iOS-iOS26-unsigned
+          name: RPCS3-Qt-iOS26-unsigned
           path: output/*
           if-no-files-found: error
           retention-days: 30
@@ -186,17 +203,18 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: RPCS3-iOS-ci-logs
+          name: RPCS3-Qt-iOS-ci-logs
           path: ci-logs/**
           if-no-files-found: warn
           retention-days: 30
 
-      - name: Upload upstream core build evidence
+      - name: Upload Qt and upstream build evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: RPCS3-iOS-upstream-core-evidence
+          name: RPCS3-Qt-iOS-build-evidence
           path: |
+            qt-ios-build/**
             cmake-ios-build/**
             cmake-ios-build.tar.gz
           if-no-files-found: warn
@@ -208,9 +226,9 @@ jobs:
         run: |
           set -euo pipefail
           case "${{ job.status }}" in
-            success) state="success"; description="iOS 26 unsigned IPA built successfully" ;;
-            cancelled) state="error"; description="iOS 26 IPA build was cancelled" ;;
-            *) state="failure"; description="iOS 26 IPA build failed" ;;
+            success) state="success"; description="RPCS3 Qt iOS unsigned IPA built successfully" ;;
+            cancelled) state="error"; description="RPCS3 Qt iOS build was cancelled" ;;
+            *) state="failure"; description="RPCS3 Qt iOS build failed" ;;
           esac
           curl --fail --silent --show-error --max-time 30 \
             -X POST \
