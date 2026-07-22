@@ -3,6 +3,7 @@
 #include "IOSPlatform.h"
 #include "RPCS3ELFProbe.h"
 #include "RPCS3SELFProbe.h"
+#include "RPCS3SELFLoadPlan.h"
 
 #ifdef RPCS3_IOS_WITH_UPSTREAM_CRYPTO
 #include "sha256.h"
@@ -166,7 +167,7 @@ int rpcs3_ios_core_initialize(const char *data_path)
     g_last_boot_sha256.clear();
     g_state = RPCS3IOSCoreStateUnavailable;
     g_message = capabilities.metal_available
-        ? "Sandbox storage, Metal, upstream SHA-256, ELF types, and SELF probing are ready. PPU/SPU execution is not linked yet."
+        ? "Sandbox storage, Metal, upstream SHA-256, ELF probing, and SELF load planning are ready. PPU/SPU execution is not linked yet."
         : "Sandbox storage and upstream loader primitives are ready, but no Metal device is available.";
     return 1;
 }
@@ -239,8 +240,21 @@ int rpcs3_ios_core_boot_elf(const char *elf_path)
             return 0;
         }
 
+        if (!probe.requires_decryption && probe.compressed_segment_count == 0)
+        {
+            const rpcs3::ios::self_load_plan plan = rpcs3::ios::build_plain_self_load_plan(elf_path);
+            if (!plan.valid)
+            {
+                set_failure(plan.description);
+                return 0;
+            }
+            g_state = RPCS3IOSCoreStateReady;
+            g_message = probe.description + "; " + plan.description + "; ready for bounded ELF reconstruction.";
+            return 1;
+        }
+
         g_state = RPCS3IOSCoreStateUnavailable;
-        g_message = probe.description + "; SELF decryption and segment extraction are the next loader stage.";
+        g_message = probe.description + "; encrypted/compressed SELF processing remains disabled.";
         return 0;
     }
 
