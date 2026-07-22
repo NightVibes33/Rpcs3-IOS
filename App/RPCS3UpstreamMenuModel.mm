@@ -80,7 +80,7 @@ static UIMenu *MenuFromNode(NSDictionary *node, NSDictionary *titles, RPCS3Upstr
     NSMutableArray<UIMenuElement *> *segment = [NSMutableArray array];
     void (^flush)(void) = ^{
         if (!segment.count) return;
-        [result addObject:[UIMenu menuWithTitle:@"" options:UIMenuOptionsDisplayInline children:[segment copy]]];
+        [result addObject:[UIMenu menuWithTitle:@"" image:nil identifier:nil options:UIMenuOptionsDisplayInline children:[segment copy]]];
         [segment removeAllObjects];
     };
 
