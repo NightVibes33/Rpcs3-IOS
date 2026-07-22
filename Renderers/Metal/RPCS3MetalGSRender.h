@@ -7,7 +7,9 @@
 
 namespace rpcs3::ios::render
 {
-class metal_gs_render final : public GSRender
+// RPCS3's named_thread<Context> derives from the renderer context, so this
+// class must remain derivable even though its virtual overrides are final.
+class metal_gs_render : public GSRender
 {
 public:
     explicit metal_gs_render(utils::serial* archive) noexcept;
