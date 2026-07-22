@@ -1,8 +1,14 @@
 #include "Emu/System.h"
+#include "Emu/IdManager.h"
 #include "Emu/system_config.h"
+#include "Emu/RSX/VK/VKGSRender.h"
 #include "Utilities/File.h"
+#include "RPCS3IOSGSFrame.h"
+#include "RPCS3MetalGSRender.h"
 
+#include <cstdlib>
 #include <filesystem>
+#include <memory>
 #include <mutex>
 #include <string>
 
@@ -12,14 +18,19 @@ std::mutex g_probe_mutex;
 bool g_probe_initialized = false;
 std::string g_probe_data_root;
 
+bool use_native_metal()
+{
+    const char* value = std::getenv("RPCS3_IOS_RENDERER");
+    return value && std::string_view(value) == "metal";
+}
+
 void configure_interpreter_lane()
 {
-    // Start with RPCS3's precise interpreters. Renderer selection is installed
-    // by the iOS host callbacks so Vulkan/MoltenVK and native Metal can share
-    // the same Emu.System execution path.
     g_cfg.core.ppu_decoder.set(ppu_decoder_type::interpreter);
     g_cfg.core.spu_decoder.set(spu_decoder_type::interpreter_precise);
-    g_cfg.video.renderer.set(video_renderer::vulkan);
+    // RPCS3 has no upstream Metal enum. Native Metal is selected in the host
+    // callback while Vulkan continues through the upstream VKGSRender path.
+    g_cfg.video.renderer.set(use_native_metal() ? video_renderer::null : video_renderer::vulkan);
     g_cfg.audio.renderer.set(audio_renderer::null);
     g_cfg.io.keyboard.set(keyboard_handler::null);
     g_cfg.io.mouse.set(mouse_handler::null);
@@ -63,10 +74,23 @@ void install_minimal_callbacks()
     callbacks.update_emu_settings = []() {};
     callbacks.save_emu_settings = []() {};
     callbacks.close_gs_frame = []() {};
-    callbacks.get_gs_frame = []() -> std::unique_ptr<GSFrameBase> { return {}; };
+    callbacks.get_gs_frame = []() -> std::unique_ptr<GSFrameBase>
+    {
+        return std::make_unique<rpcs3::ios::render::ios_gs_frame>();
+    };
     callbacks.get_camera_handler = []() -> std::shared_ptr<camera_handler_base> { return {}; };
     callbacks.get_music_handler = []() -> std::shared_ptr<music_handler_base> { return {}; };
-    callbacks.init_gs_render = [](utils::serial*) {};
+    callbacks.init_gs_render = [](utils::serial* archive)
+    {
+        if (use_native_metal())
+        {
+            g_fxo->init<rsx::thread, named_thread<rpcs3::ios::render::metal_gs_render>>(archive);
+        }
+        else
+        {
+            g_fxo->init<rsx::thread, named_thread<VKGSRender>>(archive);
+        }
+    };
     callbacks.get_audio = []() -> std::shared_ptr<AudioBackend> { return {}; };
     callbacks.get_audio_enumerator = [](u64) -> std::shared_ptr<audio_device_enumerator> { return {}; };
     callbacks.get_msg_dialog = []() -> std::shared_ptr<MsgDialogBase> { return {}; };
