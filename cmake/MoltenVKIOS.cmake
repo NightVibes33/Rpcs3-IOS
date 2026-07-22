@@ -20,13 +20,14 @@ function(rpcs3_link_moltenvk target moltenvk_root)
 
     if(NOT EXISTS "${_binary}")
         file(GLOB_RECURSE _moltenvk_candidates LIST_DIRECTORIES false
-            "${_xcframework}/*/MoltenVK.framework/MoltenVK")
+            "${_xcframework}/*/MoltenVK.framework/MoltenVK"
+            "${_xcframework}/*/libMoltenVK.a")
         foreach(_candidate IN LISTS _moltenvk_candidates)
             string(TOLOWER "${_candidate}" _candidate_lower)
             if(_candidate_lower MATCHES "simulator|maccatalyst")
                 continue()
             endif()
-            if(_candidate MATCHES "/ios-[^/]+/MoltenVK\\.framework/MoltenVK$")
+            if(_candidate MATCHES "/ios-[^/]+/(MoltenVK\\.framework/MoltenVK|libMoltenVK\\.a)$")
                 set(_binary "${_candidate}")
                 break()
             endif()
@@ -34,9 +35,8 @@ function(rpcs3_link_moltenvk target moltenvk_root)
     endif()
 
     if(NOT EXISTS "${_binary}")
-        message(FATAL_ERROR "No arm64 iOS MoltenVK framework binary was found under ${_xcframework}")
+        message(FATAL_ERROR "No arm64 iOS MoltenVK framework or static archive was found under ${_xcframework}")
     endif()
-    get_filename_component(_framework "${_binary}" DIRECTORY)
 
     foreach(_required IN ITEMS
         "${_binary}"
@@ -52,7 +52,7 @@ function(rpcs3_link_moltenvk target moltenvk_root)
         add_library(MoltenVK::MoltenVK STATIC IMPORTED GLOBAL)
         set_target_properties(MoltenVK::MoltenVK PROPERTIES
             IMPORTED_LOCATION "${_binary}"
-            INTERFACE_INCLUDE_DIRECTORIES "${_include};${_framework}/Headers"
+            INTERFACE_INCLUDE_DIRECTORIES "${_include}"
         )
     endif()
 
