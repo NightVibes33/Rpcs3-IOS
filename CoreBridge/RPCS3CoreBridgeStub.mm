@@ -1,10 +1,7 @@
 #include "RPCS3CoreBridge.h"
+#include "RPCS3UpstreamRuntimeBridge.h"
 #include "IOSFilesystem.h"
 #include "IOSPlatform.h"
-#include "RPCS3ELFProbe.h"
-#include "RPCS3SELFProbe.h"
-#include "RPCS3SELFLoadPlan.h"
-#include "RPCS3SELFExtractor.h"
 #include "RPCS3IOSBuildManifest.h"
 
 #ifdef RPCS3_IOS_WITH_UPSTREAM_CRYPTO
@@ -22,15 +19,35 @@ namespace
 {
 std::mutex g_mutex;
 bool g_platform_initialized = false;
+bool g_upstream_initialized = false;
 RPCS3IOSCoreState g_state = RPCS3IOSCoreStateUnavailable;
 std::string g_data_path;
 std::string g_last_boot_sha256;
-std::string g_message = "RPCS3 iOS partial-upstream core has not been initialized.";
+std::string g_message = "RPCS3 iOS upstream runtime has not been initialized.";
 
 void set_failure(std::string message)
 {
     g_state = RPCS3IOSCoreStateFailed;
     g_message = std::move(message);
+}
+
+RPCS3IOSCoreState map_upstream_state(RPCS3IOSUpstreamState state)
+{
+    switch (state)
+    {
+    case RPCS3IOSUpstreamStateReady:
+        return RPCS3IOSCoreStateReady;
+    case RPCS3IOSUpstreamStateRunning:
+    case RPCS3IOSUpstreamStatePaused:
+        return RPCS3IOSCoreStateRunning;
+    case RPCS3IOSUpstreamStateStopped:
+        return RPCS3IOSCoreStateStopped;
+    case RPCS3IOSUpstreamStateFailed:
+        return RPCS3IOSCoreStateFailed;
+    case RPCS3IOSUpstreamStateUninitialized:
+    default:
+        return RPCS3IOSCoreStateUnavailable;
+    }
 }
 
 #ifdef RPCS3_IOS_WITH_UPSTREAM_CRYPTO
@@ -55,8 +72,12 @@ bool sha256_bytes(const unsigned char* bytes, std::size_t size, std::string& out
     return true;
 }
 
-bool sha256_file(std::ifstream& stream, std::string& output)
+bool sha256_file(const char* path, std::string& output)
 {
+    std::ifstream stream(path, std::ios::binary);
+    if (!stream)
+        return false;
+
     mbedtls_sha256_context context{};
     mbedtls_sha256_init(&context);
     if (mbedtls_sha256_starts_ret(&context, 0) != 0)
@@ -65,8 +86,6 @@ bool sha256_file(std::ifstream& stream, std::string& output)
         return false;
     }
 
-    stream.clear();
-    stream.seekg(0, std::ios::beg);
     std::array<unsigned char, 64 * 1024> buffer{};
     while (stream)
     {
@@ -79,14 +98,8 @@ bool sha256_file(std::ifstream& stream, std::string& output)
         }
     }
 
-    if (stream.bad())
-    {
-        mbedtls_sha256_free(&context);
-        return false;
-    }
-
     std::array<unsigned char, 32> digest{};
-    const int status = mbedtls_sha256_finish_ret(&context, digest.data());
+    const int status = stream.bad() ? -1 : mbedtls_sha256_finish_ret(&context, digest.data());
     mbedtls_sha256_free(&context);
     if (status != 0)
         return false;
@@ -113,6 +126,14 @@ RPCS3IOSCoreDiagnostics rpcs3_ios_core_diagnostics(void)
     thread_local std::string hash_copy;
 
     std::lock_guard lock(g_mutex);
+    if (g_upstream_initialized)
+    {
+        g_state = map_upstream_state(rpcs3_ios_upstream_state());
+        const char* upstream_message = rpcs3_ios_upstream_last_message();
+        if (upstream_message && *upstream_message)
+            g_message = upstream_message;
+    }
+
     message_copy = g_message;
     path_copy = g_data_path;
     hash_copy = g_last_boot_sha256;
@@ -127,8 +148,8 @@ RPCS3IOSCoreDiagnostics rpcs3_ios_core_diagnostics(void)
     result.upstream_crypto_available = 0;
 #endif
     result.upstream_source_count = RPCS3_IOS_BUILD_UPSTREAM_SOURCE_COUNT;
-    result.ppu_interpreter_available = 0;
-    result.spu_interpreter_available = 0;
+    result.ppu_interpreter_available = g_upstream_initialized ? 1 : 0;
+    result.spu_interpreter_available = g_upstream_initialized ? 1 : 0;
     result.jit_available = 0;
     result.renderer_available = 0;
     result.upstream_revision = RPCS3_IOS_BUILD_UPSTREAM_REVISION;
@@ -139,13 +160,14 @@ RPCS3IOSCoreDiagnostics rpcs3_ios_core_diagnostics(void)
     return result;
 }
 
-int rpcs3_ios_core_initialize(const char *data_path)
+int rpcs3_ios_core_initialize(const char* data_path)
 {
     std::lock_guard lock(g_mutex);
     const rpcs3::ios::filesystem_layout layout = rpcs3::ios::prepare_filesystem_layout(data_path);
     if (!layout.ready)
     {
         g_platform_initialized = false;
+        g_upstream_initialized = false;
         set_failure(layout.error.empty() ? "Unable to prepare RPCS3 sandbox storage" : layout.error);
         return 0;
     }
@@ -154,6 +176,7 @@ int rpcs3_ios_core_initialize(const char *data_path)
     if (!capabilities.physical_device)
     {
         g_platform_initialized = false;
+        g_upstream_initialized = false;
         set_failure("RPCS3 iOS requires a physical arm64 iOS device");
         return 0;
     }
@@ -162,6 +185,7 @@ int rpcs3_ios_core_initialize(const char *data_path)
     if (!upstream_crypto_self_test())
     {
         g_platform_initialized = false;
+        g_upstream_initialized = false;
         set_failure("Upstream RPCS3 SHA-256 self-test failed");
         return 0;
     }
@@ -170,136 +194,99 @@ int rpcs3_ios_core_initialize(const char *data_path)
     g_platform_initialized = true;
     g_data_path = layout.root;
     g_last_boot_sha256.clear();
-    g_state = RPCS3IOSCoreStateUnavailable;
-    g_message = "Partial-upstream core initialized with sandbox storage and loader probes. Emu.System, PPU/SPU execution, JIT, and an RSX renderer are not linked yet.";
+
+    if (!rpcs3_ios_upstream_initialize(layout.root.c_str()))
+    {
+        g_upstream_initialized = false;
+        const char* upstream_message = rpcs3_ios_upstream_last_message();
+        set_failure(upstream_message && *upstream_message
+            ? upstream_message
+            : "Real upstream Emu.Init failed without a diagnostic message.");
+        return 0;
+    }
+
+    g_upstream_initialized = true;
+    g_state = RPCS3IOSCoreStateReady;
+    g_message = "Real upstream Emu.Init completed. PPU/SPU interpreter execution is linked; Metal rendering is not connected yet.";
     return 1;
 }
 
-int rpcs3_ios_core_boot_elf(const char *elf_path)
+int rpcs3_ios_core_boot_elf(const char* boot_path)
 {
     std::lock_guard lock(g_mutex);
-    if (!g_platform_initialized)
+    if (!g_platform_initialized || !g_upstream_initialized)
     {
-        set_failure("Initialize the iOS platform before loading a boot file");
+        set_failure("Initialize the real upstream RPCS3 runtime before booting content.");
         return 0;
     }
-    if (!elf_path || !*elf_path)
+    if (!boot_path || !*boot_path)
     {
-        set_failure("No boot-file path was supplied");
+        set_failure("No RPCS3 boot path was supplied.");
         return 0;
     }
-    if (!rpcs3::ios::path_is_within_app_container(elf_path))
+    if (!rpcs3::ios::path_is_within_app_container(boot_path))
     {
-        set_failure("Boot input must be copied into the RPCS3 app container first");
-        return 0;
-    }
-
-    std::error_code filesystem_error;
-    if (!std::filesystem::is_regular_file(elf_path, filesystem_error))
-    {
-        set_failure("Boot input is not a readable regular file");
+        set_failure("Boot input must be inside the RPCS3 app container.");
         return 0;
     }
 
-    std::ifstream stream(elf_path, std::ios::binary);
-    std::array<unsigned char, 4> magic{};
-    stream.read(reinterpret_cast<char*>(magic.data()), static_cast<std::streamsize>(magic.size()));
-    if (stream.gcount() != static_cast<std::streamsize>(magic.size()))
+    std::error_code error;
+    const std::filesystem::path path(boot_path);
+    if (!std::filesystem::exists(path, error) || error)
     {
-        set_failure("Boot input is too small to identify");
+        set_failure("The selected RPCS3 boot path does not exist.");
         return 0;
     }
 
 #ifdef RPCS3_IOS_WITH_UPSTREAM_CRYPTO
-    if (!sha256_file(stream, g_last_boot_sha256))
+    if (std::filesystem::is_regular_file(path, error) && !error)
     {
-        set_failure("Unable to calculate the boot-file SHA-256");
-        return 0;
+        if (!sha256_file(boot_path, g_last_boot_sha256))
+        {
+            set_failure("Unable to calculate the selected boot file SHA-256.");
+            return 0;
+        }
     }
-#else
-    g_last_boot_sha256.clear();
+    else
 #endif
-
-    if (magic[0] == 0x7f && magic[1] == 'E' && magic[2] == 'L' && magic[3] == 'F')
     {
-        const rpcs3::ios::elf_probe_result probe = rpcs3::ios::probe_ps3_elf(elf_path);
-        if (!probe.valid || !probe.ps3_compatible)
-        {
-            set_failure(probe.description);
-            return 0;
-        }
-
-        g_state = RPCS3IOSCoreStateReady;
-        g_message = probe.description + "; validated for a future upstream Emu.System loader. No guest instructions were executed.";
-        return 1;
+        g_last_boot_sha256.clear();
     }
 
-    if (magic[0] == 'S' && magic[1] == 'C' && magic[2] == 'E' && magic[3] == 0)
+    const int boot_result = rpcs3_ios_upstream_boot_game(boot_path);
+    const char* upstream_message = rpcs3_ios_upstream_last_message();
+    g_message = upstream_message && *upstream_message
+        ? upstream_message
+        : "Upstream Emulator::BootGame returned without a diagnostic message.";
+
+    if (boot_result != 0)
     {
-        const rpcs3::ios::self_probe_result probe = rpcs3::ios::probe_ps3_self(elf_path);
-        if (!probe.structurally_valid)
-        {
-            set_failure(probe.description);
-            return 0;
-        }
-
-        if (!probe.requires_decryption && probe.compressed_segment_count == 0)
-        {
-            const rpcs3::ios::self_load_plan plan = rpcs3::ios::build_plain_self_load_plan(elf_path);
-            if (!plan.valid)
-            {
-                set_failure(plan.description);
-                return 0;
-            }
-
-            const std::string artifact_name = g_last_boot_sha256.empty()
-                ? "plain-self.elf"
-                : "self-" + g_last_boot_sha256.substr(0, 16) + ".elf";
-            const std::filesystem::path output =
-                std::filesystem::path(g_data_path) / "cache" / "self" / artifact_name;
-            const rpcs3::ios::self_extraction_result extraction =
-                rpcs3::ios::extract_plain_self_to_elf(elf_path, output.string().c_str());
-            if (!extraction.success)
-            {
-                set_failure(extraction.description);
-                return 0;
-            }
-            if (!rpcs3::ios::path_is_within_app_container(extraction.output_path.c_str()))
-            {
-                set_failure("Reconstructed ELF escaped the RPCS3 app container");
-                return 0;
-            }
-
-            const rpcs3::ios::elf_probe_result extracted_probe =
-                rpcs3::ios::probe_ps3_elf(extraction.output_path.c_str());
-            if (!extracted_probe.valid || !extracted_probe.ps3_compatible)
-            {
-                std::filesystem::remove(extraction.output_path, filesystem_error);
-                set_failure("Reconstructed SELF payload failed ELF validation: " + extracted_probe.description);
-                return 0;
-            }
-
-            g_state = RPCS3IOSCoreStateReady;
-            g_message = probe.description + "; " + extraction.description + "; " +
-                extracted_probe.description + "; cached for a future upstream Emu.System loader. No guest instructions were executed.";
-            return 1;
-        }
-
-        g_state = RPCS3IOSCoreStateUnavailable;
-        g_message = probe.description + "; encrypted/compressed SELF processing remains disabled.";
+        g_state = RPCS3IOSCoreStateFailed;
         return 0;
     }
 
-    set_failure("Boot input is neither a PS3 ELF nor an SCE/SELF container");
-    return 0;
+    g_state = map_upstream_state(rpcs3_ios_upstream_state());
+    if (g_state == RPCS3IOSCoreStateUnavailable || g_state == RPCS3IOSCoreStateFailed)
+        g_state = RPCS3IOSCoreStateReady;
+    return 1;
 }
 
 void rpcs3_ios_core_stop(void)
 {
     std::lock_guard lock(g_mutex);
-    if (g_platform_initialized)
+    if (!g_upstream_initialized)
+        return;
+
+    if (rpcs3_ios_upstream_stop())
     {
         g_state = RPCS3IOSCoreStateStopped;
-        g_message = "Core stop requested; no upstream execution engine is linked.";
+        const char* upstream_message = rpcs3_ios_upstream_last_message();
+        g_message = upstream_message && *upstream_message
+            ? upstream_message
+            : "Upstream emulation stopped.";
+    }
+    else
+    {
+        set_failure("The upstream runtime rejected the stop request.");
     }
 }
