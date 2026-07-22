@@ -8,9 +8,11 @@ TOOLCHAIN="$PORT_ROOT/cmake/toolchains/ios-arm64.cmake"
 REVISION_FILE="$PORT_ROOT/UPSTREAM_RPCS3_REVISION"
 LOG_DIR="$BUILD/logs"
 PHASE_LOG="$LOG_DIR/phases.log"
+TIMEOUT_RUNNER="$PORT_ROOT/scripts/run-with-timeout.py"
 
 UPSTREAM_REVISION="$(tr -d '[:space:]' < "$REVISION_FILE")"
 test -n "$UPSTREAM_REVISION"
+test -f "$TIMEOUT_RUNNER"
 
 rm -rf "$ROOT" "$BUILD"
 mkdir -p "$LOG_DIR"
@@ -23,8 +25,10 @@ run_timed() {
   local seconds="$1"
   shift
   phase "RUN timeout=${seconds}s: $*"
-  timeout "$seconds" "$@" 2>&1 | tee -a "$PHASE_LOG"
+  set +e
+  python3 "$TIMEOUT_RUNNER" "$seconds" "$@" 2>&1 | tee -a "$PHASE_LOG"
   local status=${PIPESTATUS[0]}
+  set -e
   if [[ $status -ne 0 ]]; then
     phase "FAILED status=$status: $*"
   fi
@@ -46,7 +50,7 @@ git -C "$ROOT" submodule status --recursive > "$BUILD/upstream-submodules.txt"
 
 phase "Configure RPCS3 real top-level graph for arm64 iOS"
 set +e
-timeout 3600 cmake \
+python3 "$TIMEOUT_RUNNER" 3600 cmake \
   -S "$ROOT" \
   -B "$BUILD/tree" \
   -DCMAKE_TOOLCHAIN_FILE="$TOOLCHAIN" \
