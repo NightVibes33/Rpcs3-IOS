@@ -1,5 +1,6 @@
 #import <UIKit/UIKit.h>
 #import <Metal/Metal.h>
+#import <UniformTypeIdentifiers/UniformTypeIdentifiers.h>
 #import <sys/mman.h>
 #import <sys/sysctl.h>
 #import "RPCS3CoreBridge.h"
@@ -36,7 +37,7 @@ static NSString *UTF8OrNone(const char *value) {
     return value ? ([NSString stringWithUTF8String:value] ?: @"invalid UTF-8") : @"none";
 }
 
-@interface MainViewController : UIViewController
+@interface MainViewController : UIViewController <UIDocumentPickerDelegate>
 @property(nonatomic, strong) UITextView *textView;
 @end
 
@@ -50,7 +51,7 @@ static NSString *UTF8OrNone(const char *value) {
     status.translatesAutoresizingMaskIntoConstraints = NO;
     status.numberOfLines = 0;
     status.font = [UIFont preferredFontForTextStyle:UIFontTextStyleHeadline];
-    status.text = @"Real-device iOS 26 shell linked to an upstream-derived RPCS3 static core archive.";
+    status.text = @"Upstream-derived arm64 core archive with sandboxed ELF import and validation.";
 
     self.textView = [[UITextView alloc] init];
     self.textView.translatesAutoresizingMaskIntoConstraints = NO;
@@ -60,14 +61,24 @@ static NSString *UTF8OrNone(const char *value) {
     self.textView.layer.cornerRadius = 12;
     self.textView.textContainerInset = UIEdgeInsetsMake(14, 14, 14, 14);
 
+    UIButton *importELF = [UIButton buttonWithType:UIButtonTypeSystem];
+    [importELF setTitle:@"Import ELF" forState:UIControlStateNormal];
+    [importELF addTarget:self action:@selector(importELF) forControlEvents:UIControlEventTouchUpInside];
+
     UIButton *refresh = [UIButton buttonWithType:UIButtonTypeSystem];
-    refresh.translatesAutoresizingMaskIntoConstraints = NO;
     [refresh setTitle:@"Refresh Diagnostics" forState:UIControlStateNormal];
     [refresh addTarget:self action:@selector(refreshDiagnostics) forControlEvents:UIControlEventTouchUpInside];
 
+    UIStackView *actions = [[UIStackView alloc] initWithArrangedSubviews:@[importELF, refresh]];
+    actions.translatesAutoresizingMaskIntoConstraints = NO;
+    actions.axis = UILayoutConstraintAxisHorizontal;
+    actions.alignment = UIStackViewAlignmentCenter;
+    actions.distribution = UIStackViewDistributionFillEqually;
+    actions.spacing = 12;
+
     [self.view addSubview:status];
     [self.view addSubview:self.textView];
-    [self.view addSubview:refresh];
+    [self.view addSubview:actions];
 
     UILayoutGuide *guide = self.view.safeAreaLayoutGuide;
     [NSLayoutConstraint activateConstraints:@[
@@ -77,11 +88,66 @@ static NSString *UTF8OrNone(const char *value) {
         [self.textView.topAnchor constraintEqualToAnchor:status.bottomAnchor constant:14],
         [self.textView.leadingAnchor constraintEqualToAnchor:guide.leadingAnchor constant:16],
         [self.textView.trailingAnchor constraintEqualToAnchor:guide.trailingAnchor constant:-16],
-        [refresh.topAnchor constraintEqualToAnchor:self.textView.bottomAnchor constant:12],
-        [refresh.centerXAnchor constraintEqualToAnchor:guide.centerXAnchor],
-        [refresh.bottomAnchor constraintEqualToAnchor:guide.bottomAnchor constant:-16]
+        [actions.topAnchor constraintEqualToAnchor:self.textView.bottomAnchor constant:12],
+        [actions.leadingAnchor constraintEqualToAnchor:guide.leadingAnchor constant:16],
+        [actions.trailingAnchor constraintEqualToAnchor:guide.trailingAnchor constant:-16],
+        [actions.bottomAnchor constraintEqualToAnchor:guide.bottomAnchor constant:-16]
     ]];
     [self refreshDiagnostics];
+}
+
+- (void)importELF {
+    UIDocumentPickerViewController *picker =
+        [[UIDocumentPickerViewController alloc] initForOpeningContentTypes:@[UTTypeData] asCopy:YES];
+    picker.delegate = self;
+    picker.allowsMultipleSelection = NO;
+    [self presentViewController:picker animated:YES completion:nil];
+}
+
+- (void)documentPicker:(UIDocumentPickerViewController *)controller
+ didPickDocumentsAtURLs:(NSArray<NSURL *> *)urls {
+    (void)controller;
+    NSURL *source = urls.firstObject;
+    if (!source) return;
+
+    RPCS3IOSCoreDiagnostics core = rpcs3_ios_core_diagnostics();
+    if (!core.data_path) {
+        [self showError:@"The RPCS3 sandbox is not initialized."];
+        return;
+    }
+
+    NSString *root = [NSString stringWithUTF8String:core.data_path];
+    NSString *imports = [root stringByAppendingPathComponent:@"imports"];
+    NSString *name = source.lastPathComponent.length ? source.lastPathComponent : @"boot.elf";
+    NSString *uniqueName = [NSString stringWithFormat:@"%@-%@", NSUUID.UUID.UUIDString, name];
+    NSURL *destination = [NSURL fileURLWithPath:[imports stringByAppendingPathComponent:uniqueName]];
+
+    BOOL scoped = [source startAccessingSecurityScopedResource];
+    NSError *error = nil;
+    [[NSFileManager defaultManager] createDirectoryAtPath:imports
+                              withIntermediateDirectories:YES
+                                               attributes:nil
+                                                    error:&error];
+    if (!error) {
+        [[NSFileManager defaultManager] copyItemAtURL:source toURL:destination error:&error];
+    }
+    if (scoped) [source stopAccessingSecurityScopedResource];
+
+    if (error) {
+        [self showError:error.localizedDescription ?: @"Unable to import the selected file."];
+        return;
+    }
+
+    rpcs3_ios_core_boot_elf(destination.path.fileSystemRepresentation);
+    [self refreshDiagnostics];
+}
+
+- (void)showError:(NSString *)message {
+    UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"Import failed"
+                                                                   message:message
+                                                            preferredStyle:UIAlertControllerStyleAlert];
+    [alert addAction:[UIAlertAction actionWithTitle:@"OK" style:UIAlertActionStyleDefault handler:nil]];
+    [self presentViewController:alert animated:YES completion:nil];
 }
 
 - (void)refreshDiagnostics {
