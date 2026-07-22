@@ -61,6 +61,7 @@ python3 "$TIMEOUT_RUNNER" 3600 cmake \
   -DWITH_LLVM=OFF \
   -DBUILD_LLVM=OFF \
   -DBUILD_LLVM_SUBMODULE=OFF \
+  -DUSE_SYSTEM_CURL=OFF \
   -DUSE_FAUDIO=OFF \
   -DUSE_PRECOMPILED_HEADERS=OFF \
   2>&1 | tee "$LOG_DIR/configure.log"
@@ -76,6 +77,7 @@ phase "CMake configure exit status=$status"
   echo "- Configure exit status: \`$status\`"
   echo "- LLVM is intentionally disabled for this graph stage so the interpreter-based PPU/SPU path can configure before an iOS-safe JIT backend is introduced."
   echo "- Desktop Qt/rpcs3qt are excluded; UIKit remains the host UI while upstream rpcs3/Emu and Emu.System stay in the graph."
+  echo "- Curl is built from RPCS3's pinned submodule for arm64 iOS instead of locating incompatible host libraries."
   echo "- This probe enters RPCS3's real dependency/emulator graph without the bootstrap early return."
   if [[ $status -ne 0 ]]; then
     echo "- The tail below is the next concrete porting blocker:"
