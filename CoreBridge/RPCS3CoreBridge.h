@@ -18,6 +18,20 @@ typedef enum RPCS3IOSCoreCapabilityLevel {
     RPCS3IOSCoreCapabilityExecutionCapable = 2
 } RPCS3IOSCoreCapabilityLevel;
 
+typedef enum RPCS3IOSCoreOperation {
+    RPCS3IOSCoreOperationBoot = 0,
+    RPCS3IOSCoreOperationPause = 1,
+    RPCS3IOSCoreOperationResume = 2,
+    RPCS3IOSCoreOperationRestart = 3,
+    RPCS3IOSCoreOperationStop = 4,
+    RPCS3IOSCoreOperationBootVSH = 5,
+    RPCS3IOSCoreOperationInsertDisc = 6,
+    RPCS3IOSCoreOperationEjectDisc = 7,
+    RPCS3IOSCoreOperationInstallPackage = 8,
+    RPCS3IOSCoreOperationInstallFirmware = 9,
+    RPCS3IOSCoreOperationAddGame = 10
+} RPCS3IOSCoreOperation;
+
 typedef struct RPCS3IOSCoreDiagnostics {
     RPCS3IOSCoreState state;
     RPCS3IOSCoreCapabilityLevel capability_level;
@@ -28,6 +42,8 @@ typedef struct RPCS3IOSCoreDiagnostics {
     int spu_interpreter_available;
     int jit_available;
     int renderer_available;
+    int upstream_runtime_linked;
+    int host_callbacks_initialized;
     const char *upstream_revision;
     const char *build_classification;
     const char *data_path;
@@ -37,8 +53,23 @@ typedef struct RPCS3IOSCoreDiagnostics {
 
 RPCS3IOSCoreDiagnostics rpcs3_ios_core_diagnostics(void);
 int rpcs3_ios_core_initialize(const char *data_path);
+
+/* Boot a game directory, ISO, SELF, ELF, EBOOT.BIN, or VSH path through Emu.System. */
+int rpcs3_ios_core_boot_path(const char *path);
+/* Compatibility alias retained for existing callers. */
 int rpcs3_ios_core_boot_elf(const char *elf_path);
+
+int rpcs3_ios_core_pause(void);
+int rpcs3_ios_core_resume(void);
+int rpcs3_ios_core_restart(void);
 void rpcs3_ios_core_stop(void);
+int rpcs3_ios_core_boot_vsh(void);
+int rpcs3_ios_core_insert_disc(const char *path);
+int rpcs3_ios_core_eject_disc(void);
+int rpcs3_ios_core_install_package(const char *path);
+int rpcs3_ios_core_install_firmware(const char *path);
+int rpcs3_ios_core_add_game(const char *path);
+int rpcs3_ios_core_operation_available(RPCS3IOSCoreOperation operation);
 
 #ifdef __cplusplus
 }
