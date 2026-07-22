@@ -1,0 +1,125 @@
+name: Validate Metal Geometry Staging
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [metal-geometry-staging]
+    paths:
+      - "Renderers/Metal/**"
+      - "scripts/probe-upstream-ios-graph.sh"
+      - "scripts/patch-upstream-ios-vulkan.py"
+      - "SPIRV_CROSS_REVISION"
+      - ".github/workflows/metal-geometry-staging.yml"
+
+permissions:
+  contents: read
+  statuses: write
+
+concurrency:
+  group: metal-geometry-staging-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  graph:
+    name: Compile RPCS3 vertex and index staging
+    runs-on: macos-26
+    timeout-minutes: 240
+    env:
+      STATUS_CONTEXT: "RPCS3 Metal geometry staging"
+      DEPLOYMENT_TARGET: "26.0"
+      RPCS3_IOS_FFMPEG_ROOT: "${{ github.workspace }}/BuildSupport/ffmpeg-ios"
+      FFMPEG_IOS_ROOT: "${{ github.workspace }}/BuildSupport/ffmpeg-ios"
+      RPCS3_IOS_MOLTENVK_ROOT: "${{ github.workspace }}/BuildSupport/MoltenVK"
+      MOLTENVK_ROOT: "${{ github.workspace }}/BuildSupport/MoltenVK"
+      RPCS3_IOS_SPIRV_CROSS_ROOT: "${{ github.workspace }}/BuildSupport/SPIRV-Cross"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Publish pending status
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          curl --fail --silent --show-error --max-time 30 \
+            -X POST \
+            -H "Authorization: Bearer $GITHUB_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "https://api.github.com/repos/$GITHUB_REPOSITORY/statuses/$GITHUB_SHA" \
+            -d "{\"state\":\"pending\",\"context\":\"$STATUS_CONTEXT\",\"description\":\"Compiling real draw-clause vertex and index staging\",\"target_url\":\"$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID\"}"
+
+      - name: Select iOS 26 SDK
+        shell: bash
+        run: |
+          set -euo pipefail
+          sdk="$(xcrun --sdk iphoneos --show-sdk-version 2>/dev/null || true)"
+          if [[ "$sdk" != 26.* ]]; then
+            while IFS= read -r app; do
+              developer="$app/Contents/Developer"
+              candidate="$(DEVELOPER_DIR="$developer" xcrun --sdk iphoneos --show-sdk-version 2>/dev/null || true)"
+              if [[ "$candidate" == 26.* ]]; then
+                sudo xcode-select -s "$developer"
+                break
+              fi
+            done < <(find -L /Applications -maxdepth 1 -name 'Xcode*.app' -print | sort)
+          fi
+          xcodebuild -version
+          xcrun --sdk iphoneos --show-sdk-version
+
+      - name: Restore dependency caches
+        uses: actions/cache@v4
+        with:
+          path: |
+            BuildSupport/ffmpeg-ios
+            .cache/ffmpeg-n7.1
+            BuildSupport/MoltenVK
+            .cache/MoltenVK
+            BuildSupport/SPIRV-Cross
+            .cache/SPIRV-Cross-ios
+            .deps/SPIRV-Cross
+          key: geometry-staging-${{ hashFiles('MOLTENVK_REVISION', 'SPIRV_CROSS_REVISION') }}-${{ runner.os }}-${{ runner.arch }}-ios26-v1
+          restore-keys: |
+            geometry-staging-
+
+      - name: Build full upstream graph
+        id: build
+        shell: bash
+        run: |
+          set +e
+          bash scripts/probe-upstream-ios-graph.sh
+          status=$?
+          echo "status=$status" >> "$GITHUB_OUTPUT"
+          exit "$status"
+
+      - name: Upload graph evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: RPCS3-Metal-geometry-staging
+          path: cmake-ios-upstream-graph/**
+          if-no-files-found: warn
+          retention-days: 30
+
+      - name: Publish final status
+        if: always()
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [[ "${{ steps.build.outputs.status }}" == "0" ]]; then
+            state="success"
+            description="Real RPCS3 vertex, index, inline, and layout staging linked"
+          else
+            state="failure"
+            description="Metal geometry staging reached a documented compiler blocker"
+          fi
+          curl --fail --silent --show-error --max-time 30 \
+            -X POST \
+            -H "Authorization: Bearer $GITHUB_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "https://api.github.com/repos/$GITHUB_REPOSITORY/statuses/$GITHUB_SHA" \
+            -d "{\"state\":\"$state\",\"context\":\"$STATUS_CONTEXT\",\"description\":\"$description\",\"target_url\":\"$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID\"}"
