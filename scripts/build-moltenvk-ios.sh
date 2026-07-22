@@ -8,6 +8,7 @@ CACHE_DIR="${MOLTENVK_CACHE_DIR:-$PORT_ROOT/BuildSupport/downloads/moltenvk-$VER
 ARCHIVE="$CACHE_DIR/moltenvk-release"
 EXTRACTED="$CACHE_DIR/extracted"
 RELEASE_JSON="$CACHE_DIR/release.json"
+SLICE_INFO_FILE="$CACHE_DIR/ios-device-slice.txt"
 
 mkdir -p "$CACHE_DIR" "$PORT_ROOT/BuildSupport"
 
@@ -90,8 +91,7 @@ if [[ -z "$XCFRAMEWORK_INFO" ]]; then
     exit 1
 fi
 
-XCFRAMEWORK="$(dirname "$XCFRAMEWORK_INFO")"
-readarray -t SLICE_INFO < <(python3 - "$XCFRAMEWORK_INFO" <<'PY'
+python3 - "$XCFRAMEWORK_INFO" > "$SLICE_INFO_FILE" <<'PY'
 import plistlib
 import sys
 from pathlib import Path
@@ -120,11 +120,12 @@ for library in info.get("AvailableLibraries", []):
 else:
     raise SystemExit("The MoltenVK XCFramework has no physical iOS device slice")
 PY
-)
 
-MOLTENVK_BINARY="${SLICE_INFO[0]}"
-MOLTENVK_HEADERS="${SLICE_INFO[1]}"
+MOLTENVK_BINARY="$(sed -n '1p' "$SLICE_INFO_FILE")"
+MOLTENVK_HEADERS="$(sed -n '2p' "$SLICE_INFO_FILE")"
 
+test -n "$MOLTENVK_BINARY"
+test -n "$MOLTENVK_HEADERS"
 test -f "$MOLTENVK_BINARY"
 test -d "$MOLTENVK_HEADERS"
 
