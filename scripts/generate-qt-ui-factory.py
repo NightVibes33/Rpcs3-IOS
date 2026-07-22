@@ -24,6 +24,7 @@ def main() -> int:
     parser.add_argument("ui_directory", type=Path)
     parser.add_argument("output_header", type=Path)
     parser.add_argument("output_source", type=Path)
+    parser.add_argument("output_cmake", type=Path)
     args = parser.parse_args()
 
     records: list[tuple[str, str, str, str]] = []
@@ -34,14 +35,22 @@ def main() -> int:
         root_widget = root.find("widget")
         root_class = root_widget.attrib.get("class", "") if root_widget is not None else ""
         cpp_root = SUPPORTED_ROOTS.get(root_class)
+        custom_widgets = [
+            (node.findtext("class") or "").strip()
+            for node in root.findall("./customwidgets/customwidget")
+            if (node.findtext("class") or "").strip()
+        ]
         if not cpp_root:
-            skipped.append((path.name, root_class))
+            skipped.append((path.name, f"unsupported root {root_class}"))
+            continue
+        if custom_widgets:
+            skipped.append((path.name, "custom widgets: " + ", ".join(custom_widgets)))
             continue
         stem = identifier(path.stem)
         records.append((path.name, stem, class_name, cpp_root))
 
-    args.output_header.parent.mkdir(parents=True, exist_ok=True)
-    args.output_source.parent.mkdir(parents=True, exist_ok=True)
+    for output in (args.output_header, args.output_source, args.output_cmake):
+        output.parent.mkdir(parents=True, exist_ok=True)
 
     args.output_header.write_text(
         """#pragma once
@@ -93,9 +102,14 @@ QStringList RPCS3CompiledUiFiles()
 '''
     args.output_source.write_text(source, encoding="utf-8")
 
+    cmake_lines = ["set(RPCS3_COMPILED_UI_FILES"]
+    cmake_lines.extend(f'    "${{CMAKE_CURRENT_LIST_DIR}}/ui/{file_name}"' for file_name, _, _, _ in records)
+    cmake_lines.append(")")
+    args.output_cmake.write_text("\n".join(cmake_lines) + "\n", encoding="utf-8")
+
     print(f"Generated Qt UI factory for {len(records)} forms")
-    for file_name, root_class in skipped:
-        print(f"Skipped unsupported root widget {root_class}: {file_name}")
+    for file_name, reason in skipped:
+        print(f"Skipped {file_name}: {reason}")
     if "main_window.ui" not in {item[0] for item in records}:
         raise SystemExit("main_window.ui was not included in the compiled UI factory")
     return 0
