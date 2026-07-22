@@ -11,14 +11,18 @@ PHASE_LOG="$LOG_DIR/phases.log"
 TIMEOUT_RUNNER="$PORT_ROOT/scripts/run-with-timeout.py"
 PHASE1_COLLECTOR="$PORT_ROOT/scripts/collect-emusystem-phase1-evidence.py"
 FFMPEG_ROOT="${RPCS3_IOS_FFMPEG_ROOT:-$PORT_ROOT/BuildSupport/ffmpeg-ios}"
+MOLTENVK_ROOT="${RPCS3_IOS_MOLTENVK_ROOT:-$PORT_ROOT/BuildSupport/MoltenVK}"
 export RPCS3_IOS_FFMPEG_ROOT="$FFMPEG_ROOT"
 export FFMPEG_IOS_ROOT="$FFMPEG_ROOT"
+export RPCS3_IOS_MOLTENVK_ROOT="$MOLTENVK_ROOT"
+export MOLTENVK_ROOT
 
 UPSTREAM_REVISION="$(tr -d '[:space:]' < "$REVISION_FILE")"
 test -n "$UPSTREAM_REVISION"
 test -f "$TIMEOUT_RUNNER"
 test -f "$PHASE1_COLLECTOR"
 test -f "$PORT_ROOT/scripts/build-ffmpeg-ios.sh"
+test -f "$PORT_ROOT/scripts/build-moltenvk-ios.sh"
 
 rm -rf "$ROOT" "$BUILD"
 mkdir -p "$LOG_DIR"
@@ -54,6 +58,9 @@ run_timed 180 python3 scripts/export-upstream-qt-ui-model.py "$ROOT" "$BUILD/rpc
 phase "Build pinned FFmpeg 7.1 static libraries for arm64 iOS"
 run_timed 3600 bash scripts/build-ffmpeg-ios.sh
 
+phase "Build pinned MoltenVK static XCFramework for arm64 iOS"
+run_timed 7200 bash scripts/build-moltenvk-ios.sh
+
 test -f "$FFMPEG_ROOT/.rpcs3-ios-ffmpeg-n7.1"
 test -f "$FFMPEG_ROOT/include/libavutil/pixfmt.h"
 test -f "$FFMPEG_ROOT/lib/libavcodec.a"
@@ -61,6 +68,9 @@ test -f "$FFMPEG_ROOT/lib/libavformat.a"
 test -f "$FFMPEG_ROOT/lib/libavutil.a"
 test -f "$FFMPEG_ROOT/lib/libswscale.a"
 test -f "$FFMPEG_ROOT/lib/libswresample.a"
+test -f "$MOLTENVK_ROOT/MoltenVK.xcframework/ios-arm64/MoltenVK.framework/MoltenVK"
+test -f "$MOLTENVK_ROOT/include/vulkan/vulkan.h"
+test -f "$MOLTENVK_ROOT/include/MoltenVK/vk_mvk_moltenvk.h"
 
 phase "Apply iOS upstream-graph overlays"
 run_timed 120 python3 scripts/apply-upstream-ios-overlay.py "$ROOT" --mode upstream
@@ -71,7 +81,7 @@ run_timed 180 python3 scripts/patch-upstream-ios-emu-graph.py "$ROOT"
 git -C "$ROOT" rev-parse HEAD | tee "$BUILD/upstream-revision.txt"
 git -C "$ROOT" submodule status --recursive > "$BUILD/upstream-submodules.txt"
 
-phase "Configure RPCS3 real top-level graph for arm64 iOS"
+phase "Configure RPCS3 real top-level graph for arm64 iOS with MoltenVK"
 set +e
 python3 "$TIMEOUT_RUNNER" 3600 cmake \
   -S "$ROOT" \
@@ -82,9 +92,12 @@ python3 "$TIMEOUT_RUNNER" 3600 cmake \
   -DRPCS3_IOS_UPSTREAM_GRAPH=ON \
   -DRPCS3_IOS_PORT_ROOT="$PORT_ROOT" \
   -DRPCS3_IOS_FFMPEG_ROOT="$FFMPEG_ROOT" \
+  -DRPCS3_IOS_MOLTENVK_ROOT="$MOLTENVK_ROOT" \
   -DWITH_LLVM=OFF \
   -DBUILD_LLVM=OFF \
   -DBUILD_LLVM_SUBMODULE=OFF \
+  -DUSE_VULKAN=ON \
+  -DUSE_SYSTEM_MVK=ON \
   -DUSE_SYSTEM_CURL=OFF \
   -DUSE_FAUDIO=OFF \
   -DUSE_PRECOMPILED_HEADERS=OFF \
@@ -95,7 +108,7 @@ phase "CMake configure exit status=$configure_status"
 
 build_status=125
 if [[ $configure_status -eq 0 ]]; then
-  phase "Compile the real upstream rpcs3_emu target for arm64 iOS"
+  phase "Compile the real upstream rpcs3_emu target with Vulkan for arm64 iOS"
   set +e
   python3 "$TIMEOUT_RUNNER" 7200 cmake --build "$BUILD/tree" \
     --target rpcs3_emu \
@@ -144,7 +157,7 @@ if [[ -f "$BUILD/phase1-emusystem-evidence.json" ]]; then
 fi
 
 {
-  echo "# RPCS3 iOS real upstream graph probe"
+  echo "# RPCS3 iOS real upstream Vulkan graph probe"
   echo
   echo "- Requested revision: \`$UPSTREAM_REVISION\`"
   echo "- Resolved commit: \`$(cat "$BUILD/upstream-revision.txt")\`"
@@ -153,6 +166,8 @@ fi
   echo "- Complete UI model: \`$BUILD/rpcs3-qt-ui-model.json\`"
   echo "- FFmpeg target: \`arm64-apple-ios${DEPLOYMENT_TARGET:-26.0}\`"
   echo "- FFmpeg install: \`$FFMPEG_ROOT\`"
+  echo "- MoltenVK install: \`$MOLTENVK_ROOT\`"
+  echo "- Vulkan path: \`VK_EXT_metal_surface through CAMetalLayer\`"
   echo "- Configure exit status: \`$configure_status\`"
   echo "- rpcs3_emu build exit status: \`$build_status\`"
   echo "- Phase 1 evidence exit status: \`$phase1_status\`"
@@ -161,10 +176,9 @@ fi
   echo "- Configured upstream Emu source files: \`$configured_emu_source_count\`"
   echo "- Phase 1 evidence: \`$BUILD/phase1-emusystem-evidence.json\`"
   echo "- LLVM is intentionally disabled so interpreter-based PPU/SPU paths compile before entitlement-dependent JIT work."
-  echo "- The desktop executable is excluded from this core graph; the shipped host is the separate Qt Widgets iOS application generated from RPCS3's upstream Qt UI."
-  echo "- Pinned FFmpeg is built as real arm64-iOS static libraries and linked into the upstream graph."
-  echo "- This probe compiles the real upstream rpcs3_emu target and separately proves whether System.cpp entered the build."
-  echo "- Compilation is not treated as physical-device Emu.System initialization or guest execution."
+  echo "- Pinned FFmpeg and MoltenVK are real arm64-iOS dependencies in the upstream graph."
+  echo "- RPCS3's existing Vulkan RSX sources are compiled against MoltenVK; the separate native Metal RSX backend is developed in the port tree."
+  echo "- Compilation is not treated as physical-device guest execution until the Qt host and Emu callbacks are linked into one IPA."
   if [[ $configure_status -ne 0 ]]; then
     echo "- Configure tail:"
     echo
