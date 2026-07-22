@@ -39,15 +39,20 @@ def main() -> int:
 
     entries = json.loads(args.compile_commands.read_text(encoding="utf-8"))
     emulator_entries = []
+    loader_entries = []
     system_entry = None
     groups = {"system": 0, "ppu": 0, "spu": 0, "lv2": 0, "rsx": 0, "vfs": 0, "loader": 0}
 
     for entry in entries:
         source = str(entry.get("file") or "").replace("\\", "/")
+        lower = source.lower()
+        if "/rpcs3/Loader/" in source:
+            loader_entries.append(entry)
+            groups["loader"] += 1
         if "/rpcs3/Emu/" not in source:
             continue
+
         emulator_entries.append(entry)
-        lower = source.lower()
         if source.endswith("/rpcs3/Emu/System.cpp"):
             system_entry = entry
             groups["system"] += 1
@@ -61,8 +66,6 @@ def main() -> int:
             groups["rsx"] += 1
         if source.endswith("/rpcs3/Emu/VFS.cpp") or source.endswith("/rpcs3/Emu/vfs_config.cpp"):
             groups["vfs"] += 1
-        if "/rpcs3/Loader/" in source:
-            groups["loader"] += 1
 
     if system_entry is None:
         raise SystemExit("The real rpcs3_emu compile database does not contain rpcs3/Emu/System.cpp")
@@ -78,6 +81,7 @@ def main() -> int:
         "system_cpp_object": str(object_path) if object_path else None,
         "system_cpp_object_built": object_built,
         "configured_emu_source_count": len(emulator_entries),
+        "configured_loader_source_count": len(loader_entries),
         "configured_source_groups": groups,
         "rpcs3_emu_build_status": args.build_status,
         "rpcs3_emu_target_compiled": args.build_status == 0,
@@ -91,6 +95,7 @@ def main() -> int:
     print(
         "Phase 1 evidence: System.cpp configured="
         f"yes, object_built={'yes' if object_built else 'no'}, "
+        f"emu_sources={len(emulator_entries)}, loader_sources={len(loader_entries)}, "
         f"rpcs3_emu_status={args.build_status}"
     )
     return 0
