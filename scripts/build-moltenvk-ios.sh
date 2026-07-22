@@ -24,7 +24,7 @@ find_device_binary() {
             printf '%s\n' "$candidate"
             return 0
         fi
-    done < <(find "$FRAMEWORK" -type f -path '*/MoltenVK.framework/MoltenVK' -print 2>/dev/null | sort)
+    done < <(find "$FRAMEWORK" -type f \( -path '*/MoltenVK.framework/MoltenVK' -o -name 'libMoltenVK.a' \) -print 2>/dev/null | sort)
     return 1
 }
 
