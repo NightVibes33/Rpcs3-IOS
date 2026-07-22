@@ -11,6 +11,11 @@ constexpr std::uint32_t texture_base(std::uint32_t value) noexcept
 {
     return value & ~(texture_linear_bit | texture_unnormalized_bit);
 }
+
+constexpr std::uint32_t primitive_value(MTLPrimitiveType value) noexcept
+{
+    return static_cast<std::uint32_t>(value);
+}
 } // namespace
 
 primitive_mapping map_primitive(std::uint32_t value) noexcept
@@ -18,17 +23,17 @@ primitive_mapping map_primitive(std::uint32_t value) noexcept
     // CELL_GCM_PRIMITIVE_*
     switch (value)
     {
-    case 1: return {MTLPrimitiveTypePoint, false};
-    case 2: return {MTLPrimitiveTypeLine, false};
-    case 3: return {MTLPrimitiveTypeLineStrip, true};   // close the loop with one generated index
-    case 4: return {MTLPrimitiveTypeLineStrip, false};
-    case 5: return {MTLPrimitiveTypeTriangle, false};
-    case 6: return {MTLPrimitiveTypeTriangleStrip, false};
-    case 7: return {MTLPrimitiveTypeTriangle, true};    // triangle fan expansion
-    case 8: return {MTLPrimitiveTypeTriangle, true};    // quad expansion
-    case 9: return {MTLPrimitiveTypeTriangle, true};    // quad-strip expansion
-    case 10: return {MTLPrimitiveTypeTriangle, true};   // polygon fan expansion
-    default: return {MTLPrimitiveTypeTriangle, true};
+    case 1: return {primitive_value(MTLPrimitiveTypePoint), false};
+    case 2: return {primitive_value(MTLPrimitiveTypeLine), false};
+    case 3: return {primitive_value(MTLPrimitiveTypeLineStrip), true};
+    case 4: return {primitive_value(MTLPrimitiveTypeLineStrip), false};
+    case 5: return {primitive_value(MTLPrimitiveTypeTriangle), false};
+    case 6: return {primitive_value(MTLPrimitiveTypeTriangleStrip), false};
+    case 7: return {primitive_value(MTLPrimitiveTypeTriangle), true};
+    case 8: return {primitive_value(MTLPrimitiveTypeTriangle), true};
+    case 9: return {primitive_value(MTLPrimitiveTypeTriangle), true};
+    case 10: return {primitive_value(MTLPrimitiveTypeTriangle), true};
+    default: return {primitive_value(MTLPrimitiveTypeTriangle), true};
     }
 }
 
@@ -73,8 +78,6 @@ MTLBlendOperation map_blend_operation(std::uint32_t value) noexcept
     case 0x8008: return MTLBlendOperationMax;
     case 0x800A: return MTLBlendOperationSubtract;
     case 0x800B: return MTLBlendOperationReverseSubtract;
-    // Signed NV blend equations need shader-side emulation. Add is the least
-    // destructive hardware fallback while the pipeline marks them unsupported.
     case 0x0000F005:
     case 0x0000F006:
     case 0x0000F007:
@@ -125,9 +128,9 @@ pixel_format_mapping map_texture_format(std::uint32_t value, bool srgb) noexcept
     case 0x83: return {MTLPixelFormatABGR4Unorm, false, false, false};
     case 0x84: return {MTLPixelFormatB5G6R5Unorm, false, false, false};
     case 0x85: return {srgb ? MTLPixelFormatBGRA8Unorm_sRGB : MTLPixelFormatBGRA8Unorm, false, false, false};
-    case 0x86: return {MTLPixelFormatInvalid, true, false, false}; // DXT1/BC1: decode or transcode on iOS
-    case 0x87: return {MTLPixelFormatInvalid, true, false, false}; // DXT2/3/BC2
-    case 0x88: return {MTLPixelFormatInvalid, true, false, false}; // DXT4/5/BC3
+    case 0x86: return {MTLPixelFormatInvalid, true, false, false};
+    case 0x87: return {MTLPixelFormatInvalid, true, false, false};
+    case 0x88: return {MTLPixelFormatInvalid, true, false, false};
     case 0x8B: return {MTLPixelFormatRG8Unorm, false, false, false};
     case 0x8D:
     case 0x8E: return {MTLPixelFormatBGRA8Unorm, true, false, false};
@@ -153,7 +156,6 @@ pixel_format_mapping map_texture_format(std::uint32_t value, bool srgb) noexcept
 
 pixel_format_mapping map_depth_format(std::uint32_t value) noexcept
 {
-    // CELL_GCM_SURFACE_Z16 and CELL_GCM_SURFACE_Z24S8 are encoded as 1 and 2.
     switch (value)
     {
     case 1: return {MTLPixelFormatDepth16Unorm, false, true, false};
