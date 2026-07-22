@@ -115,9 +115,6 @@ bool metal_renderer::initialize(const surface_config& config, std::string& error
             CGColorSpaceRelease(colorspace);
         m_impl->layer.framebufferOnly = YES;
         m_impl->layer.maximumDrawableCount = 3;
-        // CAMetalLayer.displaySyncEnabled is explicitly unavailable on iOS.
-        // Presentation remains synchronized by Core Animation; retain the
-        // requested value for future platform-specific pacing support.
         (void)config.vsync;
         m_impl->layer.allowsNextDrawableTimeout = YES;
 
@@ -289,6 +286,28 @@ bool metal_renderer::begin_frame(float red,
         error.clear();
         return true;
     }
+}
+
+bool metal_renderer::bind_render_pipeline(
+    const metal_rsx::compiled_render_pipeline& pipeline,
+    std::string& error)
+{
+    if (!frame_active() || !m_impl->current_encoder)
+    {
+        error = "Metal render pipeline binding requires an active frame encoder.";
+        return false;
+    }
+    if (!pipeline.state)
+    {
+        error = "Metal render pipeline binding received an empty pipeline state.";
+        return false;
+    }
+
+    id<MTLRenderPipelineState> state = (__bridge id<MTLRenderPipelineState>)pipeline.state;
+    [m_impl->current_encoder setRenderPipelineState:state];
+    m_impl->status.message = "Bound the translated RPCS3 render pipeline to the active Metal frame.";
+    error.clear();
+    return true;
 }
 
 bool metal_renderer::upload_and_bind_vertex_resources(
