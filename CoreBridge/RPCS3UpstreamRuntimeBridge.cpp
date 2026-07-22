@@ -4,6 +4,9 @@
 #include "Emu/System.h"
 #include "Emu/system_config.h"
 #include "Emu/RSX/Null/NullGSRender.h"
+#if defined(HAVE_VULKAN)
+#include "Emu/RSX/VK/VKGSRender.h"
+#endif
 #include "Emu/Audio/Null/NullAudioBackend.h"
 #include "Emu/Audio/Null/null_enumerator.h"
 #include "Emu/Io/Null/NullKeyboardHandler.h"
@@ -38,6 +41,19 @@ void set_state(RPCS3IOSUpstreamState state, std::string message)
     g_last_message = std::move(message);
 }
 
+void select_ios_renderer()
+{
+#if defined(HAVE_VULKAN)
+    g_cfg.video.renderer.set(video_renderer::vulkan);
+    Emu.SetDefaultRenderer(video_renderer::vulkan);
+    Emu.SetSupportedRenderers(std::set<video_renderer>{video_renderer::null, video_renderer::vulkan});
+#else
+    g_cfg.video.renderer.set(video_renderer::null);
+    Emu.SetDefaultRenderer(video_renderer::null);
+    Emu.SetSupportedRenderers(std::set<video_renderer>{video_renderer::null});
+#endif
+}
+
 void configure_interpreter_lane()
 {
     // RPCS3 names its non-JIT interpreter choices "static" in the current
@@ -45,7 +61,11 @@ void configure_interpreter_lane()
     // implementations without requiring executable-memory entitlements.
     g_cfg.core.ppu_decoder.set(ppu_decoder_type::_static);
     g_cfg.core.spu_decoder.set(spu_decoder_type::_static);
+#if defined(HAVE_VULKAN)
+    g_cfg.video.renderer.set(video_renderer::vulkan);
+#else
     g_cfg.video.renderer.set(video_renderer::null);
+#endif
     g_cfg.audio.renderer.set(audio_renderer::null);
     g_cfg.io.keyboard.set(keyboard_handler::null);
     g_cfg.io.mouse.set(mouse_handler::null);
@@ -58,8 +78,6 @@ void install_minimal_callbacks()
     EmuCallbacks callbacks{};
     callbacks.call_from_main_thread = [](std::function<void()> function, atomic_t<u32>* wake_up)
     {
-        // The initial bridge is invoked from the host UI thread. A dispatch hook
-        // replaces this inline fallback when the runtime is embedded in the IPA.
         if (function)
         {
             function();
@@ -136,6 +154,13 @@ void install_minimal_callbacks()
     };
     callbacks.init_gs_render = [](utils::serial* archive)
     {
+#if defined(HAVE_VULKAN)
+        if (g_cfg.video.renderer == video_renderer::vulkan && rpcs3::ios::render_view_ready())
+        {
+            g_fxo->init<rsx::thread, named_thread<VKGSRender>>(archive);
+            return;
+        }
+#endif
         g_fxo->init<rsx::thread, named_thread<NullGSRender>>(archive);
     };
     callbacks.get_audio = []() -> std::shared_ptr<AudioBackend>
@@ -190,28 +215,46 @@ std::string resolve_data_root(const char* data_root)
 extern "C" int rpcs3_ios_upstream_set_render_view(void* native_view)
 {
     std::lock_guard lock(g_runtime_mutex);
+#if !defined(HAVE_VULKAN)
+    (void)native_view;
+    set_state(RPCS3IOSUpstreamStateFailed, "This RPCS3 runtime was built without Vulkan/MoltenVK support.");
+    return 0;
+#else
     if (!rpcs3::ios::attach_render_view(native_view))
     {
         set_state(RPCS3IOSUpstreamStateFailed, "Unable to attach a CAMetalLayer to the Qt iOS render view.");
         return 0;
     }
 
+    select_ios_renderer();
     if (!g_runtime_initialized)
     {
-        g_last_message = "The native iOS CAMetalLayer render view is ready.";
+        g_last_message = "The native iOS CAMetalLayer render view is ready for RPCS3 Vulkan over MoltenVK.";
+    }
+    else
+    {
+        set_state(RPCS3IOSUpstreamStateReady, "The iOS CAMetalLayer is attached and RPCS3 Vulkan over MoltenVK is selected.");
     }
     return 1;
+#endif
 }
 
 extern "C" void rpcs3_ios_upstream_clear_render_view(void)
 {
     std::lock_guard lock(g_runtime_mutex);
-    rpcs3::ios::detach_render_view();
+    if (!g_runtime_initialized || Emu.IsStopped())
+    {
+        rpcs3::ios::detach_render_view();
+    }
 }
 
 extern "C" int rpcs3_ios_upstream_render_view_ready(void)
 {
+#if defined(HAVE_VULKAN)
     return rpcs3::ios::render_view_ready() ? 1 : 0;
+#else
+    return 0;
+#endif
 }
 
 extern "C" int rpcs3_ios_upstream_initialize(const char* data_root)
@@ -244,16 +287,19 @@ extern "C" int rpcs3_ios_upstream_initialize(const char* data_root)
         configure_interpreter_lane();
         install_minimal_callbacks();
         Emu.SetHasGui(false);
-        Emu.SetHeadless(true);
-        Emu.SetDefaultRenderer(video_renderer::null);
-        Emu.SetSupportedRenderers(std::set<video_renderer>{video_renderer::null});
+        Emu.SetHeadless(false);
+        select_ios_renderer();
         Emu.SetUsr("00000001");
         Emu.Init();
 
         g_runtime_initialized = true;
         g_last_boot_result = static_cast<int>(game_boot_result::nothing_to_boot);
         g_last_installed_boot_path.clear();
-        set_state(RPCS3IOSUpstreamStateReady, "Real upstream Emu.Init completed with static PPU/SPU interpreters and NullGSRender.");
+#if defined(HAVE_VULKAN)
+        set_state(RPCS3IOSUpstreamStateReady, "Real upstream Emu.Init completed with static PPU/SPU interpreters and Vulkan-over-MoltenVK RSX selected.");
+#else
+        set_state(RPCS3IOSUpstreamStateReady, "Real upstream Emu.Init completed with static PPU/SPU interpreters and NullGSRender because Vulkan is unavailable.");
+#endif
         return 1;
     }
     catch (const std::exception& error)
@@ -378,6 +424,16 @@ extern "C" int rpcs3_ios_upstream_boot_game(const char* path)
         return g_last_boot_result;
     }
 
+#if defined(HAVE_VULKAN)
+    if (!rpcs3::ios::render_view_ready())
+    {
+        g_last_boot_result = static_cast<int>(game_boot_result::generic_error);
+        set_state(RPCS3IOSUpstreamStateFailed, "Attach the Qt iOS render view before booting so VKGSRender can create its CAMetalLayer swapchain.");
+        return g_last_boot_result;
+    }
+    select_ios_renderer();
+#endif
+
     try
     {
         Emu.argv.clear();
@@ -388,7 +444,7 @@ extern "C" int rpcs3_ios_upstream_boot_game(const char* path)
         {
             if (Emu.IsRunning())
             {
-                set_state(RPCS3IOSUpstreamStateRunning, "Upstream Emulator::BootGame accepted and started the title.");
+                set_state(RPCS3IOSUpstreamStateRunning, "Upstream Emulator::BootGame started the title with Vulkan-over-MoltenVK RSX.");
             }
             else if (Emu.IsPausedOrReady())
             {
