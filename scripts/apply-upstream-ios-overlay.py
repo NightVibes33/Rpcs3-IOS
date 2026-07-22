@@ -86,7 +86,7 @@ def patch_libusb_for_ios(upstream_root: Path) -> None:
 #include "libusbi.h"
 
 static int ios_init(struct libusb_context *ctx) { (void)ctx; return LIBUSB_SUCCESS; }
-static void ios_exit(void) {}
+static void ios_exit(struct libusb_context *ctx) { (void)ctx; }
 static int ios_get_device_list(struct libusb_context *ctx, struct discovered_devs **discdevs)
 {
     (void)ctx; (void)discdevs; return LIBUSB_SUCCESS;
@@ -121,8 +121,6 @@ static int ios_handle_events(struct libusb_context *ctx, void *event_data, unsig
 { (void)ctx; (void)event_data; (void)count; (void)num_ready; return LIBUSB_SUCCESS; }
 static int ios_handle_transfer_completion(struct usbi_transfer *itransfer)
 { (void)itransfer; return LIBUSB_ERROR_NOT_SUPPORTED; }
-static int ios_clock_gettime(int clkid, struct timespec *tp)
-{ return clock_gettime(clkid, tp); }
 
 const struct usbi_os_backend usbi_backend = {
     .name = "iOS no-host-USB backend",
@@ -147,12 +145,30 @@ const struct usbi_os_backend usbi_backend = {
     .clear_transfer_priv = ios_clear_transfer_priv,
     .handle_events = ios_handle_events,
     .handle_transfer_completion = ios_handle_transfer_completion,
-    .clock_gettime = ios_clock_gettime,
     .device_priv_size = 0,
     .device_handle_priv_size = 0,
     .transfer_priv_size = 0,
 };
 ''', encoding="utf-8")
+
+
+def patch_asmjit_for_ios(upstream_root: Path) -> None:
+    source = upstream_root / "3rdparty/asmjit/asmjit/src/asmjit/core/virtmem.cpp"
+    text = source.read_text(encoding="utf-8")
+    needle = '''    #if TARGET_OS_OSX
+      #include <sys/utsname.h>
+      #include <libkern/OSCacheControl.h> // sys_icache_invalidate().
+    #endif
+'''
+    replacement = '''    #if TARGET_OS_OSX
+      #include <sys/utsname.h>
+    #endif
+    // sys_icache_invalidate() is available in Apple device SDKs as well as macOS.
+    #include <libkern/OSCacheControl.h>
+'''
+    if needle not in text:
+        raise SystemExit("Unable to locate AsmJit's Apple cache-control include block")
+    source.write_text(text.replace(needle, replacement, 1), encoding="utf-8")
 
 
 def patch_ffmpeg_for_ios(upstream_root: Path) -> None:
@@ -197,6 +213,7 @@ def main() -> int:
 
     if args.mode == "upstream":
         patch_libusb_for_ios(args.upstream_root)
+        patch_asmjit_for_ios(args.upstream_root)
         patch_ffmpeg_for_ios(args.upstream_root)
 
     print(f"Applied {args.mode} iOS overlay to {cmake}")
