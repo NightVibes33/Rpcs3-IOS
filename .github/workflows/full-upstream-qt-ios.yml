@@ -1,0 +1,162 @@
+name: Build Full Upstream RPCS3 Qt iOS
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - "scripts/build-upstream-full-qt-ios.sh"
+      - "scripts/patch-upstream-ios-emu-graph.py"
+      - "scripts/patch-upstream-ios-runtime-blockers.py"
+      - "scripts/apply-upstream-ios-overlay.py"
+      - "scripts/build-ffmpeg-ios.sh"
+      - "scripts/build-moltenvk-ios.sh"
+      - "cmake/**"
+      - "CoreBridge/**"
+      - "Port/**"
+      - "UPSTREAM_RPCS3_REVISION"
+      - ".github/workflows/full-upstream-qt-ios.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: full-upstream-rpcs3-qt-ios-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Upstream rpcs3_ui + rpcs3_lib + rpcs3
+    runs-on: macos-26
+    timeout-minutes: 180
+
+    env:
+      DEPLOYMENT_TARGET: "26.0"
+      QT_VERSION: "6.11.1"
+      QT_ROOT: "${{ github.workspace }}/.qt-full"
+      FULL_QT_ROOT: "${{ github.workspace }}/upstream-rpcs3-full-qt"
+      FULL_QT_BUILD: "${{ github.workspace }}/full-rpcs3-qt-ios-build"
+      MOLTENVK_VERSION: "1.4.1"
+      CI_LOGS: "${{ github.workspace }}/full-qt-ci-logs"
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Select Xcode with iOS 26 SDK
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$CI_LOGS"
+          CURRENT_SDK="$(xcrun --sdk iphoneos --show-sdk-version 2>/dev/null || true)"
+          if [[ "$CURRENT_SDK" != 26.* ]]; then
+            XCODE_PATH=""
+            while IFS= read -r candidate; do
+              developer="$candidate/Contents/Developer"
+              [[ -d "$developer" ]] || continue
+              sdk="$(DEVELOPER_DIR="$developer" xcrun --sdk iphoneos --show-sdk-version 2>/dev/null || true)"
+              echo "Candidate: $candidate (iphoneos $sdk)"
+              if [[ "$sdk" == 26.* ]]; then
+                XCODE_PATH="$candidate"
+              fi
+            done < <(find -L /Applications -maxdepth 1 -name 'Xcode*.app' -print | sort)
+            test -n "$XCODE_PATH"
+            sudo xcode-select -s "$XCODE_PATH/Contents/Developer"
+          fi
+          xcodebuild -version | tee "$CI_LOGS/xcode-version.txt"
+          xcrun --sdk iphoneos --show-sdk-version | tee "$CI_LOGS/iphoneos-sdk.txt"
+
+      - name: Restore complete Qt iOS cache
+        id: qt-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: ${{ env.QT_ROOT }}
+          key: qt-${{ runner.os }}-${{ runner.arch }}-ios-${{ env.QT_VERSION }}-rpcs3-full-v1
+
+      - name: Install Qt iOS with RPCS3 modules and host tools
+        if: steps.qt-cache.outputs.cache-hit != 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          exec > >(tee "$CI_LOGS/qt-install.log") 2>&1
+          AQT_VENV="$RUNNER_TEMP/aqt-full-venv"
+          python3 -m venv "$AQT_VENV"
+          source "$AQT_VENV/bin/activate"
+          python -m pip install --upgrade pip aqtinstall
+          IOS_ARCH="$(python -m aqt list-qt mac ios --arch "$QT_VERSION" | tr ' ' '\n' | sed '/^$/d' | head -n 1)"
+          test -n "$IOS_ARCH"
+          python -m aqt list-qt mac ios --modules "$QT_VERSION" "$IOS_ARCH" | tee "$CI_LOGS/qt-ios-modules.txt"
+          python -m aqt install-qt mac ios "$QT_VERSION" "$IOS_ARCH" \
+            --autodesktop \
+            -m qtmultimedia qtsvg qtimageformats qtshadertools \
+            -O "$QT_ROOT"
+
+      - name: Verify full RPCS3 Qt dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          IOS_QT="$QT_ROOT/$QT_VERSION/ios"
+          HOST_QT="$QT_ROOT/$QT_VERSION/macos"
+          test -x "$IOS_QT/bin/qt-cmake"
+          test -d "$HOST_QT"
+          for component in Widgets Concurrent Multimedia MultimediaWidgets Svg SvgWidgets GuiPrivate; do
+            find "$IOS_QT" -path "*cmake/Qt6${component}*" -print | tee "$CI_LOGS/qt-${component}.txt"
+            test -s "$CI_LOGS/qt-${component}.txt"
+          done
+
+      - name: Save complete Qt iOS cache
+        if: steps.qt-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ${{ env.QT_ROOT }}
+          key: ${{ steps.qt-cache.outputs.cache-primary-key }}
+
+      - name: Compile the actual upstream RPCS3 application
+        id: full-build
+        shell: bash
+        run: |
+          set -o pipefail
+          bash scripts/build-upstream-full-qt-ios.sh 2>&1 | tee "$CI_LOGS/full-upstream-qt-console.log"
+
+      - name: Package unsigned full upstream IPA
+        if: success()
+        shell: bash
+        run: |
+          set -euo pipefail
+          APP="$(cat "$FULL_QT_BUILD/app-path.txt")"
+          test -d "$APP"
+          rm -rf Payload full-qt-output
+          mkdir -p Payload full-qt-output
+          cp -R "$APP" Payload/RPCS3-iOS.app
+          rm -rf Payload/RPCS3-iOS.app/_CodeSignature
+          rm -f Payload/RPCS3-iOS.app/embedded.mobileprovision
+          SHORT_SHA="$(printf '%s' "$GITHUB_SHA" | cut -c1-7)"
+          IPA="full-qt-output/RPCS3-Full-Upstream-Qt-iOS26-${SHORT_SHA}-unsigned.ipa"
+          /usr/bin/ditto -c -k --sequesterRsrc --keepParent Payload "$IPA"
+          shasum -a 256 "$IPA" > "$IPA.sha256"
+          unzip -l "$IPA" | tee "$CI_LOGS/ipa-contents.txt"
+
+      - name: Upload full upstream unsigned IPA
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: RPCS3-Full-Upstream-Qt-iOS26-unsigned
+          path: full-qt-output/*
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Upload full frontend build evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: RPCS3-Full-Upstream-Qt-iOS-build-evidence
+          path: |
+            full-qt-ci-logs/**
+            full-rpcs3-qt-ios-build/logs/**
+            full-rpcs3-qt-ios-build/compile_commands.json
+            full-rpcs3-qt-ios-build/tree/compile_commands.json
+            full-rpcs3-qt-ios-build/summary.md
+            full-rpcs3-qt-ios-build/upstream-revision.txt
+            full-rpcs3-qt-ios-build/binary-*.txt
+          if-no-files-found: warn
+          retention-days: 30
