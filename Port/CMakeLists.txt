@@ -9,13 +9,52 @@ set(RPCS3_IOS_PORT_ROOT "${RPCS3_IOS_PORT_ROOT}")
 set(RPCS3_IOS_OBJCXX_SOURCES
     "${RPCS3_IOS_PORT_ROOT}/Port/IOSPlatform.mm"
     "${RPCS3_IOS_PORT_ROOT}/Port/IOSFilesystem.mm"
-    "${RPCS3_IOS_PORT_ROOT}/Port/RPCS3Runtime.mm"
     "${RPCS3_IOS_PORT_ROOT}/CoreBridge/RPCS3CoreBridgeStub.mm"
 )
 
+# Every entry in this list is compiled directly from the pinned upstream RPCS3
+# checkout. Keep this list explicit so CI can prove which upstream implementation
+# files are actually present in the shipping archive.
 set(RPCS3_IOS_UPSTREAM_SOURCES
     "${CMAKE_SOURCE_DIR}/rpcs3/Crypto/sha256.cpp"
 )
+
+list(LENGTH RPCS3_IOS_UPSTREAM_SOURCES RPCS3_IOS_UPSTREAM_SOURCE_COUNT)
+if(RPCS3_IOS_UPSTREAM_SOURCE_COUNT LESS 1)
+    message(FATAL_ERROR "The iOS core must contain at least one direct upstream RPCS3 source")
+endif()
+
+file(STRINGS
+    "${RPCS3_IOS_PORT_ROOT}/UPSTREAM_RPCS3_REVISION"
+    RPCS3_IOS_UPSTREAM_REVISION
+    LIMIT_COUNT 1
+)
+string(STRIP "${RPCS3_IOS_UPSTREAM_REVISION}" RPCS3_IOS_UPSTREAM_REVISION)
+if(RPCS3_IOS_UPSTREAM_REVISION STREQUAL "")
+    message(FATAL_ERROR "UPSTREAM_RPCS3_REVISION is empty")
+endif()
+
+# The shipping archive currently contains real upstream implementation code, but
+# not Emu.System or guest execution. This is deliberately classified as
+# partial-upstream rather than execution-capable.
+set(RPCS3_IOS_BUILD_CAPABILITY_LEVEL 1)
+set(RPCS3_IOS_BUILD_CLASSIFICATION "partial-upstream")
+set(RPCS3_IOS_GENERATED_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated")
+file(MAKE_DIRECTORY "${RPCS3_IOS_GENERATED_DIR}")
+configure_file(
+    "${RPCS3_IOS_PORT_ROOT}/Port/RPCS3IOSBuildManifest.h.in"
+    "${RPCS3_IOS_GENERATED_DIR}/RPCS3IOSBuildManifest.h"
+    @ONLY
+)
+
+set(RPCS3_IOS_UPSTREAM_SOURCE_MANIFEST
+    "${CMAKE_BINARY_DIR}/rpcs3-ios-upstream-sources.txt"
+)
+file(WRITE "${RPCS3_IOS_UPSTREAM_SOURCE_MANIFEST}" "")
+foreach(source IN LISTS RPCS3_IOS_UPSTREAM_SOURCES)
+    file(RELATIVE_PATH relative_source "${CMAKE_SOURCE_DIR}" "${source}")
+    file(APPEND "${RPCS3_IOS_UPSTREAM_SOURCE_MANIFEST}" "${relative_source}\n")
+endforeach()
 
 add_library(rpcs3_ios_core STATIC
     ${RPCS3_IOS_OBJCXX_SOURCES}
@@ -43,11 +82,11 @@ target_compile_definitions(rpcs3_ios_core PUBLIC
     RPCS3_IOS_WITH_SELF_LOAD_PLAN=1
     RPCS3_IOS_WITH_SELF_EXTRACTOR=1
     RPCS3_IOS_WITH_SFO_METADATA=1
-    RPCS3_IOS_WITH_RUNTIME=1
 )
 target_include_directories(rpcs3_ios_core PUBLIC
     "${RPCS3_IOS_PORT_ROOT}/Port"
     "${RPCS3_IOS_PORT_ROOT}/CoreBridge"
+    "${RPCS3_IOS_GENERATED_DIR}"
     "${CMAKE_SOURCE_DIR}"
     "${CMAKE_SOURCE_DIR}/Utilities"
     "${CMAKE_SOURCE_DIR}/rpcs3"
