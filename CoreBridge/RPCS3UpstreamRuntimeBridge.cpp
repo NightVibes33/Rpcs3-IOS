@@ -2,15 +2,24 @@
 #include "Emu/IdManager.h"
 #include "Emu/system_config.h"
 #include "Emu/RSX/VK/VKGSRender.h"
+#include "Emu/Cell/Modules/cellMsgDialog.h"
+#include "Emu/Cell/Modules/cellOskDialog.h"
+#include "Emu/Cell/Modules/cellSaveData.h"
+#include "Emu/Cell/Modules/sceNpTrophy.h"
 #include "Utilities/File.h"
+#include "util/video_source.h"
 #include "RPCS3IOSGSFrame.h"
 #include "RPCS3MetalGSRender.h"
 
 #include <cstdlib>
 #include <filesystem>
+#include <functional>
 #include <memory>
 #include <mutex>
+#include <optional>
 #include <string>
+#include <string_view>
+#include <vector>
 
 namespace
 {
@@ -83,13 +92,9 @@ void install_minimal_callbacks()
     callbacks.init_gs_render = [](utils::serial* archive)
     {
         if (use_native_metal())
-        {
             g_fxo->init<rsx::thread, named_thread<rpcs3::ios::render::metal_gs_render>>(archive);
-        }
         else
-        {
             g_fxo->init<rsx::thread, named_thread<VKGSRender>>(archive);
-        }
     };
     callbacks.get_audio = []() -> std::shared_ptr<AudioBackend> { return {}; };
     callbacks.get_audio_enumerator = [](u64) -> std::shared_ptr<audio_device_enumerator> { return {}; };
@@ -116,7 +121,7 @@ void install_minimal_callbacks()
     callbacks.enable_gamemode = [](bool) {};
     Emu.SetCallbacks(std::move(callbacks));
 }
-}
+} // namespace
 
 extern "C" int rpcs3_ios_upstream_runtime_link_probe(const char* data_root)
 {
