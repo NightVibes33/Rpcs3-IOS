@@ -95,6 +95,7 @@ bool shader_library_cache::get_or_compile(const translated_shader& shader,
     {
         output.library = (__bridge void*)existing->second.library;
         output.function = (__bridge void*)existing->second.function;
+        output.resources = shader.resources;
         error.clear();
         return true;
     }
@@ -144,6 +145,7 @@ bool shader_library_cache::get_or_compile(const translated_shader& shader,
 
         output.library = (__bridge void*)inserted->second.library;
         output.function = (__bridge void*)inserted->second.function;
+        output.resources = shader.resources;
         error.clear();
         return true;
     }
