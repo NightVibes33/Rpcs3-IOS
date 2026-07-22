@@ -86,9 +86,17 @@ jobs:
           xcrun --sdk iphoneos clang++ "${COMMON[@]}" \
             -c Renderers/Metal/RPCS3MetalPipelineState.mm \
             -o build-metal-rsx/RPCS3MetalPipelineState.o
+
+          set +e
           xcrun --sdk iphoneos clang++ "${COMMON[@]}" \
             -c Renderers/Metal/RPCS3MetalRenderer.mm \
-            -o build-metal-rsx/RPCS3MetalRenderer.o
+            -o build-metal-rsx/RPCS3MetalRenderer.o \
+            2>&1 | tee build-metal-rsx/RPCS3MetalRenderer-compile.log
+          renderer_status=${PIPESTATUS[0]}
+          set -e
+          if [[ "$renderer_status" -ne 0 ]]; then
+            exit "$renderer_status"
+          fi
 
           CPP_COMMON=(
             -std=c++20
