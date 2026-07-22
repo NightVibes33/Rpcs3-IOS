@@ -162,7 +162,9 @@ static UIView *BuildNode(NSDictionary *node, NSString *preferredPage) {
     if ([cls isEqualToString:@"QComboBox"]) {
         UIButton *v=[UIButton buttonWithType:UIButtonTypeSystem]; [v setTitle:@"Choose" forState:UIControlStateNormal];
         NSMutableArray *actions=[NSMutableArray array];
-        for (NSString *item in A(node[@"items"])) [actions addObject:[UIAction actionWithTitle:item handler:^(__kindof UIAction *action){ [v setTitle:action.title forState:UIControlStateNormal]; }]];
+        for (NSString *item in A(node[@"items"])) {
+            [actions addObject:[UIAction actionWithTitle:item image:nil identifier:nil handler:^(__kindof UIAction *action){ [v setTitle:action.title forState:UIControlStateNormal]; }]];
+        }
         if (actions.count) { v.menu=[UIMenu menuWithChildren:actions]; v.showsMenuAsPrimaryAction=YES; }
         return NamedRow(node,v);
     }
