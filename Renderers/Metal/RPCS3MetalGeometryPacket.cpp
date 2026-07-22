@@ -7,6 +7,7 @@ void geometry_packet::clear() noexcept
     persistent_vertex_bytes.clear();
     transient_vertex_bytes.clear();
     index_bytes.clear();
+    vertex_layout_state.fill(0);
     gcm_primitive = 0;
     vertex_base = 0;
     vertex_count = 0;
@@ -16,6 +17,8 @@ void geometry_packet::clear() noexcept
     vertex_index_offset = 0;
     persistent_byte_count = 0;
     transient_byte_count = 0;
+    attribute_mask = 0;
+    referenced_input_mask = 0;
     index_format = geometry_index_format::none;
     indexed = false;
     topology_rewritten = false;
