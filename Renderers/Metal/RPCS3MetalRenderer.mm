@@ -18,6 +18,7 @@ struct metal_renderer::implementation
     __strong id<CAMetalDrawable> current_drawable = nil;
     __strong id<MTLCommandBuffer> current_command_buffer = nil;
     __strong id<MTLRenderCommandEncoder> current_encoder = nil;
+    metal_rsx::shader_library_cache shader_cache;
     backend_status status;
     std::uint32_t width = 1;
     std::uint32_t height = 1;
@@ -68,6 +69,14 @@ bool metal_renderer::initialize(const surface_config& config, std::string& error
             return false;
         }
 
+        if (!m_impl->shader_cache.initialize((__bridge void*)m_impl->device, error))
+        {
+            m_impl->status.message = error;
+            m_impl->queue = nil;
+            m_impl->device = nil;
+            return false;
+        }
+
         m_impl->width = std::max<std::uint32_t>(config.pixel_width, 1);
         m_impl->height = std::max<std::uint32_t>(config.pixel_height, 1);
         m_impl->scale = std::max(config.content_scale, 1.0f);
@@ -79,6 +88,7 @@ bool metal_renderer::initialize(const surface_config& config, std::string& error
         if (!m_impl->surface)
         {
             m_impl->status.message = error;
+            m_impl->shader_cache.clear();
             m_impl->queue = nil;
             m_impl->device = nil;
             return false;
@@ -103,7 +113,7 @@ bool metal_renderer::initialize(const surface_config& config, std::string& error
         m_impl->status.initialized = true;
         m_impl->status.surface_ready = true;
         m_impl->status.device_name = m_impl->device.name.UTF8String ?: "Apple GPU";
-        m_impl->status.message = "Native Metal device, command queue, and CAMetalLayer are ready.";
+        m_impl->status.message = "Native Metal device, shader cache, command queue, and CAMetalLayer are ready.";
         error.clear();
         return true;
     }
@@ -132,6 +142,44 @@ bool metal_renderer::resize(std::uint32_t pixel_width,
     resize_apple_surface(m_impl->surface, m_impl->width, m_impl->height, m_impl->scale);
     error.clear();
     return true;
+}
+
+bool metal_renderer::compile_spirv_shader(
+    std::span<const std::uint32_t> spirv,
+    metal_rsx::shader_stage stage,
+    metal_rsx::compiled_shader& output,
+    std::string& error)
+{
+    output = {};
+    if (!m_impl->status.initialized || !m_impl->shader_cache.initialized())
+    {
+        error = "Metal renderer must be initialized before compiling an RSX shader.";
+        return false;
+    }
+
+    metal_rsx::translated_shader translated;
+    if (!metal_rsx::translate_spirv_to_msl(spirv, stage, translated, error))
+    {
+        m_impl->status.message = error;
+        return false;
+    }
+
+    if (!m_impl->shader_cache.get_or_compile(translated, output, error))
+    {
+        m_impl->status.message = error;
+        return false;
+    }
+
+    m_impl->status.message = stage == metal_rsx::shader_stage::vertex
+        ? "Translated and cached an RPCS3 vertex shader for native Metal."
+        : "Translated and cached an RPCS3 fragment shader for native Metal.";
+    error.clear();
+    return true;
+}
+
+std::size_t metal_renderer::cached_shader_count() const noexcept
+{
+    return m_impl ? m_impl->shader_cache.size() : 0;
 }
 
 bool metal_renderer::begin_frame(float red,
@@ -334,6 +382,7 @@ void metal_renderer::shutdown() noexcept
         m_impl->current_command_buffer = nil;
         m_impl->current_drawable = nil;
 
+        m_impl->shader_cache.clear();
         m_impl->layer.device = nil;
         m_impl->layer = nil;
         m_impl->queue = nil;
