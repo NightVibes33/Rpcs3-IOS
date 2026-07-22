@@ -43,7 +43,22 @@ u64 metal_gs_render::get_cycles()
 void metal_gs_render::on_init_thread()
 {
     GSRender::on_init_thread();
+
+    std::string shader_error;
+    m_shader_frontend_initialized = m_shader_frontend.initialize(shader_error);
+    if (!m_shader_frontend_initialized)
+        rsx_log.error("Native Metal could not initialize RPCS3's live shader frontend: %s", shader_error);
+
     initialize_backend();
+}
+
+void metal_gs_render::on_exit()
+{
+    m_shader_frontend.shutdown();
+    m_shader_frontend_initialized = false;
+    m_backend.shutdown();
+    m_backend_initialized = false;
+    GSRender::on_exit();
 }
 
 bool metal_gs_render::initialize_backend()
@@ -62,6 +77,8 @@ bool metal_gs_render::initialize_backend()
 
     std::string error;
     m_backend_initialized = m_backend.initialize(config, error);
+    if (!m_backend_initialized)
+        rsx_log.error("Native Metal backend initialization failed: %s", error);
     return m_backend_initialized;
 }
 
@@ -120,6 +137,51 @@ void metal_gs_render::capture_rsx_draw_state()
     ++m_translated_draws;
 }
 
+bool metal_gs_render::prepare_current_shader_pipeline(std::string& error)
+{
+    if (!m_shader_frontend_initialized || !initialize_backend())
+    {
+        error = "Native Metal shader or renderer frontend is not initialized.";
+        return false;
+    }
+
+    if (!m_shader_frontend.compile_vertex(
+            current_vertex_program, m_vertex_frontend_shader, error))
+        return false;
+    if (!m_shader_frontend.compile_fragment(
+            current_fragment_program, m_fragment_frontend_shader, error))
+        return false;
+
+    if (!m_backend.compile_spirv_shader(
+            m_vertex_frontend_shader.spirv,
+            metal_rsx::shader_stage::vertex,
+            m_vertex_shader,
+            error))
+        return false;
+    if (!m_backend.compile_spirv_shader(
+            m_fragment_frontend_shader.spirv,
+            metal_rsx::shader_stage::fragment,
+            m_fragment_shader,
+            error))
+        return false;
+
+    metal_rsx::render_pipeline_request request;
+    request.vertex_function = m_vertex_shader.function;
+    request.fragment_function = m_fragment_shader.function;
+    request.color_pixel_format = static_cast<std::uint32_t>(MTLPixelFormatBGRA8Unorm);
+    request.depth_pixel_format = static_cast<std::uint32_t>(MTLPixelFormatInvalid);
+    request.stencil_pixel_format = static_cast<std::uint32_t>(MTLPixelFormatInvalid);
+    request.sample_count = 1;
+    request.color_blend = m_color_blend_state;
+
+    if (!m_backend.get_or_create_render_pipeline(request, m_render_pipeline, error))
+        return false;
+
+    ++m_compiled_program_pairs;
+    error.clear();
+    return true;
+}
+
 void metal_gs_render::flip(const rsx::display_flip_info_t& info)
 {
     if (initialize_backend())
@@ -139,12 +201,25 @@ void metal_gs_render::flip(const rsx::display_flip_info_t& info)
 
 void metal_gs_render::end()
 {
-    /* Decode the active RSX primitive, depth/stencil, blend, and write-mask
-     * registers into real Metal descriptors for every draw. Vertex/index
-     * upload, shader translation, texture binding, and actual draw encoding are
-     * the remaining stages; until those land, consume the method stream without
-     * claiming rendered guest geometry. */
+    if (skip_current_frame ||
+        rsx::method_registers.current_draw_clause.get_elements_count() == 0)
+    {
+        execute_nop_draw();
+        rsx::thread::end();
+        return;
+    }
+
     capture_rsx_draw_state();
+    analyse_current_rsx_pipeline();
+
+    std::string shader_error;
+    if (!prepare_current_shader_pipeline(shader_error))
+        rsx_log.error("Native Metal live RSX shader/pipeline preparation failed: %s", shader_error);
+
+    /* The live RSX programs now pass through RPCS3's real decompiler, SPIR-V,
+     * SPIRV-Cross MSL translation, MTLLibrary compilation, and render-pipeline
+     * cache. Geometry upload and binding the captured resource manifest are the
+     * remaining requirements before this method may emit a guest draw. */
     execute_nop_draw();
     rsx::thread::end();
 }
