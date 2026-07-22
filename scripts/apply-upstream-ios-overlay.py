@@ -221,8 +221,9 @@ void* GetCAMetalLayerFromMetalView(void* view) { return ((NSView*)view).layer; }
 #import <QuartzCore/QuartzCore.h>
 
 #if TARGET_OS_IPHONE
-#import <UIKit/UIKit.h>
-void* GetCAMetalLayerFromMetalView(void* view) { return ((UIView*)view).layer; }
+// The iOS GSFrame already supplies the CAMetalLayer itself. Passing it through
+// avoids treating the layer pointer as a UIView and dereferencing invalid memory.
+void* GetCAMetalLayerFromMetalView(void* view) { return view; }
 #else
 #import <AppKit/AppKit.h>
 void* GetCAMetalLayerFromMetalView(void* view) { return ((NSView*)view).layer; }
