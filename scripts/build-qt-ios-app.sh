@@ -12,7 +12,19 @@ GENERATED="$QT_APP/Generated"
 GENERATED_UI="$GENERATED/ui"
 CORE_ARCHIVE="$PORT_ROOT/BuildSupport/librpcs3-ios-core.a"
 MOLTENVK_ROOT="${MOLTENVK_ROOT:-$PORT_ROOT/BuildSupport/MoltenVK}"
-MOLTENVK_BINARY="$MOLTENVK_ROOT/MoltenVK.xcframework/ios-arm64/MoltenVK.framework/MoltenVK"
+MOLTENVK_BINARY=""
+if [[ -f "$MOLTENVK_ROOT/device-binary-path.txt" ]]; then
+  MOLTENVK_BINARY="$MOLTENVK_ROOT/$(tr -d '\r\n' < "$MOLTENVK_ROOT/device-binary-path.txt")"
+fi
+if [[ ! -f "$MOLTENVK_BINARY" ]]; then
+  while IFS= read -r candidate; do
+    case "$candidate" in *simulator*|*maccatalyst*) continue ;; esac
+    if lipo -info "$candidate" 2>/dev/null | grep -q 'arm64'; then
+      MOLTENVK_BINARY="$candidate"
+      break
+    fi
+  done < <(find "$MOLTENVK_ROOT/MoltenVK.xcframework" -type f -path '*/MoltenVK.framework/MoltenVK' -print 2>/dev/null | sort)
+fi
 IOS_QT="$QT_ROOT/$QT_VERSION/ios"
 HOST_QT="$QT_ROOT/$QT_VERSION/macos"
 QT_CMAKE="$IOS_QT/bin/qt-cmake"
@@ -169,6 +181,7 @@ cat > "$BUILD/summary.md" <<EOF
 - Qt version: \`$QT_VERSION\`
 - Target: \`arm64-apple-ios$DEPLOYMENT_TARGET\`
 - App bundle: \`$APP\`
+- MoltenVK device binary: \`$MOLTENVK_BINARY\`
 - Upstream UI manifest: \`$BUILD/upstream-ui-manifest.json\`
 - Vulkan renderer: static MoltenVK XCFramework linked, with a real Vulkan instance/device/Metal surface/swapchain/present path.
 - Metal renderer: native MTLDevice/MTLCommandQueue/CAMetalLayer/drawable/present path.
