@@ -12,12 +12,14 @@ IOS_QT="$QT_ROOT/$QT_VERSION/ios"
 HOST_QT="$QT_ROOT/$QT_VERSION/macos"
 FFMPEG_ROOT="${RPCS3_IOS_FFMPEG_ROOT:-$PORT_ROOT/BuildSupport/ffmpeg-ios}"
 MOLTENVK_ROOT="${RPCS3_IOS_MOLTENVK_ROOT:-$PORT_ROOT/BuildSupport/MoltenVK}"
+SPIRV_CROSS_ROOT="${RPCS3_IOS_SPIRV_CROSS_ROOT:-$PORT_ROOT/BuildSupport/SPIRV-Cross}"
 LOG_DIR="$BUILD/logs"
 
 export RPCS3_IOS_FFMPEG_ROOT="$FFMPEG_ROOT"
 export FFMPEG_IOS_ROOT="$FFMPEG_ROOT"
 export RPCS3_IOS_MOLTENVK_ROOT="$MOLTENVK_ROOT"
 export MOLTENVK_ROOT
+export RPCS3_IOS_SPIRV_CROSS_ROOT="$SPIRV_CROSS_ROOT"
 
 command -v cmake >/dev/null
 command -v git >/dev/null
@@ -41,6 +43,7 @@ bash "$PORT_ROOT/scripts/generate-qt-ios-sources.sh" "$ROOT" "$BUILD/qt-ui-manif
   2>&1 | tee "$LOG_DIR/generate-qt.log"
 bash "$PORT_ROOT/scripts/build-ffmpeg-ios.sh" 2>&1 | tee "$LOG_DIR/ffmpeg.log"
 bash "$PORT_ROOT/scripts/build-moltenvk-ios.sh" 2>&1 | tee "$LOG_DIR/moltenvk.log"
+bash "$PORT_ROOT/scripts/build-spirv-cross-ios.sh" 2>&1 | tee "$LOG_DIR/spirv-cross.log"
 
 python3 "$PORT_ROOT/scripts/apply-upstream-ios-overlay.py" "$ROOT" --mode upstream
 python3 "$PORT_ROOT/scripts/patch-upstream-ios-libusb-api.py" "$ROOT"
@@ -61,6 +64,7 @@ cmake \
   -DRPCS3_IOS_PORT_ROOT="$PORT_ROOT" \
   -DRPCS3_IOS_FFMPEG_ROOT="$FFMPEG_ROOT" \
   -DRPCS3_IOS_MOLTENVK_ROOT="$MOLTENVK_ROOT" \
+  -DRPCS3_IOS_SPIRV_CROSS_ROOT="$SPIRV_CROSS_ROOT" \
   -DWITH_LLVM=OFF \
   -DBUILD_LLVM=OFF \
   -DBUILD_LLVM_SUBMODULE=OFF \
@@ -106,7 +110,7 @@ cat > "$BUILD/summary.md" <<EOF
 - Upstream RPCS3: \`$REVISION\`
 - CPU lane: PPU/SPU interpreters
 - Vulkan lane: RPCS3 \`VKGSRender\` -> MoltenVK -> \`CAMetalLayer\`
-- Metal lane: native \`metal_gs_render\` -> Metal device/queue/drawable; complete RSX translation is still in progress
+- Metal lane: native \`metal_gs_render\`, validated draw encoder, SPIR-V -> MSL translation, and cached Metal shader functions; live RSX vertex/texture binding remains in progress
 - UI: real Qt Widgets \`main_window.ui\`
 - Core: real \`rpcs3_emu\`, \`Emu.System\`, boot/pause/resume/stop/VSH/PKG/PUP bridge
 EOF
