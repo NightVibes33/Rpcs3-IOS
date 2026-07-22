@@ -1,5 +1,7 @@
 #include "RPCS3UpstreamRuntimeHost.h"
 #include "IOSFilesystem.h"
+#include "RPCS3IOSGSFrame.h"
+#include "RPCS3MetalGSRender.h"
 
 #include "Emu/System.h"
 #include "Emu/IdManager.h"
@@ -13,7 +15,9 @@
 #include "Emu/Io/Null/NullMouseHandler.h"
 #include "Emu/Io/Null/null_camera_handler.h"
 #include "Emu/Io/Null/null_music_handler.h"
-#include "Emu/RSX/Null/NullGSRender.h"
+#if defined(HAVE_VULKAN)
+#include "Emu/RSX/VK/VKGSRender.h"
+#endif
 #include "Emu/Cell/Modules/cellMsgDialog.h"
 #include "Emu/Cell/Modules/cellOskDialog.h"
 #include "Emu/Cell/Modules/cellSaveData.h"
@@ -33,10 +37,12 @@
 #include <QThread>
 
 #include <algorithm>
+#include <cctype>
 #include <cstdlib>
 #include <filesystem>
 #include <memory>
 #include <optional>
+#include <stdexcept>
 #include <string>
 #include <vector>
 
@@ -44,7 +50,33 @@ namespace rpcs3::ios::upstream
 {
 namespace
 {
+enum class host_renderer
+{
+    vulkan,
+    metal,
+};
+
 filesystem_layout g_layout;
+host_renderer g_renderer = host_renderer::vulkan;
+
+host_renderer requested_renderer()
+{
+    const char* value = std::getenv("RPCS3_IOS_RENDERER");
+    if (!value || !*value)
+        return host_renderer::vulkan;
+
+    std::string normalized(value);
+    std::transform(normalized.begin(), normalized.end(), normalized.begin(), [](unsigned char character)
+    {
+        return static_cast<char>(std::tolower(character));
+    });
+    return normalized == "metal" ? host_renderer::metal : host_renderer::vulkan;
+}
+
+const char* renderer_name(host_renderer renderer)
+{
+    return renderer == host_renderer::metal ? "Metal" : "Vulkan (MoltenVK)";
+}
 
 void wake(atomic_t<u32>* value)
 {
@@ -111,12 +143,21 @@ EmuCallbacks create_ios_callbacks()
 
     callbacks.init_gs_render = [](utils::serial* archive)
     {
-        g_fxo->init<rsx::thread, named_thread<NullGSRender>>(archive);
+        if (g_renderer == host_renderer::metal)
+        {
+            g_fxo->init<rsx::thread, named_thread<rpcs3::ios::render::metal_gs_render>>(archive);
+            return;
+        }
+#if defined(HAVE_VULKAN)
+        g_fxo->init<rsx::thread, named_thread<VKGSRender>>(archive);
+#else
+        throw std::runtime_error("Vulkan was selected, but VKGSRender was not compiled into the iOS runtime.");
+#endif
     };
     callbacks.close_gs_frame = []() {};
     callbacks.get_gs_frame = []() -> std::unique_ptr<GSFrameBase>
     {
-        return {};
+        return std::make_unique<rpcs3::ios::render::ios_gs_frame>();
     };
 
     callbacks.get_camera_handler = []() -> std::shared_ptr<camera_handler_base>
@@ -132,8 +173,8 @@ EmuCallbacks create_ios_callbacks()
     callbacks.get_osk_dialog = []() -> std::shared_ptr<OskDialogBase> { return {}; };
     callbacks.get_save_dialog = []() -> std::unique_ptr<SaveDialogBase> { return {}; };
     callbacks.get_trophy_notification_dialog = []() -> std::unique_ptr<TrophyNotificationBase> { return {}; };
-    callbacks.get_sendmessage_dialog = []() -> std::unique_ptr<SendMessageDialogBase> { return {}; };
-    callbacks.get_recvmessage_dialog = []() -> std::unique_ptr<RecvMessageDialogBase> { return {}; };
+    callbacks.get_sendmessage_dialog = []() -> std::shared_ptr<SendMessageDialogBase> { return {}; };
+    callbacks.get_recvmessage_dialog = []() -> std::shared_ptr<RecvMessageDialogBase> { return {}; };
 
     callbacks.try_to_quit = [](bool force_quit, std::function<void()> on_exit)
     {
@@ -205,8 +246,9 @@ EmuCallbacks create_ios_callbacks()
     };
     callbacks.resolve_path = [](std::string_view path)
     {
-        return QFileInfo(QString::fromUtf8(path.data(), static_cast<int>(path.size())))
-            .canonicalFilePath().toStdString();
+        const QString candidate = QString::fromUtf8(path.data(), static_cast<int>(path.size()));
+        const QString canonical = QFileInfo(candidate).canonicalFilePath();
+        return (canonical.isEmpty() ? QFileInfo(candidate).absoluteFilePath() : canonical).toStdString();
     };
     callbacks.get_font_dirs = []()
     {
@@ -267,10 +309,14 @@ runtime_host_status initialize_runtime_host(const filesystem_layout& layout)
     try
     {
         configure_sandbox_vfs(layout);
+        g_renderer = requested_renderer();
 
-        /* The first execution lane deliberately uses interpreters and Null RSX.
-         * Vulkan/MoltenVK replaces NullGSRender after guest execution is proven. */
-        g_cfg.video.renderer.set(video_renderer::null);
+        /* RPCS3 understands Vulkan natively. The port-owned Metal renderer uses
+         * the null enum value only as a configuration placeholder; the callback
+         * factory still instantiates metal_gs_render instead of NullGSRender. */
+        g_cfg.video.renderer.set(g_renderer == host_renderer::vulkan
+            ? video_renderer::vulkan
+            : video_renderer::null);
         g_cfg.audio.renderer.set(audio_renderer::null);
         g_cfg.io.keyboard.set(keyboard_handler::null);
         g_cfg.io.mouse.set(mouse_handler::null);
@@ -279,24 +325,31 @@ runtime_host_status initialize_runtime_host(const filesystem_layout& layout)
 
         Emu.SetHasGui(true);
         Emu.SetUsr("00000001");
-        Emu.Init();
         Emu.SetCallbacks(create_ios_callbacks());
+        Emu.Init();
 
         status.initialized = true;
         status.callbacks_initialized = true;
         status.ppu_interpreter = true;
         status.spu_interpreter = true;
         status.jit = false;
-        status.renderer = false;
-        status.message = "RPCS3 Emu.System initialized with PPU/SPU interpreters, iOS sandbox VFS, Null audio, and Null RSX. Guest execution is enabled; visible rendering still requires the MoltenVK/Metal host.";
+        status.renderer = true;
+        if (g_renderer == host_renderer::vulkan)
+        {
+            status.message = "RPCS3 Emu.System initialized with PPU/SPU interpreters, iOS sandbox VFS, a UIKit CAMetalLayer GS frame, and upstream VKGSRender through MoltenVK.";
+        }
+        else
+        {
+            status.message = "RPCS3 Emu.System initialized with PPU/SPU interpreters, iOS sandbox VFS, and the native Metal GS renderer. Metal device/queue/presentation are active; RSX draw, shader, texture, and synchronization translation remains in progress.";
+        }
     }
     catch (const std::exception& error)
     {
-        status.message = std::string("RPCS3 Emu.System initialization failed: ") + error.what();
+        status.message = std::string("RPCS3 Emu.System initialization failed while selecting ") + renderer_name(g_renderer) + ": " + error.what();
     }
     catch (...)
     {
-        status.message = "RPCS3 Emu.System initialization failed with an unknown exception.";
+        status.message = std::string("RPCS3 Emu.System initialization failed with an unknown exception while selecting ") + renderer_name(g_renderer) + ".";
     }
 
     return status;
