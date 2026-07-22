@@ -20,7 +20,7 @@ void rpcs3_ios_upstream_clear_render_view(void);
 int rpcs3_ios_upstream_render_view_ready(void);
 
 // Initializes the real upstream Emulator singleton using static PPU/SPU
-// interpreters and the supplied sandbox data root.
+// interpreters, RPCS3's Vulkan renderer over MoltenVK, and Null audio.
 int rpcs3_ios_upstream_initialize(const char* data_root);
 
 // Installs a PS3 PKG through upstream package_reader::extract_data(). Returns 1
