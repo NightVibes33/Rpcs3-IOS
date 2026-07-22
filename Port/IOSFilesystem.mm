@@ -118,6 +118,8 @@ filesystem_layout prepare_filesystem_layout(const char* root_override) noexcept
             @"cache": [root stringByAppendingPathComponent:@"cache"],
             @"logs": [root stringByAppendingPathComponent:@"logs"],
             @"imports": [root stringByAppendingPathComponent:@"imports"],
+            @"firmware": [root stringByAppendingPathComponent:@"firmware"],
+            @"keys": [root stringByAppendingPathComponent:@"keys"],
         };
 
         for (NSString* key in directories)
@@ -139,6 +141,8 @@ filesystem_layout prepare_filesystem_layout(const char* root_override) noexcept
         result.cache = utf8(directories[@"cache"]);
         result.logs = utf8(directories[@"logs"]);
         result.imports = utf8(directories[@"imports"]);
+        result.firmware = utf8(directories[@"firmware"]);
+        result.keys = utf8(directories[@"keys"]);
         result.ready = true;
         return result;
     }
