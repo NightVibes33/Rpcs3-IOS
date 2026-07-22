@@ -15,6 +15,8 @@ set(RPCS3_UI_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/Generated/ui")
 set(RPCS3_UI_FACTORY_HEADER "${CMAKE_CURRENT_SOURCE_DIR}/Generated/RPCS3QtUiFactory.h")
 set(RPCS3_UI_FACTORY_SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/Generated/RPCS3QtUiFactory.cpp")
 set(RPCS3_UI_LIST "${CMAKE_CURRENT_SOURCE_DIR}/Generated/RPCS3CompiledUiFiles.cmake")
+set(RPCS3_RENDERER_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/../Renderers")
+set(RPCS3_IOS_MOLTENVK_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/../BuildSupport/MoltenVK" CACHE PATH "Pinned MoltenVK package root")
 
 foreach(required_file IN ITEMS
     "${RPCS3_UI_ROOT}/main_window.ui"
@@ -27,6 +29,7 @@ foreach(required_file IN ITEMS
 endforeach()
 
 include("${RPCS3_UI_LIST}")
+include("${CMAKE_CURRENT_SOURCE_DIR}/../cmake/MoltenVKIOS.cmake")
 file(GLOB_RECURSE RPCS3_UPSTREAM_UI_RESOURCE_FILES CONFIGURE_DEPENDS "${RPCS3_UI_ROOT}/*.ui")
 
 add_library(rpcs3_ios_core STATIC IMPORTED GLOBAL)
@@ -34,15 +37,38 @@ set_target_properties(rpcs3_ios_core PROPERTIES
     IMPORTED_LOCATION "${CMAKE_CURRENT_SOURCE_DIR}/../BuildSupport/librpcs3-ios-core.a"
 )
 
+set(RPCS3_RENDERER_SOURCES
+    "${RPCS3_RENDERER_ROOT}/RPCS3RendererBackend.h"
+    "${RPCS3_RENDERER_ROOT}/RPCS3RendererFactory.cpp"
+    "${RPCS3_RENDERER_ROOT}/Apple/RPCS3AppleSurface.h"
+    "${RPCS3_RENDERER_ROOT}/Apple/RPCS3AppleSurface.mm"
+    "${RPCS3_RENDERER_ROOT}/Metal/RPCS3MetalRenderer.h"
+    "${RPCS3_RENDERER_ROOT}/Metal/RPCS3MetalRenderer.mm"
+    "${RPCS3_RENDERER_ROOT}/Vulkan/RPCS3VulkanRenderer.h"
+    "${RPCS3_RENDERER_ROOT}/Vulkan/RPCS3VulkanRenderer.mm"
+)
+
 qt_add_executable(RPCS3QtIOS MANUAL_FINALIZATION
     main.cpp
     RPCS3QtMainWindow.cpp
     RPCS3QtMainWindow.h
+    RPCS3RenderWidget.cpp
+    RPCS3RenderWidget.h
+    RPCS3RendererIntegration.cpp
+    RPCS3RendererIntegration.h
     QtCompat.h
     QUiLoader
+    ${RPCS3_RENDERER_SOURCES}
     ${RPCS3_UI_FACTORY_HEADER}
     ${RPCS3_UI_FACTORY_SOURCE}
     ${RPCS3_COMPILED_UI_FILES}
+)
+
+set_source_files_properties(
+    "${RPCS3_RENDERER_ROOT}/Apple/RPCS3AppleSurface.mm"
+    "${RPCS3_RENDERER_ROOT}/Metal/RPCS3MetalRenderer.mm"
+    "${RPCS3_RENDERER_ROOT}/Vulkan/RPCS3VulkanRenderer.mm"
+    PROPERTIES COMPILE_OPTIONS "-fobjc-arc"
 )
 
 set_target_properties(RPCS3QtIOS PROPERTIES
@@ -61,6 +87,7 @@ target_include_directories(RPCS3QtIOS PRIVATE
     "${CMAKE_CURRENT_SOURCE_DIR}"
     "${CMAKE_CURRENT_SOURCE_DIR}/Generated"
     "${CMAKE_CURRENT_SOURCE_DIR}/../CoreBridge"
+    "${RPCS3_RENDERER_ROOT}"
 )
 
 target_compile_definitions(RPCS3QtIOS PRIVATE
@@ -87,6 +114,8 @@ target_link_libraries(RPCS3QtIOS PRIVATE
     ${AUDIOTOOLBOX_FRAMEWORK}
     ${UNIFORMTYPEIDENTIFIERS_FRAMEWORK}
 )
+
+rpcs3_link_moltenvk(RPCS3QtIOS "${RPCS3_IOS_MOLTENVK_ROOT}")
 
 set_target_properties(RPCS3QtIOS PROPERTIES
     OUTPUT_NAME "RPCS3-iOS"
