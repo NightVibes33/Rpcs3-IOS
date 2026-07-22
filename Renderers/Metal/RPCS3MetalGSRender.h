@@ -1,7 +1,9 @@
 #pragma once
 
 #include "Emu/RSX/GSRender.h"
+#include "RPCS3MetalPipelineState.h"
 #include "RPCS3MetalRenderer.h"
+#include "RPCS3MetalRSXFormats.h"
 
 namespace rpcs3::ios::render
 {
@@ -18,9 +20,15 @@ public:
 private:
     void end() override;
     bool initialize_backend();
+    void capture_rsx_draw_state();
 
     metal_renderer m_backend;
     bool m_backend_initialized = false;
     u64 m_presented_frames = 0;
+    u64 m_translated_draws = 0;
+    u64 m_topology_rewrite_draws = 0;
+    metal_rsx::primitive_mapping m_primitive_mapping{};
+    metal_rsx::depth_stencil_state m_depth_stencil_state{};
+    metal_rsx::color_blend_state m_color_blend_state{};
 };
 } // namespace rpcs3::ios::render
