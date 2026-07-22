@@ -2,6 +2,7 @@
 
 #include "../RPCS3RendererBackend.h"
 #include "RPCS3MetalDrawSubmission.h"
+#include "RPCS3MetalRenderPipelineCache.h"
 #include "RPCS3MetalShaderLibrary.h"
 
 #include <memory>
@@ -26,6 +27,12 @@ public:
                               metal_rsx::compiled_shader& output,
                               std::string& error);
     [[nodiscard]] std::size_t cached_shader_count() const noexcept;
+
+    bool get_or_create_render_pipeline(
+        const metal_rsx::render_pipeline_request& request,
+        metal_rsx::compiled_render_pipeline& output,
+        std::string& error);
+    [[nodiscard]] std::size_t cached_pipeline_count() const noexcept;
 
     bool begin_frame(float red,
                      float green,
