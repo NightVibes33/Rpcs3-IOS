@@ -90,9 +90,9 @@ jobs:
           echo "iphoneos SDK: $SDK_VERSION" | tee "$CI_LOGS/sdk-version.txt"
           [[ "$SDK_VERSION" == 26.* ]] || { echo "Expected iOS 26 SDK, got $SDK_VERSION"; exit 1; }
 
-      - name: Cache Qt for iOS
+      - name: Restore Qt for iOS cache
         id: qt-cache
-        uses: actions/cache@v4
+        uses: actions/cache/restore@v4
         with:
           path: ${{ env.QT_ROOT }}
           key: qt-${{ runner.os }}-${{ runner.arch }}-ios-${{ env.QT_VERSION }}-base-v3
@@ -127,6 +127,13 @@ jobs:
           "$UIC" -v 2>&1 | tee "$CI_LOGS/qt-uic-version.txt"
           find "$QT_ROOT/$QT_VERSION/ios" -maxdepth 3 -name 'Qt6Widgets*' -print | tee "$CI_LOGS/qt-widgets-files.txt"
 
+      - name: Save Qt for iOS cache
+        if: steps.qt-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ${{ env.QT_ROOT }}
+          key: ${{ steps.qt-cache.outputs.cache-primary-key }}
+
       - name: Build upstream-derived RPCS3 core archive
         shell: bash
         run: |
@@ -150,6 +157,10 @@ jobs:
           UI_SOURCE="$GITHUB_WORKSPACE/QtApp/Generated/ui/main_window.ui"
           UI_HEADER="$(find "$QT_APP_BUILD" -type f -name ui_main_window.h -print | head -n 1)"
           UI_FACTORY="$GITHUB_WORKSPACE/QtApp/Generated/RPCS3QtUiFactory.cpp"
+          CORE_SYMBOLS="$RUNNER_TEMP/rpcs3-core-symbols.txt"
+          BIN_FILE="$RUNNER_TEMP/rpcs3-qt-file.txt"
+          BIN_STRINGS="$RUNNER_TEMP/rpcs3-qt-strings.txt"
+          BIN_SYMBOLS="$RUNNER_TEMP/rpcs3-qt-symbols.txt"
 
           test -d "$APP"
           test -f "$BIN"
@@ -169,16 +180,20 @@ jobs:
           file "$CORE_ARCHIVE"
           lipo -info "$CORE_ARCHIVE"
           xcrun ar -t "$CORE_ARCHIVE"
-          nm -gU "$CORE_ARCHIVE" | grep -q '_rpcs3_ios_core_initialize'
-          nm -gU "$CORE_ARCHIVE" | grep -q '_rpcs3_ios_core_boot_elf'
+          nm -gU "$CORE_ARCHIVE" > "$CORE_SYMBOLS"
+          grep -q '_rpcs3_ios_core_initialize' "$CORE_SYMBOLS"
+          grep -q '_rpcs3_ios_core_boot_elf' "$CORE_SYMBOLS"
 
-          file "$BIN"
+          file "$BIN" > "$BIN_FILE"
+          cat "$BIN_FILE"
           lipo -info "$BIN"
           xcrun vtool -show-build "$BIN" || true
-          file "$BIN" | grep -q 'arm64'
-          strings "$BIN" | grep -q 'RPCS3 Qt iOS upstream main_window.ui'
-          nm -gU "$BIN" | grep -q '_rpcs3_ios_core_initialize'
-          nm -gU "$BIN" | grep -q '_rpcs3_ios_core_boot_elf'
+          grep -q 'arm64' "$BIN_FILE"
+          strings "$BIN" > "$BIN_STRINGS"
+          grep -q 'RPCS3 Qt iOS upstream main_window.ui' "$BIN_STRINGS"
+          nm -gU "$BIN" > "$BIN_SYMBOLS"
+          grep -q '_rpcs3_ios_core_initialize' "$BIN_SYMBOLS"
+          grep -q '_rpcs3_ios_core_boot_elf' "$BIN_SYMBOLS"
           [[ "$APP" == *Release* ]] || { echo "Refusing non-Release product path: $APP"; exit 1; }
           echo "app=$APP" >> "$GITHUB_OUTPUT"
 
