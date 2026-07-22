@@ -12,8 +12,26 @@ def replace_once(path: Path, needle: str, replacement: str, label: str) -> None:
     path.write_text(text.replace(needle, replacement, 1), encoding="utf-8")
 
 
+def resolve_device_binary(moltenvk_root: Path) -> Path:
+    path_file = moltenvk_root / "device-binary-path.txt"
+    if path_file.is_file():
+        relative = path_file.read_text(encoding="utf-8").strip()
+        candidate = moltenvk_root / relative
+        if candidate.is_file():
+            return candidate.resolve()
+
+    xcframework = moltenvk_root / "MoltenVK.xcframework"
+    for candidate in sorted(xcframework.rglob("MoltenVK.framework/MoltenVK")):
+        lowered = candidate.as_posix().lower()
+        if "simulator" in lowered or "maccatalyst" in lowered:
+            continue
+        if any(part.startswith("ios-") for part in candidate.parts) and candidate.is_file():
+            return candidate.resolve()
+    raise SystemExit(f"No iOS device MoltenVK framework binary was found under {xcframework}")
+
+
 def patch_dependency_graph(upstream_root: Path, moltenvk_root: Path) -> None:
-    binary = moltenvk_root / "MoltenVK.xcframework/ios-arm64/MoltenVK.framework/MoltenVK"
+    binary = resolve_device_binary(moltenvk_root)
     include = moltenvk_root / "include"
     for required in (binary, include / "vulkan/vulkan.h", include / "MoltenVK/vk_mvk_moltenvk.h"):
         if not required.exists():
@@ -27,7 +45,7 @@ if(USE_VULKAN)
     replacement = f'''# Vulkan
 set(VULKAN_TARGET 3rdparty_dummy_lib)
 if(RPCS3_IOS_UPSTREAM_GRAPH AND USE_VULKAN)
-\tmessage(STATUS "RPCS3 iOS: using pinned static MoltenVK XCFramework")
+\tmessage(STATUS "RPCS3 iOS: using pinned static MoltenVK XCFramework: {binary.as_posix()}")
 \tadd_library(3rdparty_vulkan INTERFACE)
 \ttarget_compile_definitions(3rdparty_vulkan INTERFACE HAVE_VULKAN=1 VK_USE_PLATFORM_METAL_EXT=1)
 \ttarget_include_directories(3rdparty_vulkan SYSTEM INTERFACE "{include.as_posix()}")
