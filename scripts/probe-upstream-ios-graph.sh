@@ -47,11 +47,13 @@ run_timed 3600 git -C "$ROOT" submodule update --init --recursive --depth 1 --jo
 phase "Export the complete upstream Qt UI hierarchy"
 run_timed 180 python3 scripts/export-upstream-qt-ui-model.py "$ROOT" "$BUILD/rpcs3-qt-ui-model.json"
 
-phase "Apply iOS upstream-graph overlay"
+phase "Apply iOS upstream-graph overlay and build runtime dependencies"
 run_timed 120 python3 scripts/apply-upstream-ios-overlay.py "$ROOT" --mode upstream
 run_timed 120 python3 scripts/patch-upstream-ios-libusb-api.py "$ROOT"
 run_timed 120 python3 scripts/patch-upstream-ios-cubeb.py "$ROOT"
-run_timed 120 python3 scripts/patch-upstream-ios-emu-graph.py "$ROOT"
+# This phase builds pinned FFmpeg for arm64 iOS before patching the upstream
+# graph, so it must use a build-sized timeout rather than a source-patch timeout.
+run_timed 7200 python3 scripts/patch-upstream-ios-emu-graph.py "$ROOT"
 
 git -C "$ROOT" rev-parse HEAD | tee "$BUILD/upstream-revision.txt"
 git -C "$ROOT" submodule status --recursive > "$BUILD/upstream-submodules.txt"
@@ -142,8 +144,9 @@ fi
   echo "- Upstream Emu/System.cpp object built: \`$system_cpp_object_built\`"
   echo "- Configured upstream Emu source files: \`$configured_emu_source_count\`"
   echo "- Phase 1 evidence: \`$BUILD/phase1-emusystem-evidence.json\`"
-  echo "- LLVM is intentionally disabled so interpreter-based PPU/SPU paths compile before any entitlement-dependent JIT work."
-  echo "- Desktop Qt is excluded from the binary while upstream Qt UI documents remain the source for UIKit conversion."
+  echo "- LLVM is intentionally disabled so interpreter-based PPU/SPU paths compile before entitlement-dependent JIT work."
+  echo "- The desktop Qt executable is excluded; the separate Qt Widgets iOS app owns the host UI."
+  echo "- Pinned FFmpeg is built as real arm64-iOS static libraries and linked into the upstream graph."
   echo "- This probe compiles the real upstream rpcs3_emu target and separately proves whether System.cpp entered the build."
   echo "- Compilation is not treated as physical-device Emu.System initialization or guest execution."
   if [[ $configure_status -ne 0 ]]; then
