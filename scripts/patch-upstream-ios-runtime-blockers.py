@@ -54,21 +54,43 @@ def patch_desktop_jit_write_toggles(upstream_root: Path) -> int:
     return patched_calls
 
 
-def patch_callback_defaults(upstream_root: Path) -> None:
-    """Give the iOS host a safe default for the optional database config hook."""
+def patch_callback_defaults(upstream_root: Path) -> str:
+    """Default the optional database callback only on revisions that define it.
+
+    RPCS3 v0.0.40 does not contain EmuCallbacks::get_database_config. Older and
+    newer revisions may contain it, so this patch must be revision-tolerant
+    rather than treating the callback's absence as a build failure.
+    """
 
     header = upstream_root / "rpcs3/Emu/System.h"
     text = header.read_text(encoding="utf-8")
-    needle = "\tstd::function<std::string(const std::string&)> get_database_config;\n"
     replacement = (
         "\tstd::function<std::string(const std::string&)> get_database_config = "
-        "[](const std::string&) { return std::string{}; };\n"
+        "[](const std::string&) { return std::string{}; };"
     )
-    if needle not in text:
-        if replacement in text:
-            return
-        raise SystemExit("Unable to locate EmuCallbacks::get_database_config")
-    header.write_text(text.replace(needle, replacement, 1), encoding="utf-8")
+    if replacement in text:
+        return "already-defaulted"
+
+    pattern = re.compile(
+        r"^(?P<indent>[ \t]*)std::function<std::string\(const std::string&\)>"
+        r"[ \t]+get_database_config[ \t]*;[ \t]*$",
+        re.MULTILINE,
+    )
+    match = pattern.search(text)
+    if match:
+        updated = pattern.sub(
+            f"{match.group('indent')}std::function<std::string(const std::string&)> "
+            "get_database_config = [](const std::string&) { return std::string{}; };",
+            text,
+            count=1,
+        )
+        header.write_text(updated, encoding="utf-8")
+        return "default-installed"
+
+    if "get_database_config" not in text:
+        return "callback-not-present"
+
+    raise SystemExit("Found get_database_config but could not safely patch its declaration")
 
 
 def patch_ffmpeg_target(upstream_root: Path, ffmpeg_root: Path) -> None:
@@ -143,11 +165,11 @@ def main() -> int:
 
     verify_ffmpeg_install(args.ffmpeg_root)
     patched_calls = patch_desktop_jit_write_toggles(args.upstream_root)
-    patch_callback_defaults(args.upstream_root)
+    callback_result = patch_callback_defaults(args.upstream_root)
     patch_ffmpeg_target(args.upstream_root, args.ffmpeg_root)
 
     print(f"Guarded {patched_calls} desktop-only JIT write-protection calls for iOS")
-    print("Installed a safe iOS default for EmuCallbacks::get_database_config")
+    print(f"EmuCallbacks database config patch result: {callback_result}")
     print(f"Linked RPCS3's upstream graph to FFmpeg at {args.ffmpeg_root.resolve()}")
     return 0
 
