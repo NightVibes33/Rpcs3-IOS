@@ -68,10 +68,9 @@ jobs:
             echo "No v1.3.0 release asset matched the uploaded PKGi fixture SHA-256."
             exit 1
           }
-          echo "$EXPECTED_SHA256  pkgi-ps3.pkg" | sha256sum --check --strict
+          echo "$EXPECTED_SHA256  $EVIDENCE_DIR/pkgi-ps3.pkg" | sha256sum --check --strict
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        working-directory: ${{ env.EVIDENCE_DIR }}
 
       - name: Decrypt and install the exact PKGi package
         shell: bash
