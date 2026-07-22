@@ -22,6 +22,7 @@ add_library(rpcs3_ios_core STATIC
     "${RPCS3_IOS_PORT_ROOT}/Port/RPCS3SELFProbe.cpp"
     "${RPCS3_IOS_PORT_ROOT}/Port/RPCS3SELFLoadPlan.cpp"
     "${RPCS3_IOS_PORT_ROOT}/Port/RPCS3SELFExtractor.cpp"
+    "${RPCS3_IOS_PORT_ROOT}/Port/RPCS3SFO.cpp"
 )
 
 set_source_files_properties(${RPCS3_IOS_OBJCXX_SOURCES} PROPERTIES
@@ -38,6 +39,7 @@ target_compile_definitions(rpcs3_ios_core PUBLIC
     RPCS3_IOS_WITH_SELF_PROBE=1
     RPCS3_IOS_WITH_SELF_LOAD_PLAN=1
     RPCS3_IOS_WITH_SELF_EXTRACTOR=1
+    RPCS3_IOS_WITH_SFO_METADATA=1
 )
 target_include_directories(rpcs3_ios_core PUBLIC
     "${RPCS3_IOS_PORT_ROOT}/Port"
