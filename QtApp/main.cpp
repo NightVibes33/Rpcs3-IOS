@@ -1,4 +1,5 @@
 #include "RPCS3QtMainWindow.h"
+#include "RPCS3RendererIntegration.h"
 #include "RPCS3CoreBridge.h"
 
 #include <QApplication>
@@ -22,6 +23,7 @@ int main(int argc, char* argv[])
     const int initialized = rpcs3_ios_core_initialize(nullptr);
 
     RPCS3QtMainWindow window;
+    RPCS3InstallRendererIntegration(&window);
     window.showMaximized();
 
     if (!initialized)
