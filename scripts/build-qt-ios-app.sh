@@ -21,18 +21,22 @@ command -v python3 >/dev/null
 command -v xcrun >/dev/null
 command -v otool >/dev/null
 
-for required in \
-  "$CORE_ARCHIVE" \
-  "$RUNTIME_FRAMEWORK/RPCS3UpstreamRuntime" \
-  "$RUNTIME_FRAMEWORK/Headers/RPCS3UpstreamRuntimeBridge.h"; do
-  test -e "$required"
-done
-
+test -f "$CORE_ARCHIVE"
 test -d "$ROOT/.git"
 test -x "$QT_CMAKE"
 test -d "$HOST_QT"
 test -f "$ROOT/rpcs3/rpcs3qt/main_window.ui"
 test -f "$PORT_ROOT/scripts/generate-qt-ui-factory.py"
+test -f "$PORT_ROOT/scripts/build-upstream-ios-runtime-framework.sh"
+
+if [[ ! -f "$RUNTIME_FRAMEWORK/RPCS3UpstreamRuntime" || \
+      ! -f "$RUNTIME_FRAMEWORK/Headers/RPCS3UpstreamRuntimeBridge.h" ]]; then
+  echo "Building the real upstream RPCS3 iOS runtime framework before the Qt IPA"
+  bash "$PORT_ROOT/scripts/build-upstream-ios-runtime-framework.sh"
+fi
+
+test -f "$RUNTIME_FRAMEWORK/RPCS3UpstreamRuntime"
+test -f "$RUNTIME_FRAMEWORK/Headers/RPCS3UpstreamRuntimeBridge.h"
 
 rm -rf "$GENERATED" "$BUILD"
 mkdir -p "$GENERATED_UI" "$BUILD/logs"
@@ -163,8 +167,11 @@ grep -q 'RPCS3 Qt iOS upstream main_window.ui' "$BUILD/binary-strings.txt"
 nm -gU "$BIN" > "$BUILD/binary-symbols.txt"
 cat "$BUILD/binary-symbols.txt"
 grep -q '_rpcs3_ios_core_initialize' "$BUILD/binary-symbols.txt"
+grep -q '_rpcs3_ios_core_install_pkg' "$BUILD/binary-symbols.txt"
+grep -q '_rpcs3_ios_core_last_installed_boot_path' "$BUILD/binary-symbols.txt"
 grep -q '_rpcs3_ios_core_boot_elf' "$BUILD/binary-symbols.txt"
 grep -q '_rpcs3_ios_upstream_initialize' "$BUILD/binary-symbols.txt"
+grep -q '_rpcs3_ios_upstream_install_pkg' "$BUILD/binary-symbols.txt"
 grep -q '_rpcs3_ios_upstream_boot_game' "$BUILD/binary-symbols.txt"
 grep -q '_rpcs3_ios_upstream_stop' "$BUILD/binary-symbols.txt"
 
@@ -183,7 +190,7 @@ cat > "$BUILD/summary.md" <<EOF
 - Embedded runtime: \`Frameworks/RPCS3UpstreamRuntime.framework\`
 - Upstream UI manifest: \`$BUILD/upstream-ui-manifest.json\`
 - The shipped root window is a real \`QMainWindow\` with RPCS3's real \`QMenuBar\`, \`QMenu\`, and \`QAction\` objects.
-- The app binary imports the real upstream initialize, BootGame, and stop lifecycle symbols.
+- The Install Packages action calls upstream \`package_reader::extract_data\`, refreshes the shared \`dev_hdd0/game\` list, and auto-boots the returned installed path through \`Emulator::BootGame\`.
 - The embedded runtime remains interpreter/Null-RSX until the Metal renderer is connected.
 EOF
 
