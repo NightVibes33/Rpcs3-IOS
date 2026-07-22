@@ -47,7 +47,7 @@ static UIViewController *TopController(void) {
 }
 
 static RPCS3UpstreamActionRouter *RouterForCurrentController(RPCS3UpstreamMenuActionHandler fallback) {
-    static __weak UIViewController *routerOwner;
+    static UIViewController *routerOwner;
     static RPCS3UpstreamActionRouter *router;
     UIViewController *owner = TopController();
     if (!router || routerOwner != owner) {
@@ -65,7 +65,6 @@ static UIAction *Action(NSString *identifier, NSDictionary *titles, RPCS3Upstrea
     if (!title.length) title = identifier;
     UIAction *action = [UIAction actionWithTitle:title image:nil identifier:identifier handler:^(__kindof UIAction *sender) {
         (void)sender;
-        [[RouterForCurrentController(handler) class] description];
         [RouterForCurrentController(handler) handleActionIdentifier:identifier];
     }];
     if ([S(record[@"enabled"]) isEqualToString:@"false"]) action.attributes |= UIMenuElementAttributesDisabled;
