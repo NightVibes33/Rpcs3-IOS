@@ -17,6 +17,11 @@ typedef enum RPCS3IOSUpstreamState {
 // Null RSX, Null audio, and the supplied sandbox data root.
 int rpcs3_ios_upstream_initialize(const char* data_root);
 
+// Installs a PS3 PKG through upstream package_reader::extract_data(). Returns 1
+// only when RPCS3 reports a complete successful extraction into dev_hdd0/game.
+int rpcs3_ios_upstream_install_pkg(const char* pkg_path);
+const char* rpcs3_ios_upstream_last_installed_boot_path(void);
+
 // Boots a folder, EBOOT.BIN, SELF/ELF, or installed dev_hdd0/game title through
 // upstream Emulator::BootGame. Returns the upstream game_boot_result value;
 // game_boot_result::no_errors is zero.
