@@ -12,7 +12,7 @@
 
 namespace rpcs3::ios::render
 {
-class metal_gs_render final : public GSRender
+class metal_gs_render : public GSRender
 {
 public:
     explicit metal_gs_render(utils::serial* archive) noexcept;
