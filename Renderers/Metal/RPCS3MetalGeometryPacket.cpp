@@ -7,13 +7,15 @@ void geometry_packet::clear() noexcept
     persistent_vertex_bytes.clear();
     transient_vertex_bytes.clear();
     index_bytes.clear();
-    vertex_layout_state.fill(0);
+    vertex_context = {};
+    draw_parameters = {};
     gcm_primitive = 0;
     vertex_base = 0;
     vertex_count = 0;
     draw_count = 0;
     min_index = 0;
     max_index = 0;
+    vertex_index_base = 0;
     vertex_index_offset = 0;
     persistent_byte_count = 0;
     transient_byte_count = 0;
@@ -59,6 +61,15 @@ bool validate_geometry_packet(const geometry_packet& packet, std::string& error)
         error = "Metal geometry packet byte counts do not match their storage.";
         return false;
     }
+    if (packet.draw_parameters.vertex_base_index != packet.vertex_index_base ||
+        packet.draw_parameters.vertex_index_offset != packet.vertex_index_offset)
+    {
+        error = "Metal geometry packet draw parameters do not match the converted index range.";
+        return false;
+    }
+    if (!validate_vertex_environment(packet.vertex_context, packet.draw_parameters, error))
+        return false;
+
     if (packet.indexed)
     {
         if (packet.index_format == geometry_index_format::none || packet.index_bytes.empty())
