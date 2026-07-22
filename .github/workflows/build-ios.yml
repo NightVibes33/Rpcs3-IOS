@@ -32,6 +32,8 @@ jobs:
       QT_VERSION: "6.11.1"
       QT_ROOT: "${{ github.workspace }}/.qt"
       QT_APP_BUILD: "${{ github.workspace }}/qt-ios-build"
+      RUNTIME_BUILD: "${{ github.workspace }}/cmake-ios-runtime-framework"
+      MOLTENVK_VERSION: "1.4.1"
       CI_LOGS: "${{ github.workspace }}/ci-logs"
       STATUS_CONTEXT: "RPCS3 Qt iOS IPA"
 
@@ -146,28 +148,28 @@ jobs:
           set -o pipefail
           bash scripts/build-qt-ios-app.sh 2>&1 | tee "$CI_LOGS/qt-app-build-console.log"
 
-      - name: Validate real Qt main window and device bundle
+      - name: Validate Qt window, upstream runtime, and device bundle
         id: bundle
         shell: bash
         run: |
           set -euo pipefail
           APP="$(cat "$QT_APP_BUILD/app-path.txt")"
           BIN="$APP/RPCS3-iOS"
+          EMBEDDED_RUNTIME="$APP/Frameworks/RPCS3UpstreamRuntime.framework/RPCS3UpstreamRuntime"
           CORE_ARCHIVE="$GITHUB_WORKSPACE/BuildSupport/librpcs3-ios-core.a"
           UI_SOURCE="$GITHUB_WORKSPACE/QtApp/Generated/ui/main_window.ui"
           UI_HEADER="$(find "$QT_APP_BUILD" -type f -name ui_main_window.h -print | head -n 1)"
           UI_FACTORY="$GITHUB_WORKSPACE/QtApp/Generated/RPCS3QtUiFactory.cpp"
           CORE_SYMBOLS="$RUNNER_TEMP/rpcs3-core-symbols.txt"
+          BIN_DEFINED="$RUNNER_TEMP/rpcs3-qt-defined-symbols.txt"
+          BIN_ALL="$RUNNER_TEMP/rpcs3-qt-all-symbols.txt"
+          RUNTIME_SYMBOLS="$RUNNER_TEMP/rpcs3-runtime-symbols.txt"
           BIN_FILE="$RUNNER_TEMP/rpcs3-qt-file.txt"
           BIN_STRINGS="$RUNNER_TEMP/rpcs3-qt-strings.txt"
-          BIN_SYMBOLS="$RUNNER_TEMP/rpcs3-qt-symbols.txt"
 
-          test -d "$APP"
-          test -f "$BIN"
-          test -f "$CORE_ARCHIVE"
-          test -f "$UI_SOURCE"
-          test -f "$UI_HEADER"
-          test -f "$UI_FACTORY"
+          for required in "$APP" "$BIN" "$EMBEDDED_RUNTIME" "$CORE_ARCHIVE" "$UI_SOURCE" "$UI_HEADER" "$UI_FACTORY"; do
+            test -e "$required"
+          done
 
           grep -q '<class>main_window</class>' "$UI_SOURCE"
           grep -q 'name="menuFile"' "$UI_SOURCE"
@@ -181,8 +183,14 @@ jobs:
           lipo -info "$CORE_ARCHIVE"
           xcrun ar -t "$CORE_ARCHIVE"
           nm -gU "$CORE_ARCHIVE" > "$CORE_SYMBOLS"
-          grep -q '_rpcs3_ios_core_initialize' "$CORE_SYMBOLS"
-          grep -q '_rpcs3_ios_core_boot_elf' "$CORE_SYMBOLS"
+          for symbol in \
+            _rpcs3_ios_core_initialize \
+            _rpcs3_ios_core_set_render_view \
+            _rpcs3_ios_core_clear_render_view \
+            _rpcs3_ios_core_install_pkg \
+            _rpcs3_ios_core_boot_elf; do
+            grep -q "$symbol" "$CORE_SYMBOLS"
+          done
 
           file "$BIN" > "$BIN_FILE"
           cat "$BIN_FILE"
@@ -191,9 +199,36 @@ jobs:
           grep -q 'arm64' "$BIN_FILE"
           strings "$BIN" > "$BIN_STRINGS"
           grep -q 'RPCS3 Qt iOS upstream main_window.ui' "$BIN_STRINGS"
-          nm -gU "$BIN" > "$BIN_SYMBOLS"
-          grep -q '_rpcs3_ios_core_initialize' "$BIN_SYMBOLS"
-          grep -q '_rpcs3_ios_core_boot_elf' "$BIN_SYMBOLS"
+          nm -gU "$BIN" > "$BIN_DEFINED"
+          nm -g "$BIN" > "$BIN_ALL"
+          nm -gU "$EMBEDDED_RUNTIME" > "$RUNTIME_SYMBOLS"
+
+          for symbol in \
+            _rpcs3_ios_core_initialize \
+            _rpcs3_ios_core_set_render_view \
+            _rpcs3_ios_core_clear_render_view \
+            _rpcs3_ios_core_install_pkg \
+            _rpcs3_ios_core_boot_elf; do
+            grep -q "$symbol" "$BIN_DEFINED"
+          done
+
+          for symbol in \
+            _rpcs3_ios_upstream_initialize \
+            _rpcs3_ios_upstream_set_render_view \
+            _rpcs3_ios_upstream_render_view_ready \
+            _rpcs3_ios_upstream_install_pkg \
+            _rpcs3_ios_upstream_boot_game \
+            _rpcs3_ios_upstream_stop; do
+            grep -q "$symbol" "$BIN_ALL"
+            grep -q "$symbol" "$RUNTIME_SYMBOLS"
+          done
+
+          grep -q '_vkCreateInstance' "$RUNTIME_SYMBOLS"
+          grep -q '_vkCreateMetalSurfaceEXT' "$RUNTIME_SYMBOLS"
+          otool -L "$BIN" | tee "$CI_LOGS/app-linked-libraries.txt"
+          otool -L "$EMBEDDED_RUNTIME" | tee "$CI_LOGS/runtime-linked-libraries.txt"
+          grep -q '@rpath/RPCS3UpstreamRuntime.framework/RPCS3UpstreamRuntime' "$CI_LOGS/app-linked-libraries.txt"
+
           [[ "$APP" == *Release* ]] || { echo "Refusing non-Release product path: $APP"; exit 1; }
           echo "app=$APP" >> "$GITHUB_OUTPUT"
 
@@ -206,11 +241,13 @@ jobs:
           cp -R "${{ steps.bundle.outputs.app }}" Payload/RPCS3-iOS.app
           rm -rf Payload/RPCS3-iOS.app/_CodeSignature
           rm -f Payload/RPCS3-iOS.app/embedded.mobileprovision
+          test -f Payload/RPCS3-iOS.app/Frameworks/RPCS3UpstreamRuntime.framework/RPCS3UpstreamRuntime
           SHORT_SHA="$(printf '%s' "$GITHUB_SHA" | cut -c1-7)"
           IPA="output/RPCS3-Qt-iOS26-${SHORT_SHA}-unsigned.ipa"
           /usr/bin/ditto -c -k --sequesterRsrc --keepParent Payload "$IPA"
           shasum -a 256 "$IPA" > "$IPA.sha256"
-          unzip -l "$IPA"
+          unzip -l "$IPA" | tee "$CI_LOGS/ipa-contents.txt"
+          grep -q 'Payload/RPCS3-iOS.app/Frameworks/RPCS3UpstreamRuntime.framework/RPCS3UpstreamRuntime' "$CI_LOGS/ipa-contents.txt"
           ls -lh output
 
       - name: Upload unsigned Qt IPA
@@ -237,8 +274,12 @@ jobs:
           name: RPCS3-Qt-iOS-build-evidence
           path: |
             qt-ios-build/**
+            cmake-ios-runtime-framework/**
             cmake-ios-build/**
             cmake-ios-build.tar.gz
+            BuildSupport/moltenvk-ios/version.txt
+            BuildSupport/moltenvk-ios/source-url.txt
+            BuildSupport/moltenvk-ios/lib/libMoltenVK.a.sha256
           if-no-files-found: warn
           retention-days: 30
 
