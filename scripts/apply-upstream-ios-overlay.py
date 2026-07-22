@@ -155,6 +155,32 @@ const struct usbi_os_backend usbi_backend = {
 ''', encoding="utf-8")
 
 
+def patch_ffmpeg_for_ios(upstream_root: Path) -> None:
+    """Keep RPCS3's FFmpeg target in the graph without linking host macOS archives.
+
+    A real arm64-iOS FFmpeg build remains required before media decoding can be
+    enabled. This configure-only target lets the upstream graph continue to the
+    next platform dependency instead of accepting incompatible desktop binaries.
+    """
+    cmake = upstream_root / "3rdparty/CMakeLists.txt"
+    text = cmake.read_text(encoding="utf-8")
+    needle = '''# FFMPEG
+if(NOT ANDROID)
+\tadd_library(3rdparty_ffmpeg INTERFACE)
+'''
+    replacement = '''# FFMPEG
+if(RPCS3_IOS_UPSTREAM_GRAPH)
+\tmessage(STATUS "RPCS3 iOS: deferring FFmpeg until an arm64-iOS build is provided")
+\tadd_library(3rdparty_ffmpeg INTERFACE)
+\ttarget_compile_definitions(3rdparty_ffmpeg INTERFACE RPCS3_IOS_FFMPEG_UNAVAILABLE=1)
+elseif(NOT ANDROID)
+\tadd_library(3rdparty_ffmpeg INTERFACE)
+'''
+    if needle not in text:
+        raise SystemExit("Unable to locate upstream FFmpeg dependency block")
+    cmake.write_text(text.replace(needle, replacement, 1), encoding="utf-8")
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("upstream_root", type=Path)
@@ -171,6 +197,7 @@ def main() -> int:
 
     if args.mode == "upstream":
         patch_libusb_for_ios(args.upstream_root)
+        patch_ffmpeg_for_ios(args.upstream_root)
 
     print(f"Applied {args.mode} iOS overlay to {cmake}")
     return 0
