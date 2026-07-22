@@ -69,6 +69,78 @@ elseif (NOT ANDROID)
     )
 
 
+def add_runtime_bridge_targets(upstream_root: Path) -> None:
+    port_root = Path(__file__).resolve().parent.parent
+    bridge_source = port_root / "CoreBridge/RPCS3UpstreamRuntimeBridge.cpp"
+    probe_source = port_root / "CoreBridge/RPCS3UpstreamRuntimeLinkProbe.cpp"
+    renderer_sources = [
+        port_root / "Renderers/Apple/RPCS3AppleSurface.mm",
+        port_root / "Renderers/Apple/RPCS3IOSGSFrame.mm",
+        port_root / "Renderers/Metal/RPCS3MetalRenderer.mm",
+        port_root / "Renderers/Metal/RPCS3MetalGSRender.mm",
+    ]
+    for source in [bridge_source, probe_source, *renderer_sources]:
+        if not source.is_file():
+            raise SystemExit(f"Missing upstream runtime/renderer source: {source}")
+
+    cmake = upstream_root / "rpcs3/Emu/CMakeLists.txt"
+    marker = "# RPCS3_IOS_UPSTREAM_RUNTIME_BRIDGE"
+    text = cmake.read_text(encoding="utf-8")
+    if marker in text:
+        return
+
+    rendered_sources = "\n".join(f'        "{source.as_posix()}"' for source in renderer_sources)
+    text += f'''
+
+{marker}
+if(RPCS3_IOS_UPSTREAM_GRAPH)
+    add_library(rpcs3_ios_upstream_bridge STATIC
+        "{bridge_source.as_posix()}"
+{rendered_sources}
+    )
+    set_source_files_properties(
+{rendered_sources}
+        PROPERTIES COMPILE_OPTIONS "-fobjc-arc"
+    )
+    target_include_directories(rpcs3_ios_upstream_bridge PRIVATE
+        "{(port_root / 'CoreBridge').as_posix()}"
+        "{(port_root / 'Renderers').as_posix()}"
+        "{(port_root / 'Renderers/Apple').as_posix()}"
+        "{(port_root / 'Renderers/Metal').as_posix()}"
+        "${{CMAKE_SOURCE_DIR}}"
+        "${{CMAKE_SOURCE_DIR}}/rpcs3"
+        "${{CMAKE_SOURCE_DIR}}/Utilities"
+    )
+    target_compile_definitions(rpcs3_ios_upstream_bridge PRIVATE
+        RPCS3_IOS=1
+        HAVE_VULKAN=1
+        VK_USE_PLATFORM_METAL_EXT=1
+    )
+    target_link_libraries(rpcs3_ios_upstream_bridge PUBLIC
+        rpcs3_emu
+        3rdparty::vulkan
+        "-framework UIKit"
+        "-framework Metal"
+        "-framework QuartzCore"
+        "-framework Foundation"
+        "-framework CoreGraphics"
+        "-framework IOSurface"
+    )
+
+    add_executable(rpcs3_ios_runtime_link_probe
+        "{probe_source.as_posix()}"
+    )
+    target_link_libraries(rpcs3_ios_runtime_link_probe PRIVATE rpcs3_ios_upstream_bridge)
+    set_target_properties(rpcs3_ios_runtime_link_probe PROPERTIES
+        OUTPUT_NAME "rpcs3-ios-runtime-link-probe"
+        XCODE_ATTRIBUTE_CODE_SIGNING_ALLOWED "NO"
+        XCODE_ATTRIBUTE_CODE_SIGNING_REQUIRED "NO"
+    )
+endif()
+'''
+    cmake.write_text(text, encoding="utf-8")
+
+
 def patch_ios_runtime_dependencies(upstream_root: Path) -> None:
     port_root = Path(__file__).resolve().parent.parent
     ffmpeg_root = Path(
@@ -111,8 +183,12 @@ def main() -> int:
 
     patch_top_level_graph(args.upstream_root)
     patch_ios_runtime_dependencies(args.upstream_root)
+    add_runtime_bridge_targets(args.upstream_root)
 
-    print(f"Patched upstream emulator graph, Objective-C++, Vulkan, Metal, and iOS runtime dependencies: {args.upstream_root}")
+    print(
+        "Patched upstream emulator graph, Emu.Init bridge, UIKit GS frame, "
+        f"MoltenVK, native Metal, and iOS runtime dependencies: {args.upstream_root}"
+    )
     return 0
 
 
