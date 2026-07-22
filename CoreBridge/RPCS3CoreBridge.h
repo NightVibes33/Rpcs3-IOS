@@ -37,6 +37,8 @@ typedef struct RPCS3IOSCoreDiagnostics {
 
 RPCS3IOSCoreDiagnostics rpcs3_ios_core_diagnostics(void);
 int rpcs3_ios_core_initialize(const char *data_path);
+int rpcs3_ios_core_set_render_view(void *native_view);
+void rpcs3_ios_core_clear_render_view(void);
 int rpcs3_ios_core_install_pkg(const char *pkg_path);
 const char *rpcs3_ios_core_last_installed_boot_path(void);
 int rpcs3_ios_core_boot_elf(const char *boot_path);
