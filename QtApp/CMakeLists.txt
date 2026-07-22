@@ -45,6 +45,10 @@ qt_add_executable(RPCS3QtIOS MANUAL_FINALIZATION
     ${RPCS3_COMPILED_UI_FILES}
 )
 
+set_target_properties(RPCS3QtIOS PROPERTIES
+    AUTOUIC_SEARCH_PATHS "${RPCS3_UI_ROOT}"
+)
+
 target_precompile_headers(RPCS3QtIOS PRIVATE QtCompat.h)
 
 qt_add_resources(RPCS3QtIOS "rpcs3_upstream_ui"
