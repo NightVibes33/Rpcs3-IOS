@@ -39,6 +39,8 @@ struct shader_library_cache::implementation
     {
         __strong id<MTLLibrary> library = nil;
         __strong id<MTLFunction> function = nil;
+        shader_stage stage = shader_stage::vertex;
+        std::vector<shader_resource_binding> resources;
     };
 
     mutable std::mutex mutex;
@@ -77,6 +79,7 @@ bool shader_library_cache::get_or_compile(const translated_shader& shader,
                                           std::string& error)
 {
     output = {};
+    output.stage = shader.stage;
     if (shader.source.empty() || shader.entry_point.empty())
     {
         error = "Metal shader cache received empty MSL source or entry point.";
@@ -95,6 +98,8 @@ bool shader_library_cache::get_or_compile(const translated_shader& shader,
     {
         output.library = (__bridge void*)existing->second.library;
         output.function = (__bridge void*)existing->second.function;
+        output.stage = existing->second.stage;
+        output.resources = existing->second.resources;
         error.clear();
         return true;
     }
@@ -135,15 +140,19 @@ bool shader_library_cache::get_or_compile(const translated_shader& shader,
 
         auto [inserted, created] = m_impl->shaders.emplace(
             key,
-            implementation::cache_entry{library, function});
+            implementation::cache_entry{library, function, shader.stage, shader.resources});
         if (!created)
         {
             inserted->second.library = library;
             inserted->second.function = function;
+            inserted->second.stage = shader.stage;
+            inserted->second.resources = shader.resources;
         }
 
         output.library = (__bridge void*)inserted->second.library;
         output.function = (__bridge void*)inserted->second.function;
+        output.stage = inserted->second.stage;
+        output.resources = inserted->second.resources;
         error.clear();
         return true;
     }
