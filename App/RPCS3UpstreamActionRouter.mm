@@ -46,7 +46,19 @@ typedef NS_ENUM(NSInteger, RPCS3PickerMode) {
     [owner presentViewController:alert animated:YES completion:nil];
 }
 
+- (BOOL)hasBundledDocumentNamed:(NSString *)file {
+    for (NSDictionary *document in RPCS3LoadBundledQtUIModel()[@"documents"]) {
+        if ([document[@"file"] isEqualToString:file]) return YES;
+    }
+    return NO;
+}
+
 - (void)pushDocument:(NSString *)file preferredPage:(NSString *)page {
+    if (![self hasBundledDocumentNamed:file]) {
+        [self showTitle:@"RPCS3 UI port pending"
+                message:[NSString stringWithFormat:@"%@ is implemented by RPCS3's C++/Qt code and has no Qt Designer .ui document to render. Its native UIKit screen still has to be ported directly from the upstream C++ implementation.", file]];
+        return;
+    }
     RPCS3UpstreamUIDocumentController *controller = [[RPCS3UpstreamUIDocumentController alloc] initWithDocumentFile:file preferredPageName:page.length ? page : nil];
     [self.owner.navigationController pushViewController:controller animated:YES];
 }
@@ -128,39 +140,27 @@ typedef NS_ENUM(NSInteger, RPCS3PickerMode) {
 }
 
 - (void)handleActionIdentifier:(NSString *)identifier {
+    // These are the exact Qt Designer documents present in pinned RPCS3 v0.0.40.
+    // Other RPCS3 tools are built directly in C++ and require a separate native port.
     NSDictionary<NSString *, NSArray<NSString *> *> *routes = @{
         @"confCPUAct": @[@"settings_dialog.ui", @"coreTab"],
         @"confGPUAct": @[@"settings_dialog.ui", @"gpuTab"],
         @"confAudioAct": @[@"settings_dialog.ui", @"audioTab"],
-        @"confIOAct": @[@"settings_dialog.ui", @"ioTab"],
+        @"confIOAct": @[@"settings_dialog.ui", @"inputTab"],
         @"confSystemAct": @[@"settings_dialog.ui", @"systemTab"],
         @"confNetwrkAct": @[@"settings_dialog.ui", @"networkTab"],
         @"confAdvAct": @[@"settings_dialog.ui", @"advancedTab"],
         @"confEmuAct": @[@"settings_dialog.ui", @"emulatorTab"],
         @"confGuiAct": @[@"settings_dialog.ui", @"guiTab"],
         @"confPadsAct": @[@"pad_settings_dialog.ui", @""],
-        @"actionBasic_Mouse": @[@"basic_mouse_settings_dialog.ui", @""],
-        @"actionRaw_Mouse": @[@"raw_mouse_settings_dialog.ui", @""],
         @"confCamerasAct": @[@"camera_settings_dialog.ui", @""],
         @"actionPS_Move_Tracker": @[@"ps_move_tracker_dialog.ui", @""],
         @"confShortcutsAct": @[@"shortcut_dialog.ui", @""],
-        @"confAutopauseManagerAct": @[@"auto_pause_settings_dialog.ui", @""],
-        @"confVFSDialogAct": @[@"vfs_dialog.ui", @""],
         @"toolsVfsDialogAct": @[@"vfs_tool_dialog.ui", @""],
-        @"confRPCNAct": @[@"rpcn_settings_dialog.ui", @""],
-        @"confIPCAct": @[@"ipc_settings_dialog.ui", @""],
-        @"confSavedataManagerAct": @[@"save_data_dialog.ui", @""],
-        @"actionManage_Trophy_Data": @[@"trophy_manager_dialog.ui", @""],
-        @"actionManage_Savestates": @[@"savestate_manager_dialog.ui", @""],
-        @"actionManage_Cheats": @[@"cheat_manager_dialog.ui", @""],
         @"actionManage_Game_Patches": @[@"patch_manager_dialog.ui", @""],
-        @"actionManage_Screenshots": @[@"screenshot_manager_dialog.ui", @""],
         @"patchCreatorAct": @[@"patch_creator_dialog.ui", @""],
         @"actionMusic_Player": @[@"music_player_dialog.ui", @""],
-        @"toolsSystemCommandsAct": @[@"system_cmd_dialog.ui", @""],
-        @"toolsmemory_viewerAct": @[@"memory_viewer.ui", @""],
-        @"toolskernel_explorerAct": @[@"kernel_explorer.ui", @""],
-        @"toolsRsxDebuggerAct": @[@"rsx_debugger.ui", @""],
+        @"welcomeAct": @[@"welcome_dialog.ui", @""],
         @"aboutAct": @[@"about_dialog.ui", @""]
     };
     NSArray<NSString *> *route = routes[identifier];
@@ -209,11 +209,11 @@ typedef NS_ENUM(NSInteger, RPCS3PickerMode) {
     if ([identifier hasPrefix:@"setIconSize"] || [identifier isEqualToString:@"actionPreferGameDataIcons"] || [identifier isEqualToString:@"showCustomIconsAct"] || [identifier isEqualToString:@"playHoverGifsAct"]) {
         [NSUserDefaults.standardUserDefaults setObject:identifier forKey:@"RPCS3IOS.GameListIconAction"]; if (self.reloadHandler) self.reloadHandler(); return;
     }
-    if ([identifier isEqualToString:@"quickstartAct"]) { [self openURLString:@"https://rpcs3.net/quickstart"]; return; }
+    if ([identifier isEqualToString:@"quickstartAct"] || [identifier isEqualToString:@"supportAct"]) { [self openURLString:@"https://rpcs3.net/quickstart"]; return; }
     if ([identifier isEqualToString:@"compatibilityAct"]) { [self openURLString:@"https://rpcs3.net/compatibility"]; return; }
     if ([identifier isEqualToString:@"reportIssueAct"]) { [self openURLString:@"https://github.com/RPCS3/rpcs3/issues"]; return; }
 
-    NSString *message = [NSString stringWithFormat:@"The original RPCS3 action %@ is preserved, but its real Emu.System or desktop-tool backend is not connected to the iOS bridge yet.", identifier];
+    NSString *message = [NSString stringWithFormat:@"The original RPCS3 action %@ is preserved. RPCS3 implements this operation in C++ rather than a Qt Designer .ui document, and its real Emu.System or native-tool backend is not connected to the iOS bridge yet.", identifier];
     [self showTitle:identifier message:message];
 }
 
