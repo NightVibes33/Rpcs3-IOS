@@ -95,22 +95,20 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ${{ env.QT_ROOT }}
-          key: qt-${{ runner.os }}-${{ runner.arch }}-ios-${{ env.QT_VERSION }}-qttools-v1
+          key: qt-${{ runner.os }}-${{ runner.arch }}-ios-${{ env.QT_VERSION }}-base-v2
 
       - name: Install Qt for iOS and host tools
         if: steps.qt-cache.outputs.cache-hit != 'true'
         shell: bash
         run: |
           set -euo pipefail
+          exec > >(tee "$CI_LOGS/qt-install.log") 2>&1
           python3 -m pip install --user --upgrade aqtinstall
           IOS_ARCH="$(python3 -m aqt list-qt mac ios --arch "$QT_VERSION" | tr ' ' '\n' | sed '/^$/d' | head -n 1)"
           test -n "$IOS_ARCH"
-          echo "Installing Qt $QT_VERSION for iOS architecture $IOS_ARCH"
-          MODULES="$(python3 -m aqt list-qt mac ios --modules "$QT_VERSION" "$IOS_ARCH")"
-          grep -qw qttools <<<"$MODULES" || { echo "Qt UiTools module is unavailable for this iOS package"; exit 1; }
+          echo "Installing base Qt $QT_VERSION for iOS architecture $IOS_ARCH with matching host tools"
           python3 -m aqt install-qt mac ios "$QT_VERSION" "$IOS_ARCH" \
             --autodesktop \
-            -m qttools \
             -O "$QT_ROOT"
 
       - name: Verify Qt toolchains
@@ -119,9 +117,12 @@ jobs:
           set -euo pipefail
           test -x "$QT_ROOT/$QT_VERSION/ios/bin/qt-cmake"
           test -x "$QT_ROOT/$QT_VERSION/macos/bin/qt-cmake"
-          test -x "$QT_ROOT/$QT_VERSION/macos/libexec/uic" || test -x "$QT_ROOT/$QT_VERSION/macos/bin/uic"
+          UIC="$QT_ROOT/$QT_VERSION/macos/libexec/uic"
+          if [[ ! -x "$UIC" ]]; then UIC="$QT_ROOT/$QT_VERSION/macos/bin/uic"; fi
+          test -x "$UIC"
           "$QT_ROOT/$QT_VERSION/ios/bin/qt-cmake" --version | tee "$CI_LOGS/qt-cmake-version.txt"
-          find "$QT_ROOT/$QT_VERSION/ios" -maxdepth 3 -iname '*UiTools*' -print | tee "$CI_LOGS/qt-uitools-files.txt"
+          "$UIC" -v 2>&1 | tee "$CI_LOGS/qt-uic-version.txt"
+          find "$QT_ROOT/$QT_VERSION/ios" -maxdepth 3 -name 'Qt6Widgets*' -print | tee "$CI_LOGS/qt-widgets-files.txt"
 
       - name: Build upstream-derived RPCS3 core archive
         shell: bash
@@ -145,12 +146,14 @@ jobs:
           CORE_ARCHIVE="$GITHUB_WORKSPACE/BuildSupport/librpcs3-ios-core.a"
           UI_SOURCE="$GITHUB_WORKSPACE/QtApp/Generated/ui/main_window.ui"
           UI_HEADER="$(find "$QT_APP_BUILD" -type f -name ui_main_window.h -print | head -n 1)"
+          UI_FACTORY="$GITHUB_WORKSPACE/QtApp/Generated/RPCS3QtUiFactory.cpp"
 
           test -d "$APP"
           test -f "$BIN"
           test -f "$CORE_ARCHIVE"
           test -f "$UI_SOURCE"
           test -f "$UI_HEADER"
+          test -f "$UI_FACTORY"
 
           grep -q '<class>main_window</class>' "$UI_SOURCE"
           grep -q 'name="menuFile"' "$UI_SOURCE"
@@ -158,6 +161,7 @@ jobs:
           grep -q 'class Ui_main_window' "$UI_HEADER"
           grep -q 'bootGameAct' "$UI_HEADER"
           grep -q 'menuConfiguration' "$UI_HEADER"
+          grep -q 'main_window.ui' "$UI_FACTORY"
 
           file "$CORE_ARCHIVE"
           lipo -info "$CORE_ARCHIVE"
