@@ -139,8 +139,10 @@ grep -q 'menuConfiguration' "$GENERATED_HEADER"
 file "$BIN" | tee "$BUILD/binary-file.txt"
 lipo -info "$BIN" | tee "$BUILD/binary-architectures.txt"
 xcrun vtool -show-build "$BIN" | tee "$BUILD/binary-build-version.txt" || true
-strings "$BIN" | grep -q 'RPCS3 Qt iOS upstream main_window.ui'
-nm -gU "$BIN" | tee "$BUILD/binary-symbols.txt"
+strings "$BIN" > "$BUILD/binary-strings.txt"
+grep -q 'RPCS3 Qt iOS upstream main_window.ui' "$BUILD/binary-strings.txt"
+nm -gU "$BIN" > "$BUILD/binary-symbols.txt"
+cat "$BUILD/binary-symbols.txt"
 grep -q '_rpcs3_ios_core_initialize' "$BUILD/binary-symbols.txt"
 grep -q '_rpcs3_ios_core_boot_elf' "$BUILD/binary-symbols.txt"
 
