@@ -1,0 +1,1 @@
+Trigger iOS 26 unsigned IPA workflow for adaptive RPCS3 UI build.
