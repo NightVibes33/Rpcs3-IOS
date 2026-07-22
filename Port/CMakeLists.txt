@@ -59,6 +59,7 @@ endforeach()
 add_library(rpcs3_ios_core STATIC
     ${RPCS3_IOS_OBJCXX_SOURCES}
     ${RPCS3_IOS_UPSTREAM_SOURCES}
+    "${RPCS3_IOS_PORT_ROOT}/CoreBridge/RPCS3CorePadBridge.cpp"
     "${RPCS3_IOS_PORT_ROOT}/Port/RPCS3CryptoCompat.cpp"
     "${RPCS3_IOS_PORT_ROOT}/Port/RPCS3ELFProbe.cpp"
     "${RPCS3_IOS_PORT_ROOT}/Port/RPCS3SELFProbe.cpp"
