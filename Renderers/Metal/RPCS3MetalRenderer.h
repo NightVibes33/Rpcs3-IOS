@@ -2,6 +2,7 @@
 
 #include "../RPCS3RendererBackend.h"
 #include "RPCS3MetalDrawSubmission.h"
+#include "RPCS3MetalShaderLibrary.h"
 
 #include <memory>
 
@@ -19,6 +20,12 @@ public:
                 std::uint32_t pixel_height,
                 float content_scale,
                 std::string& error) override;
+
+    bool compile_spirv_shader(std::span<const std::uint32_t> spirv,
+                              metal_rsx::shader_stage stage,
+                              metal_rsx::compiled_shader& output,
+                              std::string& error);
+    [[nodiscard]] std::size_t cached_shader_count() const noexcept;
 
     bool begin_frame(float red,
                      float green,
