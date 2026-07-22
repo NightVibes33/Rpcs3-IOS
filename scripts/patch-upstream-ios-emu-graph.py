@@ -142,7 +142,7 @@ elseif (NOT ANDROID)
 
 def make_ios_runtime_bridge(upstream_root: Path, bridge_source: Path) -> Path:
     """Generate the shipping bridge with Cubeb's iOS AudioUnit backend enabled."""
-    generated = upstream_root / "rpcs3/Emu/RPCS3IOSUpstreamRuntimeBridge.cpp"
+    generated = (upstream_root / "rpcs3/Emu/RPCS3IOSUpstreamRuntimeBridge.cpp").resolve()
     text = bridge_source.read_text(encoding="utf-8")
 
     include_needle = '''#include "Emu/Audio/Null/NullAudioBackend.h"
@@ -331,12 +331,13 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("upstream_root", type=Path)
     args = parser.parse_args()
+    upstream_root = args.upstream_root.resolve()
 
-    patch_top_level_graph(args.upstream_root)
-    patch_ios_runtime_dependencies(args.upstream_root)
-    add_runtime_bridge_targets(args.upstream_root)
+    patch_top_level_graph(upstream_root)
+    patch_ios_runtime_dependencies(upstream_root)
+    add_runtime_bridge_targets(upstream_root)
 
-    print(f"Patched upstream graph for runtime, firmware installer, touch pad, Cubeb AudioUnit, and full Qt frontend iOS lanes: {args.upstream_root}")
+    print(f"Patched upstream graph for runtime, firmware installer, touch pad, Cubeb AudioUnit, and full Qt frontend iOS lanes: {upstream_root}")
     return 0
 
 
