@@ -4,12 +4,6 @@ on:
   workflow_dispatch:
   push:
     branches: [main]
-    paths:
-      - "UPSTREAM_RPCS3_REVISION"
-      - "scripts/apply-upstream-ios-overlay.py"
-      - "scripts/probe-upstream-ios-graph.sh"
-      - "cmake/**"
-      - ".github/workflows/upstream-graph-probe.yml"
 
 permissions:
   contents: read
