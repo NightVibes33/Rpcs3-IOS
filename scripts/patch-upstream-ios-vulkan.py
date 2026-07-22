@@ -38,7 +38,13 @@ def resolve_device_binary(moltenvk_root: Path) -> Path:
 def patch_dependency_graph(upstream_root: Path, moltenvk_root: Path) -> None:
     binary = resolve_device_binary(moltenvk_root)
     include = moltenvk_root / "include"
-    for required in (binary, include / "vulkan/vulkan.h", include / "MoltenVK/vk_mvk_moltenvk.h"):
+    for required in (
+        binary,
+        include / "vulkan/vulkan.h",
+        include / "vk_video/vulkan_video_codec_h264std.h",
+        include / "vk_video/vulkan_video_codec_h265std.h",
+        include / "MoltenVK/vk_mvk_moltenvk.h",
+    ):
         if not required.exists():
             raise SystemExit(f"Missing MoltenVK input: {required}")
 
@@ -142,6 +148,7 @@ def add_port_renderer_sources(upstream_root: Path, port_root: Path, spirv_cross_
     ]
     cpp_sources = [
         renderers / "Metal/RPCS3MetalDrawSubmission.cpp",
+        renderers / "Metal/RPCS3MetalGeometryPacket.cpp",
         renderers / "Metal/RPCS3MetalPrimitiveExpander.cpp",
         renderers / "Metal/RPCS3MetalProgramCompiler.cpp",
         renderers / "Metal/RPCS3MetalShaderTranslator.cpp",
@@ -151,6 +158,7 @@ def add_port_renderer_sources(upstream_root: Path, port_root: Path, spirv_cross_
         renderers / "Apple/RPCS3AppleSurface.h",
         renderers / "Apple/RPCS3IOSGSFrame.h",
         renderers / "Metal/RPCS3MetalDrawSubmission.h",
+        renderers / "Metal/RPCS3MetalGeometryPacket.h",
         renderers / "Metal/RPCS3MetalRenderer.h",
         renderers / "Metal/RPCS3MetalRSXFormats.h",
         renderers / "Metal/RPCS3MetalPipelineState.h",
@@ -203,6 +211,7 @@ if(RPCS3_IOS_UPSTREAM_GRAPH)
         RPCS3_IOS_METAL_SHADER_LIBRARY_CACHE=1
         RPCS3_IOS_METAL_RENDER_PIPELINE_CACHE=1
         RPCS3_IOS_METAL_LIVE_PROGRAM_COMPILER=1
+        RPCS3_IOS_METAL_LIVE_GEOMETRY_PACKET=1
     )
     target_link_libraries(rpcs3_emu PUBLIC
 {spirv_library_lines}
