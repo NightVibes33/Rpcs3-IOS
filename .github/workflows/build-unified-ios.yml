@@ -3,7 +3,7 @@ name: Build Unified RPCS3 Qt Runtime IPA
 on:
   workflow_dispatch:
   push:
-    branches: [rsx-renderer-integration]
+    branches: [unified-proof-qt-toolchain-ea709bb]
     paths:
       - "QtApp/**"
       - "CoreBridge/**"
@@ -21,7 +21,7 @@ permissions:
 
 concurrency:
   group: rpcs3-unified-ios-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   build:
