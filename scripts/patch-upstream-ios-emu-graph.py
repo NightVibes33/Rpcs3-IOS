@@ -69,26 +69,20 @@ elseif (NOT ANDROID)
     )
 
 
-def prepare_ios_runtime_dependencies(upstream_root: Path) -> None:
+def patch_ios_runtime_dependencies(upstream_root: Path) -> None:
     port_root = Path(__file__).resolve().parent.parent
     ffmpeg_root = Path(
         os.environ.get("RPCS3_IOS_FFMPEG_ROOT", port_root / "BuildSupport/ffmpeg-ios")
     ).resolve()
-    build_script = port_root / "scripts/build-ffmpeg-ios.sh"
     runtime_patch = port_root / "scripts/patch-upstream-ios-runtime-blockers.py"
 
-    if not build_script.is_file():
-        raise SystemExit(f"Missing FFmpeg iOS build script: {build_script}")
     if not runtime_patch.is_file():
         raise SystemExit(f"Missing runtime blocker patch: {runtime_patch}")
 
-    environment = os.environ.copy()
-    environment["FFMPEG_IOS_ROOT"] = str(ffmpeg_root)
-    subprocess.run(["bash", str(build_script)], check=True, env=environment)
     subprocess.run(
         [sys.executable, str(runtime_patch), str(upstream_root), str(ffmpeg_root)],
         check=True,
-        env=environment,
+        env=os.environ.copy(),
     )
 
 
@@ -100,7 +94,7 @@ def main() -> int:
     args = parser.parse_args()
 
     patch_top_level_graph(args.upstream_root)
-    prepare_ios_runtime_dependencies(args.upstream_root)
+    patch_ios_runtime_dependencies(args.upstream_root)
 
     print(f"Patched upstream emulator graph and iOS runtime dependencies: {args.upstream_root}")
     return 0
