@@ -4,13 +4,16 @@ on:
   workflow_dispatch:
   push:
     branches: [metal-geometry-staging]
-    paths:
+    paths: &geometry_paths
       - "Renderers/Metal/**"
       - "scripts/build-moltenvk-ios.sh"
       - "scripts/probe-upstream-ios-graph.sh"
       - "scripts/patch-upstream-ios-vulkan.py"
       - "SPIRV_CROSS_REVISION"
       - ".github/workflows/metal-geometry-staging.yml"
+  pull_request:
+    branches: [metal-geometry-staging]
+    paths: *geometry_paths
 
 permissions:
   contents: read
