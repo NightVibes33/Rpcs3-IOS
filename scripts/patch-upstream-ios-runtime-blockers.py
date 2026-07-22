@@ -54,6 +54,82 @@ def patch_desktop_jit_write_toggles(upstream_root: Path) -> int:
     return patched_calls
 
 
+def patch_ios_config_dir(upstream_root: Path) -> None:
+    """Make the host-selected sandbox root authoritative for the iOS build.
+
+    Upstream Apple builds normally derive the RPCS3 data directory from HOME.
+    The iOS host already owns a sandbox root containing dev_hdd0/dev_flash, so
+    the bridge sets RPCS3_CONFIG_DIR before Emu.Init and this overlay makes the
+    upstream filesystem use that exact root instead of a second parallel tree.
+    """
+
+    source = upstream_root / "Utilities/File.cpp"
+    text = source.read_text(encoding="utf-8")
+    marker = "RPCS3 iOS: honor RPCS3_CONFIG_DIR as the complete data root"
+    if marker in text:
+        return
+
+    needle = '''#else
+
+#ifdef __APPLE__
+		if (const char* home = ::getenv("HOME"))
+			dir = home + "/Library/Application Support"s;
+#else
+		if (const char* conf = ::getenv("XDG_CONFIG_HOME"))
+			dir = conf;
+		else if (const char* home = ::getenv("HOME"))
+			dir = home + "/.config"s;
+#endif
+		else // Just in case
+			dir = "./config";
+
+		dir += "/rpcs3/";
+
+		if (!create_path(dir))
+'''
+    replacement = '''#else
+		// RPCS3 iOS: honor RPCS3_CONFIG_DIR as the complete data root.
+		bool append_product_directory = true;
+#if defined(RPCS3_IOS)
+		if (const char* override_dir = ::getenv("RPCS3_CONFIG_DIR"); override_dir && *override_dir)
+		{
+			dir = override_dir;
+			append_product_directory = false;
+		}
+#endif
+
+		if (dir.empty())
+		{
+#ifdef __APPLE__
+			if (const char* home = ::getenv("HOME"))
+				dir = home + "/Library/Application Support"s;
+#else
+			if (const char* conf = ::getenv("XDG_CONFIG_HOME"))
+				dir = conf;
+			else if (const char* home = ::getenv("HOME"))
+				dir = home + "/.config"s;
+#endif
+			else // Just in case
+				dir = "./config";
+		}
+
+		if (append_product_directory)
+		{
+			dir += "/rpcs3/";
+		}
+		else if (!dir.empty() && dir.back() != '/')
+		{
+			dir += '/';
+		}
+
+		if (!create_path(dir))
+'''
+
+    if needle not in text:
+        raise SystemExit("Unable to locate upstream Apple configuration-directory block")
+    source.write_text(text.replace(needle, replacement, 1), encoding="utf-8")
+
+
 def patch_ffmpeg_target(upstream_root: Path, ffmpeg_root: Path) -> None:
     cmake = upstream_root / "3rdparty/CMakeLists.txt"
     text = cmake.read_text(encoding="utf-8")
@@ -126,9 +202,11 @@ def main() -> int:
 
     verify_ffmpeg_install(args.ffmpeg_root)
     patched_calls = patch_desktop_jit_write_toggles(args.upstream_root)
+    patch_ios_config_dir(args.upstream_root)
     patch_ffmpeg_target(args.upstream_root, args.ffmpeg_root)
 
     print(f"Guarded {patched_calls} desktop-only JIT write-protection calls for iOS")
+    print("Made RPCS3_CONFIG_DIR authoritative for the shared iOS dev_hdd0/dev_flash tree")
     print(f"Linked RPCS3's upstream graph to FFmpeg at {args.ffmpeg_root.resolve()}")
     return 0
 
