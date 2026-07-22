@@ -19,7 +19,7 @@ command -v git >/dev/null
 command -v python3 >/dev/null
 command -v xcrun >/dev/null
 
-test -f "$REVISION_FILE"
+ test -f "$REVISION_FILE"
 UPSTREAM_REVISION="$(tr -d '[:space:]' < "$REVISION_FILE")"
 test -n "$UPSTREAM_REVISION"
 
@@ -89,6 +89,8 @@ otool -L "$OUTPUT/RPCS3UpstreamRuntime" | tee "$BUILD/framework-linked-libraries
 nm -gU "$OUTPUT/RPCS3UpstreamRuntime" > "$BUILD/framework-symbols.txt"
 
 grep -q '_rpcs3_ios_upstream_initialize' "$BUILD/framework-symbols.txt"
+grep -q '_rpcs3_ios_upstream_install_pkg' "$BUILD/framework-symbols.txt"
+grep -q '_rpcs3_ios_upstream_last_installed_boot_path' "$BUILD/framework-symbols.txt"
 grep -q '_rpcs3_ios_upstream_boot_game' "$BUILD/framework-symbols.txt"
 grep -q '_rpcs3_ios_upstream_pause' "$BUILD/framework-symbols.txt"
 grep -q '_rpcs3_ios_upstream_resume' "$BUILD/framework-symbols.txt"
@@ -104,7 +106,8 @@ cat > "$BUILD/summary.md" <<EOF
 - PPU lane: upstream interpreter
 - SPU lane: upstream precise interpreter
 - Renderer lane: Null RSX until Metal is connected
-- Exported lifecycle: initialize, BootGame, pause, resume, stop, state
+- Exported installer: upstream \`package_reader::extract_data\`
+- Exported lifecycle: initialize, install PKG, BootGame, pause, resume, stop, state
 - Data root: host-selected RPCS3 sandbox through RPCS3_CONFIG_DIR
 EOF
 
