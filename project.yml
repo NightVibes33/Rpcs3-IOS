@@ -35,7 +35,7 @@ targets:
           - "$(inherited)"
           - "$(SRCROOT)/CoreBridge"
           - "$(SRCROOT)/Port"
-        OTHER_LDFLAGS: "$(inherited) $(SRCROOT)/BuildSupport/librpcs3-ios-core.a -framework Metal -framework Foundation -framework UIKit"
+        OTHER_LDFLAGS: "$(inherited) $(SRCROOT)/BuildSupport/librpcs3-ios-core.a -framework Metal -framework Foundation -framework UIKit -framework UniformTypeIdentifiers"
         LD_RUNPATH_SEARCH_PATHS:
           - "$(inherited)"
           - "@executable_path/Frameworks"
