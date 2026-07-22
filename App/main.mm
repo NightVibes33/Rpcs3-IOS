@@ -64,7 +64,7 @@ static NSString *RPCS3Root(void) {
 }
 - (void)collectionView:(UICollectionView *)collectionView didSelectItemAtIndexPath:(NSIndexPath *)indexPath { [collectionView deselectItemAtIndexPath:indexPath animated:YES]; [self.navigationController pushViewController:[[RPCS3GameDetailsController alloc] initWithEntry:self.items[indexPath.item]] animated:YES]; }
 - (UIContextMenuConfiguration *)collectionView:(UICollectionView *)collectionView contextMenuConfigurationForItemAtIndexPath:(NSIndexPath *)indexPath point:(CGPoint)point {
-    (void)collectionView;(void)point; RPCS3GameEntry *entry=self.items[indexPath.item]; __weak typeof(self) weakSelf=self;
+    (void)collectionView;(void)point; RPCS3GameEntry *entry=self.items[indexPath.item]; __weak RPCS3LibraryController *weakSelf=self;
     return [UIContextMenuConfiguration configurationWithIdentifier:nil previewProvider:^UIViewController *{ return [[RPCS3GameDetailsController alloc] initWithEntry:entry]; } actionProvider:^UIMenu *(NSArray<UIMenuElement *> *suggested){ (void)suggested;
         UIAction *details=[UIAction actionWithTitle:@"Game Details" image:[UIImage systemImageNamed:@"info.circle"] identifier:nil handler:^(__kindof UIAction *a){(void)a;[weakSelf.navigationController pushViewController:[[RPCS3GameDetailsController alloc] initWithEntry:entry] animated:YES];}];
         UIAction *boot=[UIAction actionWithTitle:@"Boot" image:[UIImage systemImageNamed:@"play.fill"] identifier:nil handler:^(__kindof UIAction *a){(void)a;if(entry.bootURL)rpcs3_ios_core_boot_elf(entry.bootURL.path.fileSystemRepresentation);}]; boot.attributes=entry.bootURL?0:UIMenuElementAttributesDisabled;
