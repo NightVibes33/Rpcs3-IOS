@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Validate the iOS PKG install, visible boot, and touch-input contract."""
+"""Validate the iOS PKG install, visible boot, input, and audio contract."""
 
 from __future__ import annotations
 
@@ -15,6 +15,7 @@ REQUIRED_FRAGMENTS = {
         "g_last_installed_boot_path = bootable_path",
         "Emu.BootGame(path, \"\", false, cfg_mode::custom, \"\")",
         "rpcs3::ios::render_view_ready()",
+        "NullAudioBackend",
     ],
     "CoreBridge/RPCS3CoreBridgeStub.mm": [
         "rpcs3_ios_upstream_firmware_ready()",
@@ -37,9 +38,20 @@ REQUIRED_FRAGMENTS = {
     "Port/CMakeLists.txt": [
         "CoreBridge/RPCS3CorePadBridge.cpp",
     ],
+    "scripts/patch-upstream-ios-cubeb.py": [
+        "audiounit-ios-compile-fixes.patch",
+        "TARGET_OS_IPHONE",
+        "-framework AudioToolbox",
+    ],
     "scripts/patch-upstream-ios-emu-graph.py": [
         "CoreBridge/RPCS3IOSPadBridge.cpp",
         '"{pad_source.as_posix()}"',
+        "make_ios_runtime_bridge",
+        "Emu/Audio/Cubeb/CubebBackend.h",
+        "audio_renderer::cubeb",
+        "std::make_shared<CubebBackend>()",
+        "std::make_shared<cubeb_enumerator>()",
+        "-framework AudioToolbox",
     ],
     "QtApp/main.cpp": [
         "rpcs3_ios_core_install_pkg(stagedPath.toUtf8().constData())",
@@ -71,10 +83,14 @@ REQUIRED_FRAGMENTS = {
     "QtApp/CMakeLists.txt": [
         "RPCS3IOSGameLaunchGuard.cpp",
         "RPCS3IOSTouchControls.cpp",
+        "AudioToolbox",
     ],
     "scripts/build-upstream-ios-runtime-framework.sh": [
         "RPCS3IOSPadBridge.cpp",
         "_rpcs3_ios_upstream_set_pad_state",
+        "GENERATED_RUNTIME_BRIDGE",
+        "CubebBackend",
+        "AudioToolbox.framework",
     ],
     "scripts/build-qt-ios-app.sh": [
         "rpcs3_ios_core_install_pkg",
@@ -110,11 +126,13 @@ def main() -> int:
         passed[relative] = found
 
     runtime = (args.repo / "CoreBridge/RPCS3UpstreamRuntimeBridge.cpp").read_text(encoding="utf-8")
+    graph_patch = (args.repo / "scripts/patch-upstream-ios-emu-graph.py").read_text(encoding="utf-8")
+    cubeb_patch = (args.repo / "scripts/patch-upstream-ios-cubeb.py").read_text(encoding="utf-8")
     pad_bridge = (args.repo / "CoreBridge/RPCS3IOSPadBridge.cpp").read_text(encoding="utf-8")
     touch_controls = (args.repo / "QtApp/RPCS3IOSTouchControls.cpp").read_text(encoding="utf-8")
     evidence = {
         "result": "fail" if failures else "pass",
-        "contract": "PKG selection -> sandbox staging -> upstream package_reader -> returned EBOOT -> visible CAMetalLayer -> Emulator::BootGame -> touch overlay -> LDD/cellPad",
+        "contract": "PKG selection -> sandbox staging -> upstream package_reader -> returned EBOOT -> visible CAMetalLayer -> Emulator::BootGame -> touch overlay -> LDD/cellPad -> Cubeb/AudioUnit",
         "validated_files": passed,
         "failures": failures,
         "runner_proves": [
@@ -123,18 +141,21 @@ def main() -> int:
             "the Qt app refreshes and displays installed dev_hdd0/game entries",
             "both immediate install-and-boot and later game-list activation attach the render surface before BootGame",
             "the touch overlay continuously forwards PS3 button state into a connected RPCS3 LDD/cellPad device",
-            "the final iOS build scripts require the install, boot, render, and pad symbols",
+            "the generated shipping runtime selects Cubeb with the verified iOS AudioUnit patch and keeps Null only as a fallback",
+            "the final iOS build scripts require the install, boot, render, pad, and AudioToolbox contracts",
         ],
         "physical_device_required_to_prove": [
             "actual Vulkan/MoltenVK frame presentation",
             "sustained PPU/SPU execution",
             "touch hit-testing and in-app response on iPhone/iPad",
-            "audio output",
+            "audible Cubeb/AudioUnit output",
             "PKGi networking",
             "full user playability",
         ],
         "current_runtime_observations": {
-            "null_audio_backend_present": "NullAudioBackend" in runtime,
+            "null_audio_fallback_retained": "NullAudioBackend" in runtime,
+            "generated_cubeb_audio_contract_present": "CubebBackend" in graph_patch and "audio_renderer::cubeb" in graph_patch,
+            "ios_audiounit_patch_present": "TARGET_OS_IPHONE" in cubeb_patch and "AudioToolbox" in cubeb_patch,
             "ldd_cellpad_bridge_present": "AddLddPad" in pad_bridge and "ldd_data" in pad_bridge,
             "onscreen_touch_overlay_present": "rpcs3_ios_core_set_pad_state" in touch_controls,
         },
