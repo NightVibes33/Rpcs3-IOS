@@ -8,16 +8,26 @@ set(CMAKE_AUTOMOC ON)
 set(CMAKE_AUTOUIC ON)
 set(CMAKE_AUTORCC ON)
 
-find_package(Qt6 6.8 REQUIRED COMPONENTS Core Gui Widgets UiTools)
+find_package(Qt6 6.8 REQUIRED COMPONENTS Core Gui Widgets)
 qt_standard_project_setup()
 
 set(RPCS3_UI_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/Generated/ui")
-set(RPCS3_MAIN_WINDOW_UI "${RPCS3_UI_ROOT}/main_window.ui")
-if(NOT EXISTS "${RPCS3_MAIN_WINDOW_UI}")
-    message(FATAL_ERROR "Missing ${RPCS3_MAIN_WINDOW_UI}. Run scripts/build-qt-ios-app.sh after cloning the pinned RPCS3 source.")
-endif()
+set(RPCS3_UI_FACTORY_HEADER "${CMAKE_CURRENT_SOURCE_DIR}/Generated/RPCS3QtUiFactory.h")
+set(RPCS3_UI_FACTORY_SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/Generated/RPCS3QtUiFactory.cpp")
+set(RPCS3_UI_LIST "${CMAKE_CURRENT_SOURCE_DIR}/Generated/RPCS3CompiledUiFiles.cmake")
 
-file(GLOB_RECURSE RPCS3_UPSTREAM_UI_FILES CONFIGURE_DEPENDS "${RPCS3_UI_ROOT}/*.ui")
+foreach(required_file IN ITEMS
+    "${RPCS3_UI_ROOT}/main_window.ui"
+    "${RPCS3_UI_FACTORY_HEADER}"
+    "${RPCS3_UI_FACTORY_SOURCE}"
+    "${RPCS3_UI_LIST}")
+    if(NOT EXISTS "${required_file}")
+        message(FATAL_ERROR "Missing ${required_file}. Run scripts/build-qt-ios-app.sh after cloning the pinned RPCS3 source.")
+    endif()
+endforeach()
+
+include("${RPCS3_UI_LIST}")
+file(GLOB_RECURSE RPCS3_UPSTREAM_UI_RESOURCE_FILES CONFIGURE_DEPENDS "${RPCS3_UI_ROOT}/*.ui")
 
 add_library(rpcs3_ios_core STATIC IMPORTED GLOBAL)
 set_target_properties(rpcs3_ios_core PROPERTIES
@@ -29,7 +39,10 @@ qt_add_executable(RPCS3QtIOS MANUAL_FINALIZATION
     RPCS3QtMainWindow.cpp
     RPCS3QtMainWindow.h
     QtCompat.h
-    ${RPCS3_MAIN_WINDOW_UI}
+    QUiLoader
+    ${RPCS3_UI_FACTORY_HEADER}
+    ${RPCS3_UI_FACTORY_SOURCE}
+    ${RPCS3_COMPILED_UI_FILES}
 )
 
 target_precompile_headers(RPCS3QtIOS PRIVATE QtCompat.h)
@@ -37,10 +50,12 @@ target_precompile_headers(RPCS3QtIOS PRIVATE QtCompat.h)
 qt_add_resources(RPCS3QtIOS "rpcs3_upstream_ui"
     PREFIX "/rpcs3/ui"
     BASE "${RPCS3_UI_ROOT}"
-    FILES ${RPCS3_UPSTREAM_UI_FILES}
+    FILES ${RPCS3_UPSTREAM_UI_RESOURCE_FILES}
 )
 
 target_include_directories(RPCS3QtIOS PRIVATE
+    "${CMAKE_CURRENT_SOURCE_DIR}"
+    "${CMAKE_CURRENT_SOURCE_DIR}/Generated"
     "${CMAKE_CURRENT_SOURCE_DIR}/../CoreBridge"
 )
 
@@ -60,7 +75,6 @@ target_link_libraries(RPCS3QtIOS PRIVATE
     Qt6::Core
     Qt6::Gui
     Qt6::Widgets
-    Qt6::UiTools
     rpcs3_ios_core
     ${FOUNDATION_FRAMEWORK}
     ${SECURITY_FRAMEWORK}
