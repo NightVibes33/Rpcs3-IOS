@@ -7,6 +7,7 @@ on:
     paths:
       - "Renderers/Metal/RPCS3MetalDrawSubmission.*"
       - "Renderers/Metal/RPCS3MetalGeometryPacket.*"
+      - "Renderers/Metal/RPCS3MetalResourceBindings.*"
       - "Renderers/Metal/RPCS3MetalRenderer.*"
       - "Renderers/Metal/RPCS3MetalRSXFormats.*"
       - "Renderers/Metal/RPCS3MetalPrimitiveExpander.*"
@@ -52,7 +53,7 @@ jobs:
             -H "Accept: application/vnd.github+json" \
             -H "X-GitHub-Api-Version: 2022-11-28" \
             "https://api.github.com/repos/$GITHUB_REPOSITORY/statuses/$GITHUB_SHA" \
-            -d "{\"state\":\"pending\",\"context\":\"$STATUS_CONTEXT\",\"description\":\"Compiling Metal shaders, geometry packets, pipelines, and draws\",\"target_url\":\"$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID\"}"
+            -d "{\"state\":\"pending\",\"context\":\"$STATUS_CONTEXT\",\"description\":\"Compiling reflected Metal shaders, geometry packets, pipelines, and draws\",\"target_url\":\"$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID\"}"
 
       - name: Select iOS 26 SDK
         shell: bash
@@ -161,6 +162,9 @@ jobs:
           xcrun --sdk iphoneos clang++ "${CPP_COMMON[@]}" \
             -c Renderers/Metal/RPCS3MetalPrimitiveExpander.cpp \
             -o build-metal-rsx/RPCS3MetalPrimitiveExpander.o
+          xcrun --sdk iphoneos clang++ "${CPP_COMMON[@]}" \
+            -c Renderers/Metal/RPCS3MetalResourceBindings.cpp \
+            -o build-metal-rsx/RPCS3MetalResourceBindings.o
 
           set +e
           xcrun --sdk iphoneos clang++ "${CPP_COMMON[@]}" \
@@ -186,8 +190,11 @@ jobs:
           nm -gU build-metal-rsx/RPCS3MetalGeometryPacket.o | c++filt \
             | tee build-metal-rsx/RPCS3MetalGeometryPacket-symbols.txt
           grep -q 'validate_geometry_packet' build-metal-rsx/RPCS3MetalGeometryPacket-symbols.txt
+          nm -gU build-metal-rsx/RPCS3MetalResourceBindings.o | c++filt \
+            | tee build-metal-rsx/RPCS3MetalResourceBindings-symbols.txt
+          grep -q 'resolve_vertex_resource_bindings' build-metal-rsx/RPCS3MetalResourceBindings-symbols.txt
 
-      - name: Run primitive, geometry, and draw submission tests on host
+      - name: Run primitive, geometry, binding, and draw submission tests on host
         id: host-tests
         shell: bash
         run: |
@@ -196,6 +203,7 @@ jobs:
           #include "Renderers/Metal/RPCS3MetalDrawSubmission.h"
           #include "Renderers/Metal/RPCS3MetalGeometryPacket.h"
           #include "Renderers/Metal/RPCS3MetalPrimitiveExpander.h"
+          #include "Renderers/Metal/RPCS3MetalResourceBindings.h"
           #include <array>
           #include <cassert>
           #include <cstddef>
@@ -204,6 +212,18 @@ jobs:
           #include <vector>
 
           using namespace rpcs3::ios::render::metal_rsx;
+
+          shader_resource_binding resource(shader_resource_kind kind,
+                                           std::uint32_t binding,
+                                           std::uint32_t metal_index)
+          {
+              shader_resource_binding result;
+              result.kind = kind;
+              result.descriptor_set = 0;
+              result.descriptor_binding = binding;
+              result.metal_index = metal_index;
+              return result;
+          }
 
           int main()
           {
@@ -226,12 +246,28 @@ jobs:
               packet.draw_count = 3;
               packet.persistent_vertex_bytes.resize(vertices.size());
               packet.persistent_byte_count = static_cast<std::uint32_t>(vertices.size());
+              packet.vertex_layout_state[0] = 0x100;
               assert(validate_geometry_packet(packet, error));
               packet.indexed = true;
               packet.index_format = geometry_index_format::uint16;
               assert(!validate_geometry_packet(packet, error));
               packet.index_bytes.resize(sizeof(indices));
               assert(validate_geometry_packet(packet, error));
+
+              vertex_resource_bindings bindings;
+              std::vector<shader_resource_binding> incomplete = {
+                  resource(shader_resource_kind::sampled_image, 0, 4),
+                  resource(shader_resource_kind::sampled_image, 1, 5),
+                  resource(shader_resource_kind::storage_buffer, 2, 6),
+              };
+              assert(!resolve_vertex_resource_bindings(incomplete, bindings, error));
+              incomplete.push_back(resource(shader_resource_kind::storage_buffer, 3, 7));
+              assert(resolve_vertex_resource_bindings(incomplete, bindings, error));
+              assert(bindings.complete());
+              assert(bindings.persistent_vertex_texture == 4);
+              assert(bindings.transient_vertex_texture == 5);
+              assert(bindings.draw_parameters_buffer == 6);
+              assert(bindings.vertex_context_buffer == 7);
 
               draw_submission draw;
               assert(!validate_draw_submission(draw, error));
@@ -253,6 +289,7 @@ jobs:
             Renderers/Metal/RPCS3MetalDrawSubmission.cpp \
             Renderers/Metal/RPCS3MetalGeometryPacket.cpp \
             Renderers/Metal/RPCS3MetalPrimitiveExpander.cpp \
+            Renderers/Metal/RPCS3MetalResourceBindings.cpp \
             build-metal-rsx/translation-tests.cpp \
             -o build-metal-rsx/translation-tests
           build-metal-rsx/translation-tests
@@ -278,7 +315,7 @@ jobs:
           set -euo pipefail
           if [[ "${{ steps.spirv-cross.outcome }}" == "success" && "${{ steps.compile-ios.outcome }}" == "success" && "${{ steps.host-tests.outcome }}" == "success" ]]; then
             state="success"
-            description="Metal shaders, geometry packets, pipelines, and draws compiled"
+            description="Reflected Metal shaders, geometry packets, pipelines, and draws compiled"
           else
             state="failure"
             description="Native Metal RSX translation reached a compiler or test blocker"
