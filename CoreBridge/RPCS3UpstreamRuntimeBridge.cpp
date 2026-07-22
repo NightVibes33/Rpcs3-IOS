@@ -2,6 +2,14 @@
 
 #include "Emu/System.h"
 #include "Emu/system_config.h"
+#include "Emu/RSX/Null/NullGSRender.h"
+#include "Emu/Audio/Null/NullAudioBackend.h"
+#include "Emu/Audio/Null/null_enumerator.h"
+#include "Emu/Io/Null/NullKeyboardHandler.h"
+#include "Emu/Io/Null/NullMouseHandler.h"
+#include "Emu/Io/Null/null_camera_handler.h"
+#include "Emu/Io/Null/null_music_handler.h"
+#include "Input/pad_thread.h"
 #include "Crypto/unpkg.h"
 
 #include <atomic>
@@ -10,6 +18,7 @@
 #include <exception>
 #include <filesystem>
 #include <mutex>
+#include <set>
 #include <string>
 
 namespace
@@ -30,11 +39,11 @@ void set_state(RPCS3IOSUpstreamState state, std::string message)
 
 void configure_interpreter_lane()
 {
-    // First-playable-PKG lane: use RPCS3's real interpreters while JIT remains
-    // unavailable to an ordinarily signed iOS application. Null RSX/audio keep
-    // execution bring-up independent from the later Metal and AudioUnit work.
-    g_cfg.core.ppu_decoder.set(ppu_decoder_type::interpreter);
-    g_cfg.core.spu_decoder.set(spu_decoder_type::interpreter_precise);
+    // RPCS3 names its non-JIT interpreter choices "static" in the current
+    // upstream configuration enums. These execute the real PPU/SPU interpreter
+    // implementations without requiring executable-memory entitlements.
+    g_cfg.core.ppu_decoder.set(ppu_decoder_type::_static);
+    g_cfg.core.spu_decoder.set(spu_decoder_type::_static);
     g_cfg.video.renderer.set(video_renderer::null);
     g_cfg.audio.renderer.set(audio_renderer::null);
     g_cfg.io.keyboard.set(keyboard_handler::null);
@@ -97,18 +106,42 @@ void install_minimal_callbacks()
         return true;
     };
     callbacks.handle_taskbar_progress = [](s32, s32) {};
-    callbacks.init_kb_handler = []() {};
-    callbacks.init_mouse_handler = []() {};
-    callbacks.init_pad_handler = [](std::string_view) {};
+    callbacks.init_kb_handler = []()
+    {
+        ensure(g_fxo->init<KeyboardHandlerBase, NullKeyboardHandler>(Emu.DeserialManager()));
+    };
+    callbacks.init_mouse_handler = []()
+    {
+        ensure(g_fxo->init<MouseHandlerBase, NullMouseHandler>(Emu.DeserialManager()));
+    };
+    callbacks.init_pad_handler = [](std::string_view title_id)
+    {
+        ensure(g_fxo->init<named_thread<pad_thread>>(nullptr, nullptr, title_id));
+    };
     callbacks.update_emu_settings = []() {};
     callbacks.save_emu_settings = []() {};
     callbacks.close_gs_frame = []() {};
     callbacks.get_gs_frame = []() -> std::unique_ptr<GSFrameBase> { return {}; };
-    callbacks.get_camera_handler = []() -> std::shared_ptr<camera_handler_base> { return {}; };
-    callbacks.get_music_handler = []() -> std::shared_ptr<music_handler_base> { return {}; };
-    callbacks.init_gs_render = [](utils::serial*) {};
-    callbacks.get_audio = []() -> std::shared_ptr<AudioBackend> { return {}; };
-    callbacks.get_audio_enumerator = [](u64) -> std::shared_ptr<audio_device_enumerator> { return {}; };
+    callbacks.get_camera_handler = []() -> std::shared_ptr<camera_handler_base>
+    {
+        return std::make_shared<null_camera_handler>();
+    };
+    callbacks.get_music_handler = []() -> std::shared_ptr<music_handler_base>
+    {
+        return std::make_shared<null_music_handler>();
+    };
+    callbacks.init_gs_render = [](utils::serial* archive)
+    {
+        g_fxo->init<rsx::thread, named_thread<NullGSRender>>(archive);
+    };
+    callbacks.get_audio = []() -> std::shared_ptr<AudioBackend>
+    {
+        return std::make_shared<NullAudioBackend>();
+    };
+    callbacks.get_audio_enumerator = [](u64) -> std::shared_ptr<audio_device_enumerator>
+    {
+        return std::make_shared<null_enumerator>();
+    };
     callbacks.get_msg_dialog = []() -> std::shared_ptr<MsgDialogBase> { return {}; };
     callbacks.get_osk_dialog = []() -> std::shared_ptr<OskDialogBase> { return {}; };
     callbacks.get_save_dialog = []() -> std::unique_ptr<SaveDialogBase> { return {}; };
@@ -180,13 +213,16 @@ extern "C" int rpcs3_ios_upstream_initialize(const char* data_root)
         configure_interpreter_lane();
         install_minimal_callbacks();
         Emu.SetHasGui(false);
+        Emu.SetHeadless(true);
+        Emu.SetDefaultRenderer(video_renderer::null);
+        Emu.SetSupportedRenderers(std::set<video_renderer>{video_renderer::null});
         Emu.SetUsr("00000001");
         Emu.Init();
 
         g_runtime_initialized = true;
         g_last_boot_result = static_cast<int>(game_boot_result::nothing_to_boot);
         g_last_installed_boot_path.clear();
-        set_state(RPCS3IOSUpstreamStateReady, "Real upstream Emu.Init completed in interpreter/Null-RSX mode.");
+        set_state(RPCS3IOSUpstreamStateReady, "Real upstream Emu.Init completed with static PPU/SPU interpreters and NullGSRender.");
         return 1;
     }
     catch (const std::exception& error)
