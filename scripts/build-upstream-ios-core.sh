@@ -47,6 +47,8 @@ nm -gU "$OUTPUT" | tee "$BUILD/archive-symbols.txt"
 grep -q '_rpcs3_ios_core_initialize' "$BUILD/archive-symbols.txt"
 grep -q '_rpcs3_ios_core_boot_elf' "$BUILD/archive-symbols.txt"
 grep -q '_mbedtls_sha256_ret' "$BUILD/archive-symbols.txt"
+grep -q 'probe_ps3_elf' "$BUILD/archive-symbols.txt"
+grep -q 'probe_ps3_self' "$BUILD/archive-symbols.txt"
 grep -q 'sha256' "$BUILD/archive-members.txt"
 
 cat > "$BUILD/summary.md" <<EOF
@@ -57,7 +59,10 @@ cat > "$BUILD/summary.md" <<EOF
 - Target: \`arm64-apple-ios26.0\`
 - Product: \`$OUTPUT\`
 - Included upstream unit: \`rpcs3/Crypto/sha256.cpp\`
-- The bridge runs the upstream SHA-256 known-answer test during initialization and hashes validated ELF imports.
+- Upstream loader types consumed: \`rpcs3/Loader/ELF.h\`
+- SELF layout mirrored from upstream: \`SceHeader\`, \`ext_hdr\`, and \`segment_ext_header\` in \`rpcs3/Crypto/unself.h\`
+- Device bridge validates sandbox paths, SHA-256, PS3 ELF identity, SELF header ranges, embedded ELF metadata, and segment encryption/compression flags.
+- PPU/SPU execution and encrypted SELF key handling remain intentionally disabled.
 EOF
 
 tar -czf "$BUILD.tar.gz" "$BUILD"
