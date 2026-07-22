@@ -8,19 +8,39 @@ settings:
     IPHONEOS_DEPLOYMENT_TARGET: "26.0"
     TARGETED_DEVICE_FAMILY: "1,2"
     SUPPORTS_MACCATALYST: NO
-    CODE_SIGN_STYLE: Automatic
     CLANG_CXX_LANGUAGE_STANDARD: c++20
     CLANG_ENABLE_OBJC_ARC: YES
+
 targets:
+  RPCS3-iOS-Core:
+    type: library.static
+    platform: iOS
+    sources:
+      - path: CoreBridge
+      - path: Port
+    settings:
+      base:
+        PRODUCT_NAME: RPCS3-iOS-Core
+        PRODUCT_MODULE_NAME: RPCS3_iOS_Core
+        SKIP_INSTALL: YES
+        CODE_SIGNING_ALLOWED: NO
+        HEADER_SEARCH_PATHS:
+          - "$(inherited)"
+          - "$(SRCROOT)/CoreBridge"
+          - "$(SRCROOT)/Port"
+        GCC_PREPROCESSOR_DEFINITIONS:
+          - "$(inherited)"
+          - "RPCS3_IOS=1"
+          - "RPCS3_PLATFORM_MOBILE=1"
+          - "RPCS3_PLATFORM_DESKTOP=0"
+
   RPCS3-iOS:
     type: application
     platform: iOS
     sources:
       - path: App
-      - path: CoreBridge
-      - path: Port
-        excludes:
-          - portable-sources.txt
+    dependencies:
+      - target: RPCS3-iOS-Core
     info:
       path: App/Info.plist
     entitlements:
@@ -36,11 +56,6 @@ targets:
           - "$(inherited)"
           - "$(SRCROOT)/CoreBridge"
           - "$(SRCROOT)/Port"
-        GCC_PREPROCESSOR_DEFINITIONS:
-          - "$(inherited)"
-          - "RPCS3_IOS=1"
-          - "RPCS3_PLATFORM_MOBILE=1"
-          - "RPCS3_PLATFORM_DESKTOP=0"
         LD_RUNPATH_SEARCH_PATHS:
           - "$(inherited)"
           - "@executable_path/Frameworks"
