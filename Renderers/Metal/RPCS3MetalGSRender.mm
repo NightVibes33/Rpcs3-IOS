@@ -1,14 +1,20 @@
 #include "RPCS3MetalGSRender.h"
 
+#include "Emu/RSX/Common/BufferUtils.h"
 #include "Emu/RSX/rsx_methods.h"
+#include "Emu/RSX/rsx_utils.h"
 #include "Utilities/Thread.h"
 
 #import <Metal/Metal.h>
 
 #include <algorithm>
 #include <cmath>
+#include <cstddef>
 #include <span>
 #include <string>
+#include <tuple>
+#include <type_traits>
+#include <variant>
 
 namespace rpcs3::ios::render
 {
@@ -28,6 +34,18 @@ std::uint32_t color_mask_for_surface(unsigned index)
     if (rsx::method_registers.color_mask_b(index)) mask |= 1u << 0;
     if (rsx::method_registers.color_mask_a(index)) mask |= 1u << 24;
     return mask;
+}
+
+metal_rsx::index_format metal_index_format(rsx::index_array_type type) noexcept
+{
+    return type == rsx::index_array_type::u16
+        ? metal_rsx::index_format::uint16
+        : metal_rsx::index_format::uint32;
+}
+
+bool metal_requires_index_expansion(rsx::primitive_type primitive) noexcept
+{
+    return metal_rsx::primitive_requires_index_expansion(rsx_value(primitive));
 }
 } // namespace
 
@@ -110,16 +128,6 @@ void metal_gs_render::capture_rsx_draw_state()
     m_color_blend_state.alpha_equation = rsx_value(rsx::method_registers.blend_equation_a());
     m_color_blend_state.color_write_mask = color_mask_for_surface(0);
 
-    @autoreleasepool
-    {
-        MTLDepthStencilDescriptor* depth_stencil = [[MTLDepthStencilDescriptor alloc] init];
-        metal_rsx::configure_depth_stencil_descriptor(depth_stencil, m_depth_stencil_state);
-
-        MTLRenderPipelineDescriptor* pipeline = [[MTLRenderPipelineDescriptor alloc] init];
-        metal_rsx::configure_color_attachment(pipeline.colorAttachments[0], m_color_blend_state);
-        pipeline.colorAttachments[0].pixelFormat = MTLPixelFormatBGRA8Unorm;
-    }
-
     ++m_translated_draws;
 }
 
@@ -186,6 +194,196 @@ bool metal_gs_render::prepare_live_program_pipeline()
     return true;
 }
 
+bool metal_gs_render::stage_live_geometry()
+{
+    m_staged_geometry.clear();
+    m_vertex_layout.clear();
+    m_draw_processor.analyse_inputs_interleaved(m_vertex_layout, current_vp_metadata);
+    if (!m_vertex_layout.validate())
+    {
+        ++m_geometry_stage_failures;
+        m_last_geometry_error = "RPCS3 reported no valid vertex inputs for the current draw.";
+        return false;
+    }
+
+    auto& draw_clause = rsx::method_registers.current_draw_clause;
+    const rsx::primitive_type primitive = draw_clause.primitive;
+    const std::uint32_t input_count = draw_clause.get_elements_count();
+    if (!input_count)
+    {
+        ++m_geometry_stage_failures;
+        m_last_geometry_error = "RPCS3 reported an empty draw clause.";
+        return false;
+    }
+
+    std::uint32_t min_index = 0;
+    std::uint32_t max_index = 0;
+    std::uint32_t vertex_index_offset = 0;
+    bool index_rebase = false;
+    bool command_valid = true;
+
+    const auto command = m_draw_processor.get_draw_command(rsx::method_registers);
+    std::visit([&](const auto& draw_command)
+    {
+        using command_type = std::decay_t<decltype(draw_command)>;
+
+        if constexpr (std::is_same_v<command_type, rsx::draw_array_command>)
+        {
+            min_index = draw_clause.min_index();
+            max_index = min_index + input_count - 1;
+            m_staged_geometry.draw_count = input_count;
+
+            if (metal_requires_index_expansion(primitive))
+            {
+                const std::uint32_t expanded_count = get_index_count(primitive, input_count);
+                m_staged_geometry.index_bytes.resize(
+                    static_cast<std::size_t>(expanded_count) * sizeof(std::uint16_t));
+                write_index_array_for_non_indexed_non_native_primitive_to_buffer(
+                    reinterpret_cast<char*>(m_staged_geometry.index_bytes.data()),
+                    primitive,
+                    input_count);
+                m_staged_geometry.indices = metal_rsx::index_format::uint16;
+                m_staged_geometry.draw_count = expanded_count;
+            }
+        }
+        else if constexpr (std::is_same_v<command_type, rsx::draw_indexed_array_command>)
+        {
+            const rsx::index_array_type index_type = draw_clause.is_immediate_draw
+                ? rsx::index_array_type::u32
+                : rsx::method_registers.index_type();
+            const std::uint32_t index_size = get_index_type_size(index_type);
+            const std::uint32_t expanded_count = get_index_count(primitive, input_count);
+            const std::uint32_t capacity_count = std::max(expanded_count, input_count * 4u);
+            m_staged_geometry.index_bytes.resize(
+                static_cast<std::size_t>(capacity_count) * index_size);
+
+            std::uint32_t written_count = 0;
+            std::tie(min_index, max_index, written_count) = write_index_array_data_to_buffer(
+                std::span<std::byte>(m_staged_geometry.index_bytes),
+                draw_command.raw_index_buffer,
+                index_type,
+                primitive,
+                rsx::method_registers.restart_index_enabled(),
+                rsx::method_registers.restart_index(),
+                metal_requires_index_expansion);
+
+            if (!written_count)
+            {
+                command_valid = false;
+                return;
+            }
+
+            m_staged_geometry.index_bytes.resize(
+                static_cast<std::size_t>(written_count) * index_size);
+            m_staged_geometry.indices = metal_index_format(index_type);
+            m_staged_geometry.draw_count = written_count;
+            vertex_index_offset = rsx::method_registers.vertex_data_base_index();
+            index_rebase = true;
+        }
+        else if constexpr (std::is_same_v<command_type, rsx::draw_inlined_array>)
+        {
+            if (m_vertex_layout.interleaved_blocks.empty() ||
+                !m_vertex_layout.interleaved_blocks[0]->attribute_stride)
+            {
+                command_valid = false;
+                return;
+            }
+
+            const std::uint32_t stride = m_vertex_layout.interleaved_blocks[0]->attribute_stride;
+            const std::uint32_t inline_bytes =
+                static_cast<std::uint32_t>(draw_clause.inline_vertex_array.size() * sizeof(std::uint32_t));
+            const std::uint32_t inline_vertices = inline_bytes / stride;
+            if (!inline_vertices)
+            {
+                command_valid = false;
+                return;
+            }
+
+            min_index = 0;
+            max_index = inline_vertices - 1;
+            m_staged_geometry.draw_count = inline_vertices;
+
+            if (metal_requires_index_expansion(primitive))
+            {
+                const std::uint32_t expanded_count = get_index_count(primitive, inline_vertices);
+                m_staged_geometry.index_bytes.resize(
+                    static_cast<std::size_t>(expanded_count) * sizeof(std::uint16_t));
+                write_index_array_for_non_indexed_non_native_primitive_to_buffer(
+                    reinterpret_cast<char*>(m_staged_geometry.index_bytes.data()),
+                    primitive,
+                    inline_vertices);
+                m_staged_geometry.indices = metal_rsx::index_format::uint16;
+                m_staged_geometry.draw_count = expanded_count;
+            }
+        }
+        else
+        {
+            command_valid = false;
+        }
+    }, command);
+
+    if (!command_valid || max_index < min_index || !m_staged_geometry.draw_count)
+    {
+        ++m_geometry_stage_failures;
+        m_last_geometry_error = "RPCS3 could not normalize the current draw command for Metal staging.";
+        m_staged_geometry.clear();
+        return false;
+    }
+
+    std::uint32_t vertex_base = min_index;
+    std::uint32_t vertex_base_index = 0;
+    if (index_rebase)
+    {
+        vertex_base = rsx::get_index_from_base(
+            min_index,
+            rsx::method_registers.vertex_data_base_index());
+        vertex_base_index = min_index;
+    }
+
+    const std::uint32_t vertex_count = (max_index - min_index) + 1;
+    const auto required = calculate_memory_requirements(
+        m_vertex_layout,
+        vertex_base,
+        vertex_count);
+
+    m_staged_geometry.persistent_vertex_bytes.resize(required.first);
+    m_staged_geometry.volatile_vertex_bytes.resize(required.second);
+    m_draw_processor.write_vertex_data_to_memory(
+        m_vertex_layout,
+        vertex_base,
+        vertex_count,
+        required.first ? m_staged_geometry.persistent_vertex_bytes.data() : nullptr,
+        required.second ? m_staged_geometry.volatile_vertex_bytes.data() : nullptr);
+
+    m_draw_processor.fill_vertex_layout_state(
+        m_vertex_layout,
+        current_vp_metadata,
+        vertex_base,
+        vertex_count,
+        m_staged_geometry.parameters.attrib_data.data(),
+        0,
+        0);
+
+    m_staged_geometry.parameters.vertex_base_index = vertex_base_index;
+    m_staged_geometry.parameters.vertex_index_offset = vertex_index_offset;
+    m_staged_geometry.primitive_type = static_cast<std::uint32_t>(m_primitive_mapping.primitive);
+    m_staged_geometry.first_vertex = vertex_base;
+    m_staged_geometry.vertex_count = vertex_count;
+    m_staged_geometry.base_vertex = 0;
+
+    if (!m_staged_geometry.ready())
+    {
+        ++m_geometry_stage_failures;
+        m_last_geometry_error = "RPCS3 produced no persistent or volatile vertex bytes for the current draw.";
+        m_staged_geometry.clear();
+        return false;
+    }
+
+    ++m_geometry_ready_draws;
+    m_last_geometry_error.clear();
+    return true;
+}
+
 void metal_gs_render::flip(const rsx::display_flip_info_t& info)
 {
     if (initialize_backend())
@@ -205,14 +403,16 @@ void metal_gs_render::flip(const rsx::display_flip_info_t& info)
 
 void metal_gs_render::end()
 {
-    // Follow RPCS3's existing renderer sequence far enough to resolve the live
-    // RSX vertex and fragment programs. The translated SPIR-V, MSL functions,
-    // and Metal render pipeline are now real and cached. Geometry/resource
-    // upload is deliberately not claimed yet, so the draw method stream is
-    // still consumed through execute_nop_draw().
+    // Resolve real RSX programs and stage the exact persistent, volatile,
+    // layout, and index payloads used by RPCS3's existing vertex fetch path.
+    // Resource binding and command submission are intentionally gated until
+    // reflected MSL indices are matched to these buffers.
     analyse_current_rsx_pipeline();
     capture_rsx_draw_state();
-    prepare_live_program_pipeline();
+    const bool programs_ready = prepare_live_program_pipeline();
+    const bool geometry_ready = stage_live_geometry();
+    (void)programs_ready;
+    (void)geometry_ready;
     execute_nop_draw();
     rsx::thread::end();
 }
