@@ -8,6 +8,12 @@ struct filesystem_layout;
 
 namespace upstream
 {
+enum class renderer_backend
+{
+    vulkan,
+    metal,
+};
+
 struct runtime_host_status
 {
     bool initialized = false;
@@ -16,8 +22,13 @@ struct runtime_host_status
     bool spu_interpreter = false;
     bool jit = false;
     bool renderer = false;
+    renderer_backend selected_renderer = renderer_backend::vulkan;
     std::string message;
 };
+
+/* Selects which GSRender implementation is created on the next guest boot. */
+bool select_renderer(renderer_backend renderer, std::string& message);
+renderer_backend selected_renderer() noexcept;
 
 /*
  * Initializes RPCS3's real Emu singleton and installs the iOS host callbacks.
