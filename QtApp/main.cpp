@@ -20,14 +20,15 @@ int main(int argc, char* argv[])
     QCoreApplication::setOrganizationDomain(QStringLiteral("com.nightvibes33"));
     application.setProperty("RPCS3QtBuildMarker", QString::fromLatin1(RPCS3_QT_BUILD_MARKER));
 
+    /* Emu.Init installs callbacks and prepares the sandbox, but RPCS3 does not
+     * request the GS frame until guest boot. Initialize first so the main
+     * window receives the real data root when it builds the game list. */
+    const int initialized = rpcs3_ios_core_initialize(nullptr);
+
     RPCS3QtMainWindow window;
     RPCS3InstallRendererIntegration(&window);
     window.showMaximized();
-
-    /* Allow Qt's iOS platform plugin to create the real UIWindow/UIView tree
-     * before Emu.Init asks the GS frame callback for a CAMetalLayer host. */
     application.processEvents();
-    const int initialized = rpcs3_ios_core_initialize(nullptr);
 
     if (!initialized)
     {
