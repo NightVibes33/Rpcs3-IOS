@@ -8,6 +8,7 @@ on:
       - "App/**"
       - "CoreBridge/**"
       - "Port/**"
+      - "cmake/**"
       - "project.yml"
       - "scripts/**"
       - ".github/workflows/build-ios.yml"
@@ -23,7 +24,7 @@ jobs:
   build:
     name: Real-device arm64 IPA
     runs-on: macos-26
-    timeout-minutes: 45
+    timeout-minutes: 120
 
     env:
       DEPLOYMENT_TARGET: "26.0"
@@ -46,6 +47,7 @@ jobs:
           echo "Selecting $XCODE_PATH"
           sudo xcode-select -s "$XCODE_PATH/Contents/Developer"
           xcodebuild -version
+          cmake --version
           SDK_VERSION="$(xcrun --sdk iphoneos --show-sdk-version)"
           echo "iphoneos SDK: $SDK_VERSION"
           case "$SDK_VERSION" in
@@ -59,6 +61,10 @@ jobs:
           set -euo pipefail
           brew install xcodegen
           xcodegen --version
+
+      - name: Build upstream-derived RPCS3 core archive
+        shell: bash
+        run: bash scripts/build-upstream-ios-core.sh
 
       - name: Generate Xcode project
         run: xcodegen generate --spec project.yml
@@ -82,7 +88,7 @@ jobs:
             CODE_SIGN_IDENTITY='' \
             clean build
 
-      - name: Validate core archive and device bundle
+      - name: Validate upstream core and device bundle
         id: bundle
         shell: bash
         run: |
@@ -90,14 +96,16 @@ jobs:
           PRODUCT_DIR="$DERIVED_DATA/Build/Products/Release-iphoneos"
           APP="$PRODUCT_DIR/RPCS3-iOS.app"
           BIN="$APP/RPCS3-iOS"
-          CORE_ARCHIVE="$PRODUCT_DIR/libRPCS3-iOS-Core.a"
+          CORE_ARCHIVE="$GITHUB_WORKSPACE/BuildSupport/librpcs3-ios-core.a"
           test -d "$APP"
           test -f "$BIN"
           test -f "$CORE_ARCHIVE"
           file "$CORE_ARCHIVE"
+          lipo -info "$CORE_ARCHIVE"
           xcrun ar -t "$CORE_ARCHIVE"
           nm -gU "$CORE_ARCHIVE" | grep -q '_rpcs3_ios_core_initialize'
           nm -gU "$CORE_ARCHIVE" | grep -q '_rpcs3_ios_core_boot_elf'
+          nm -gU "$CORE_ARCHIVE" | grep -q '_mbedtls_sha256_ret'
           file "$BIN"
           lipo -info "$BIN"
           xcrun vtool -show-build "$BIN" || true
@@ -128,4 +136,15 @@ jobs:
           name: RPCS3-iOS-iOS26-unsigned
           path: output/*
           if-no-files-found: error
+          retention-days: 30
+
+      - name: Upload upstream core build evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: RPCS3-iOS-upstream-core-evidence
+          path: |
+            cmake-ios-build/**
+            cmake-ios-build.tar.gz
+          if-no-files-found: warn
           retention-days: 30
