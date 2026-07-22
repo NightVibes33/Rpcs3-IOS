@@ -140,11 +140,14 @@ def action_record(action: ET.Element) -> dict:
 def parse_ui(path: Path) -> dict:
     root = ET.parse(path).getroot()
     top = root.find("widget")
+    # QAction nodes live under the top-level QMainWindow/QDialog in Qt Designer
+    # documents, not necessarily as direct children of the <ui> root.
+    actions = [action_record(action) for action in root.findall(".//action")]
     return {
         "file": path.name,
         "class": root.findtext("class") or "",
         "root": widget_record(top, path) if top is not None else None,
-        "actions": [action_record(action) for action in root.findall("action")],
+        "actions": actions,
     }
 
 
@@ -167,17 +170,19 @@ def main() -> int:
 
     documents = [parse_ui(path) for path in files]
     model = {
-        "schema": 2,
+        "schema": 3,
         "source": "RPCS3/rpcs3 rpcs3qt/*.ui",
         "ui_file_count": len(files),
         "widget_count": sum(count_nodes(document.get("root")) for document in documents),
+        "action_count": sum(len(document.get("actions", [])) for document in documents),
         "documents": documents,
     }
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(json.dumps(model, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
     print(
-        f"Exported {model['ui_file_count']} RPCS3 Qt UI files and "
-        f"{model['widget_count']} nested widgets to {args.output}"
+        f"Exported {model['ui_file_count']} RPCS3 Qt UI files, "
+        f"{model['widget_count']} nested widgets, and "
+        f"{model['action_count']} QAction definitions to {args.output}"
     )
     return 0
 
