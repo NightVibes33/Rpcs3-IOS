@@ -68,9 +68,11 @@ NSString *RPCS3IOSReadLatestLog(void) {
     NSString *logs = [RootPath() stringByAppendingPathComponent:@"logs"];
     NSArray<NSString *> *names = [NSFileManager.defaultManager contentsOfDirectoryAtPath:logs error:nil] ?: @[];
     NSArray<NSString *> *sorted = [names sortedArrayUsingComparator:^NSComparisonResult(NSString *a, NSString *b) {
-        NSDictionary *aa = [NSFileManager.defaultManager attributesOfItemAtPath:[logs stringByAppendingPathComponent:a] error:nil];
-        NSDictionary *bb = [NSFileManager.defaultManager attributesOfItemAtPath:[logs stringByAppendingPathComponent:b] error:nil];
-        return [bb.fileModificationDate compare:aa.fileModificationDate];
+        NSDictionary *aa = [NSFileManager.defaultManager attributesOfItemAtPath:[logs stringByAppendingPathComponent:a] error:nil] ?: @{};
+        NSDictionary *bb = [NSFileManager.defaultManager attributesOfItemAtPath:[logs stringByAppendingPathComponent:b] error:nil] ?: @{};
+        NSDate *ad = aa[NSFileModificationDate] ?: NSDate.distantPast;
+        NSDate *bd = bb[NSFileModificationDate] ?: NSDate.distantPast;
+        return [bd compare:ad];
     }];
     for (NSString *name in sorted) {
         NSString *path = [logs stringByAppendingPathComponent:name];
