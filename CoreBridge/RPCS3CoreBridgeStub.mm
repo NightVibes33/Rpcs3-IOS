@@ -152,7 +152,7 @@ RPCS3IOSCoreDiagnostics rpcs3_ios_core_diagnostics(void)
     result.ppu_interpreter_available = g_upstream_initialized ? 1 : 0;
     result.spu_interpreter_available = g_upstream_initialized ? 1 : 0;
     result.jit_available = 0;
-    result.renderer_available = 0;
+    result.renderer_available = g_upstream_initialized && rpcs3_ios_upstream_render_view_ready() ? 1 : 0;
     result.upstream_revision = RPCS3_IOS_BUILD_UPSTREAM_REVISION;
     result.build_classification = RPCS3_IOS_BUILD_CLASSIFICATION;
     result.data_path = path_copy.empty() ? nullptr : path_copy.c_str();
@@ -209,8 +209,51 @@ int rpcs3_ios_core_initialize(const char* data_path)
 
     g_upstream_initialized = true;
     g_state = RPCS3IOSCoreStateReady;
-    g_message = "Real upstream Emu.Init completed. PPU/SPU interpreter execution is linked; Metal rendering is not connected yet.";
+    const char* upstream_message = rpcs3_ios_upstream_last_message();
+    g_message = upstream_message && *upstream_message
+        ? upstream_message
+        : "Real upstream Emu.Init completed; attach the Qt iOS render view before booting.";
     return 1;
+}
+
+int rpcs3_ios_core_set_render_view(void* native_view)
+{
+    std::lock_guard lock(g_mutex);
+    if (!g_platform_initialized || !g_upstream_initialized)
+    {
+        set_failure("Initialize the real upstream RPCS3 runtime before attaching its iOS render view.");
+        return 0;
+    }
+    if (!native_view)
+    {
+        set_failure("The Qt iOS render view handle is null.");
+        return 0;
+    }
+    if (!rpcs3_ios_upstream_set_render_view(native_view))
+    {
+        const char* upstream_message = rpcs3_ios_upstream_last_message();
+        set_failure(upstream_message && *upstream_message
+            ? upstream_message
+            : "Unable to attach RPCS3's CAMetalLayer render surface.");
+        return 0;
+    }
+
+    const char* upstream_message = rpcs3_ios_upstream_last_message();
+    g_message = upstream_message && *upstream_message
+        ? upstream_message
+        : "RPCS3's Vulkan-over-MoltenVK render surface is attached.";
+    g_state = RPCS3IOSCoreStateReady;
+    return 1;
+}
+
+void rpcs3_ios_core_clear_render_view(void)
+{
+    std::lock_guard lock(g_mutex);
+    if (!g_upstream_initialized)
+        return;
+
+    rpcs3_ios_upstream_clear_render_view();
+    g_message = "The RPCS3 iOS render surface was detached.";
 }
 
 int rpcs3_ios_core_install_pkg(const char* pkg_path)
@@ -276,6 +319,11 @@ int rpcs3_ios_core_boot_elf(const char* boot_path)
     if (!g_platform_initialized || !g_upstream_initialized)
     {
         set_failure("Initialize the real upstream RPCS3 runtime before booting content.");
+        return 0;
+    }
+    if (!rpcs3_ios_upstream_render_view_ready())
+    {
+        set_failure("RPCS3's iOS render view is not attached. Reopen the app before booting the installed title.");
         return 0;
     }
     if (!boot_path || !*boot_path)
