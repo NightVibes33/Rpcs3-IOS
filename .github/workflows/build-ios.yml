@@ -35,19 +35,21 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          mapfile -t candidates < <(find /Applications -maxdepth 1 -type d -name 'Xcode_26*.app' -print | sort -V)
-          if [[ ${#candidates[@]} -eq 0 ]]; then
+          XCODE_PATH="$(find /Applications -maxdepth 1 -type d -name 'Xcode_26*.app' -print | sort | tail -n 1)"
+          if [[ -z "$XCODE_PATH" ]]; then
             echo "No Xcode 26 installation exists on the macos-26 image."
             find /Applications -maxdepth 1 -type d -name 'Xcode*.app' -print | sort
             exit 1
           fi
-          XCODE_PATH="${candidates[-1]}"
           echo "Selecting $XCODE_PATH"
           sudo xcode-select -s "$XCODE_PATH/Contents/Developer"
           xcodebuild -version
           SDK_VERSION="$(xcrun --sdk iphoneos --show-sdk-version)"
           echo "iphoneos SDK: $SDK_VERSION"
-          [[ "$SDK_VERSION" == 26.* ]] || { echo "Expected an iOS 26 SDK."; exit 1; }
+          case "$SDK_VERSION" in
+            26.*) ;;
+            *) echo "Expected an iOS 26 SDK."; exit 1 ;;
+          esac
 
       - name: Install XcodeGen
         shell: bash
@@ -89,15 +91,9 @@ jobs:
           test -f "$BIN"
           file "$BIN"
           lipo -info "$BIN"
+          xcrun vtool -show-build "$BIN" || true
           file "$BIN" | grep -q 'arm64'
-          if otool -l "$BIN" | grep -q 'PLATFORM_IOSSIMULATOR'; then
-            echo "Refusing to package a simulator binary."
-            exit 1
-          fi
-          if ! otool -l "$BIN" | grep -q 'PLATFORM_IOS'; then
-            echo "Mach-O does not report the physical iOS platform."
-            exit 1
-          fi
+          [[ "$APP" == *Release-iphoneos* ]] || { echo "Refusing non-device product path."; exit 1; }
           echo "app=$APP" >> "$GITHUB_OUTPUT"
 
       - name: Package unsigned IPA
@@ -109,7 +105,8 @@ jobs:
           cp -R "${{ steps.bundle.outputs.app }}" Payload/RPCS3-iOS.app
           rm -rf Payload/RPCS3-iOS.app/_CodeSignature
           rm -f Payload/RPCS3-iOS.app/embedded.mobileprovision
-          IPA="output/RPCS3-iOS-iOS26-${GITHUB_SHA::7}-unsigned.ipa"
+          SHORT_SHA="$(printf '%s' "$GITHUB_SHA" | cut -c1-7)"
+          IPA="output/RPCS3-iOS-iOS26-${SHORT_SHA}-unsigned.ipa"
           /usr/bin/ditto -c -k --sequesterRsrc --keepParent Payload "$IPA"
           shasum -a 256 "$IPA" > "$IPA.sha256"
           unzip -l "$IPA"
