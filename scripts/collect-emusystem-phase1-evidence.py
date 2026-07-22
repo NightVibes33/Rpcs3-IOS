@@ -7,12 +7,10 @@ import shlex
 from pathlib import Path
 
 
-def resolve_output(entry: dict, build_root: Path) -> Path | None:
+def output_token(entry: dict) -> Path | None:
     output = entry.get("output")
-    directory = Path(entry.get("directory") or build_root)
     if output:
-        path = Path(output)
-        return path if path.is_absolute() else directory / path
+        return Path(output)
 
     command = entry.get("command")
     if command:
@@ -21,9 +19,29 @@ def resolve_output(entry: dict, build_root: Path) -> Path | None:
         parts = list(entry.get("arguments") or [])
     for index, part in enumerate(parts[:-1]):
         if part == "-o":
-            path = Path(parts[index + 1])
-            return path if path.is_absolute() else directory / path
+            return Path(parts[index + 1])
     return None
+
+
+def resolve_output(entry: dict, build_root: Path) -> Path | None:
+    token = output_token(entry)
+    if token is None:
+        return None
+    if token.is_absolute():
+        return token
+
+    directory = Path(entry.get("directory") or build_root)
+    candidates = [directory / token, build_root / token]
+    for candidate in candidates:
+        if candidate.is_file():
+            return candidate
+
+    suffix = token.as_posix()
+    matches = [path for path in build_root.rglob(token.name) if path.as_posix().endswith(suffix)]
+    if len(matches) == 1:
+        return matches[0]
+
+    return candidates[0]
 
 
 def main() -> int:
@@ -98,6 +116,8 @@ def main() -> int:
         f"emu_sources={len(emulator_entries)}, loader_sources={len(loader_entries)}, "
         f"rpcs3_emu_status={args.build_status}"
     )
+    if args.build_status == 0 and not object_built:
+        raise SystemExit("rpcs3_emu succeeded but the System.cpp object could not be verified")
     return 0
 
 
