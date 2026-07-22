@@ -3,9 +3,10 @@ name: Validate Native Metal RSX Translation
 on:
   workflow_dispatch:
   push:
-    branches: [metal-rsx-translation]
+    branches: [metal-live-programs]
     paths:
       - "Renderers/Metal/RPCS3MetalDrawSubmission.*"
+      - "Renderers/Metal/RPCS3MetalGeometryPacket.*"
       - "Renderers/Metal/RPCS3MetalRenderer.*"
       - "Renderers/Metal/RPCS3MetalRSXFormats.*"
       - "Renderers/Metal/RPCS3MetalPrimitiveExpander.*"
@@ -51,7 +52,7 @@ jobs:
             -H "Accept: application/vnd.github+json" \
             -H "X-GitHub-Api-Version: 2022-11-28" \
             "https://api.github.com/repos/$GITHUB_REPOSITORY/statuses/$GITHUB_SHA" \
-            -d "{\"state\":\"pending\",\"context\":\"$STATUS_CONTEXT\",\"description\":\"Compiling Metal shaders, pipelines, and draw submission\",\"target_url\":\"$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID\"}"
+            -d "{\"state\":\"pending\",\"context\":\"$STATUS_CONTEXT\",\"description\":\"Compiling Metal shaders, geometry packets, pipelines, and draws\",\"target_url\":\"$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID\"}"
 
       - name: Select iOS 26 SDK
         shell: bash
@@ -155,6 +156,9 @@ jobs:
             -c Renderers/Metal/RPCS3MetalDrawSubmission.cpp \
             -o build-metal-rsx/RPCS3MetalDrawSubmission.o
           xcrun --sdk iphoneos clang++ "${CPP_COMMON[@]}" \
+            -c Renderers/Metal/RPCS3MetalGeometryPacket.cpp \
+            -o build-metal-rsx/RPCS3MetalGeometryPacket.o
+          xcrun --sdk iphoneos clang++ "${CPP_COMMON[@]}" \
             -c Renderers/Metal/RPCS3MetalPrimitiveExpander.cpp \
             -o build-metal-rsx/RPCS3MetalPrimitiveExpander.o
 
@@ -179,17 +183,22 @@ jobs:
           nm -gU build-metal-rsx/RPCS3MetalRenderPipelineCache.o | c++filt \
             | tee build-metal-rsx/RPCS3MetalRenderPipelineCache-symbols.txt
           grep -q 'render_pipeline_cache::get_or_create' build-metal-rsx/RPCS3MetalRenderPipelineCache-symbols.txt
+          nm -gU build-metal-rsx/RPCS3MetalGeometryPacket.o | c++filt \
+            | tee build-metal-rsx/RPCS3MetalGeometryPacket-symbols.txt
+          grep -q 'validate_geometry_packet' build-metal-rsx/RPCS3MetalGeometryPacket-symbols.txt
 
-      - name: Run primitive and draw submission tests on host
+      - name: Run primitive, geometry, and draw submission tests on host
         id: host-tests
         shell: bash
         run: |
           set -euo pipefail
           cat > build-metal-rsx/translation-tests.cpp <<'CPP'
           #include "Renderers/Metal/RPCS3MetalDrawSubmission.h"
+          #include "Renderers/Metal/RPCS3MetalGeometryPacket.h"
           #include "Renderers/Metal/RPCS3MetalPrimitiveExpander.h"
           #include <array>
           #include <cassert>
+          #include <cstddef>
           #include <cstdint>
           #include <string>
           #include <vector>
@@ -210,6 +219,20 @@ jobs:
               int pipeline_token = 1;
               std::string error;
 
+              geometry_packet packet;
+              assert(!validate_geometry_packet(packet, error));
+              packet.valid = true;
+              packet.vertex_count = 3;
+              packet.draw_count = 3;
+              packet.persistent_vertex_bytes.resize(vertices.size());
+              packet.persistent_byte_count = static_cast<std::uint32_t>(vertices.size());
+              assert(validate_geometry_packet(packet, error));
+              packet.indexed = true;
+              packet.index_format = geometry_index_format::uint16;
+              assert(!validate_geometry_packet(packet, error));
+              packet.index_bytes.resize(sizeof(indices));
+              assert(validate_geometry_packet(packet, error));
+
               draw_submission draw;
               assert(!validate_draw_submission(draw, error));
               draw.render_pipeline_state = &pipeline_token;
@@ -228,6 +251,7 @@ jobs:
           CPP
           clang++ -std=c++20 -Wall -Wextra -Werror -I. \
             Renderers/Metal/RPCS3MetalDrawSubmission.cpp \
+            Renderers/Metal/RPCS3MetalGeometryPacket.cpp \
             Renderers/Metal/RPCS3MetalPrimitiveExpander.cpp \
             build-metal-rsx/translation-tests.cpp \
             -o build-metal-rsx/translation-tests
@@ -254,7 +278,7 @@ jobs:
           set -euo pipefail
           if [[ "${{ steps.spirv-cross.outcome }}" == "success" && "${{ steps.compile-ios.outcome }}" == "success" && "${{ steps.host-tests.outcome }}" == "success" ]]; then
             state="success"
-            description="Metal shaders, render pipelines, and draw submission compiled"
+            description="Metal shaders, geometry packets, pipelines, and draws compiled"
           else
             state="failure"
             description="Native Metal RSX translation reached a compiler or test blocker"
