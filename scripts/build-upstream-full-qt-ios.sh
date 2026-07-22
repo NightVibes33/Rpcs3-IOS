@@ -42,7 +42,8 @@ for required in \
   "$HOST_QT" \
   "$PORT_ROOT/scripts/build-ffmpeg-ios.sh" \
   "$PORT_ROOT/scripts/build-moltenvk-ios.sh" \
-  "$PORT_ROOT/scripts/patch-upstream-ios-emu-graph.py"; do
+  "$PORT_ROOT/scripts/patch-upstream-ios-emu-graph.py" \
+  "$PORT_ROOT/scripts/patch-upstream-ios-full-qt-blockers.py"; do
   test -e "$required"
 done
 
@@ -71,6 +72,8 @@ python3 scripts/patch-upstream-ios-cubeb.py "$ROOT" \
   >"$BUILD/logs/cubeb.log" 2>&1
 python3 scripts/patch-upstream-ios-emu-graph.py "$ROOT" \
   >"$BUILD/logs/full-qt-graph.log" 2>&1
+python3 scripts/patch-upstream-ios-full-qt-blockers.py "$ROOT" \
+  >"$BUILD/logs/full-qt-platform-blockers.log" 2>&1
 
 UPSTREAM_SHA="$(git -C "$ROOT" rev-parse HEAD)"
 printf '%s\n' "$UPSTREAM_SHA" > "$BUILD/upstream-revision.txt"
