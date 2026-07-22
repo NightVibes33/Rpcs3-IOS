@@ -27,6 +27,8 @@
 
 namespace
 {
+constexpr const char* k_ios_vulkan_adapter = "iOS Metal Device";
+
 std::mutex g_runtime_mutex;
 std::atomic<RPCS3IOSUpstreamState> g_runtime_state{RPCS3IOSUpstreamStateUninitialized};
 bool g_runtime_initialized = false;
@@ -44,8 +46,11 @@ void set_state(RPCS3IOSUpstreamState state, std::string message)
 void select_ios_renderer()
 {
 #if defined(HAVE_VULKAN)
+    const std::string adapter{k_ios_vulkan_adapter};
     g_cfg.video.renderer.set(video_renderer::vulkan);
+    g_cfg.video.vk.adapter.set(adapter);
     Emu.SetDefaultRenderer(video_renderer::vulkan);
+    Emu.SetDefaultGraphicsAdapter(adapter);
     Emu.SetSupportedRenderers(std::set<video_renderer>{video_renderer::null, video_renderer::vulkan});
 #else
     g_cfg.video.renderer.set(video_renderer::null);
@@ -63,6 +68,7 @@ void configure_interpreter_lane()
     g_cfg.core.spu_decoder.set(spu_decoder_type::_static);
 #if defined(HAVE_VULKAN)
     g_cfg.video.renderer.set(video_renderer::vulkan);
+    g_cfg.video.vk.adapter.set(std::string{k_ios_vulkan_adapter});
 #else
     g_cfg.video.renderer.set(video_renderer::null);
 #endif
@@ -71,6 +77,16 @@ void configure_interpreter_lane()
     g_cfg.io.mouse.set(mouse_handler::null);
     g_cfg.io.camera.set(camera_handler::null);
     g_cfg.audio.music.set(music_handler::null);
+}
+
+void persist_ios_runtime_config()
+{
+    // Emulator::Init resets g_cfg and reloads config.yml on every BootGame. Save
+    // the iOS-safe lane after the first initialization so subsequent loads keep
+    // static CPU interpreters and the MoltenVK renderer instead of LLVM defaults.
+    configure_interpreter_lane();
+    select_ios_renderer();
+    Emulator::SaveSettings(g_cfg.to_string(), {});
 }
 
 void install_minimal_callbacks()
@@ -155,7 +171,7 @@ void install_minimal_callbacks()
     callbacks.init_gs_render = [](utils::serial* archive)
     {
 #if defined(HAVE_VULKAN)
-        if (g_cfg.video.renderer == video_renderer::vulkan && rpcs3::ios::render_view_ready())
+        if (g_cfg.video.renderer.get() == video_renderer::vulkan && rpcs3::ios::render_view_ready())
         {
             g_fxo->init<rsx::thread, named_thread<VKGSRender>>(archive);
             return;
@@ -180,10 +196,25 @@ void install_minimal_callbacks()
     callbacks.get_localized_string = [](localized_string_id, const char*) -> std::string { return {}; };
     callbacks.get_localized_u32string = [](localized_string_id, const char*) -> std::u32string { return {}; };
     callbacks.get_localized_setting = [](const cfg::_base*, u32) -> std::string { return {}; };
-    callbacks.get_photo_path = [](std::string_view) -> std::string { return {}; };
+    callbacks.get_photo_path = [](std::string_view title) -> std::string
+    {
+        std::filesystem::path path = std::filesystem::path(g_runtime_data_root) / "dev_hdd0/photo";
+        if (!title.empty())
+        {
+            path /= std::string{title};
+        }
+        return path.string();
+    };
     callbacks.play_sound = [](const std::string&, std::optional<f32>) {};
     callbacks.get_image_info = [](const std::string&, std::string&, s32&, s32&, s32&) { return false; };
     callbacks.get_scaled_image = [](const std::string&, s32, s32, s32&, s32&, u8*, bool) { return false; };
+    callbacks.resolve_path = [](std::string_view value) -> std::string
+    {
+        const std::filesystem::path input{value};
+        std::error_code error;
+        const std::filesystem::path resolved = std::filesystem::weakly_canonical(input, error);
+        return error ? input.lexically_normal().string() : resolved.string();
+    };
     callbacks.get_font_dirs = []() -> std::vector<std::string> { return {}; };
     callbacks.on_install_pkgs = [](const std::vector<std::string>&) { return false; };
     callbacks.add_breakpoint = [](u32) {};
@@ -192,6 +223,7 @@ void install_minimal_callbacks()
     callbacks.check_microphone_permissions = []() {};
     callbacks.make_video_source = []() -> std::unique_ptr<video_source> { return {}; };
     callbacks.enable_gamemode = [](bool) {};
+    callbacks.get_database_config = [](const std::string&) -> std::string { return {}; };
     Emu.SetCallbacks(std::move(callbacks));
 }
 
@@ -284,19 +316,19 @@ extern "C" int rpcs3_ios_upstream_initialize(const char* data_root)
             return 0;
         }
 
-        configure_interpreter_lane();
         install_minimal_callbacks();
         Emu.SetHasGui(false);
         Emu.SetHeadless(false);
         select_ios_renderer();
         Emu.SetUsr("00000001");
         Emu.Init();
+        persist_ios_runtime_config();
 
         g_runtime_initialized = true;
         g_last_boot_result = static_cast<int>(game_boot_result::nothing_to_boot);
         g_last_installed_boot_path.clear();
 #if defined(HAVE_VULKAN)
-        set_state(RPCS3IOSUpstreamStateReady, "Real upstream Emu.Init completed with static PPU/SPU interpreters and Vulkan-over-MoltenVK RSX selected.");
+        set_state(RPCS3IOSUpstreamStateReady, "Real upstream Emu.Init completed and persisted static PPU/SPU interpreters with Vulkan-over-MoltenVK RSX.");
 #else
         set_state(RPCS3IOSUpstreamStateReady, "Real upstream Emu.Init completed with static PPU/SPU interpreters and NullGSRender because Vulkan is unavailable.");
 #endif
@@ -431,11 +463,11 @@ extern "C" int rpcs3_ios_upstream_boot_game(const char* path)
         set_state(RPCS3IOSUpstreamStateFailed, "Attach the Qt iOS render view before booting so VKGSRender can create its CAMetalLayer swapchain.");
         return g_last_boot_result;
     }
-    select_ios_renderer();
 #endif
 
     try
     {
+        persist_ios_runtime_config();
         Emu.argv.clear();
         Emu.SetForceBoot(true);
         const game_boot_result result = Emu.BootGame(path, "", false, cfg_mode::custom, "");
