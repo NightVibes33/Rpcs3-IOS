@@ -47,10 +47,12 @@ if(RPCS3_IOS_UNIFIED_UPSTREAM)
         "${RPCS3_PORT_ROOT}/Port/IOSFilesystem.mm"
     )
     # AppleSurface and MetalRenderer are already compiled into the upstream
-    # bridge. The Qt self-test only adds its factory and Vulkan swapchain test.
+    # bridge. The Qt self-test adds its factory and Vulkan context/swapchain.
     set(RPCS3_RENDERER_SOURCES
         "${RPCS3_RENDERER_ROOT}/RPCS3RendererBackend.h"
         "${RPCS3_RENDERER_ROOT}/RPCS3RendererFactory.cpp"
+        "${RPCS3_RENDERER_ROOT}/Vulkan/RPCS3VulkanContext.h"
+        "${RPCS3_RENDERER_ROOT}/Vulkan/RPCS3VulkanContext.mm"
         "${RPCS3_RENDERER_ROOT}/Vulkan/RPCS3VulkanRenderer.h"
         "${RPCS3_RENDERER_ROOT}/Vulkan/RPCS3VulkanRenderer.mm"
     )
@@ -68,6 +70,8 @@ else()
         "${RPCS3_RENDERER_ROOT}/Apple/RPCS3AppleSurface.mm"
         "${RPCS3_RENDERER_ROOT}/Metal/RPCS3MetalRenderer.h"
         "${RPCS3_RENDERER_ROOT}/Metal/RPCS3MetalRenderer.mm"
+        "${RPCS3_RENDERER_ROOT}/Vulkan/RPCS3VulkanContext.h"
+        "${RPCS3_RENDERER_ROOT}/Vulkan/RPCS3VulkanContext.mm"
         "${RPCS3_RENDERER_ROOT}/Vulkan/RPCS3VulkanRenderer.h"
         "${RPCS3_RENDERER_ROOT}/Vulkan/RPCS3VulkanRenderer.mm"
     )
@@ -93,6 +97,7 @@ qt_add_executable(RPCS3QtIOS MANUAL_FINALIZATION
 )
 
 set(RPCS3_ARC_SOURCES
+    "${RPCS3_RENDERER_ROOT}/Vulkan/RPCS3VulkanContext.mm"
     "${RPCS3_RENDERER_ROOT}/Vulkan/RPCS3VulkanRenderer.mm"
 )
 if(RPCS3_IOS_UNIFIED_UPSTREAM)
