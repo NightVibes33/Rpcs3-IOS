@@ -33,6 +33,13 @@ private:
     u64 m_topology_rewrite_draws = 0;
     u64 m_program_ready_draws = 0;
     u64 m_program_compile_failures = 0;
+    u64 m_program_cache_hits = 0;
+    u64 m_program_cache_misses = 0;
+    usz m_cached_vertex_program_hash = umax;
+    usz m_cached_fragment_program_hash = umax;
+    bool m_cached_program_pair_valid = false;
+    metal_rsx::compiled_shader m_cached_vertex_shader{};
+    metal_rsx::compiled_shader m_cached_fragment_shader{};
     metal_rsx::primitive_mapping m_primitive_mapping{};
     metal_rsx::depth_stencil_state m_depth_stencil_state{};
     metal_rsx::color_blend_state m_color_blend_state{};
