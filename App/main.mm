@@ -32,6 +32,9 @@ static NSString *JITProbe(void) {
 }
 
 static NSString *YesNo(int value) { return value ? @"yes" : @"no"; }
+static NSString *UTF8OrNone(const char *value) {
+    return value ? ([NSString stringWithUTF8String:value] ?: @"invalid UTF-8") : @"none";
+}
 
 @interface MainViewController : UIViewController
 @property(nonatomic, strong) UITextView *textView;
@@ -47,7 +50,7 @@ static NSString *YesNo(int value) { return value ? @"yes" : @"no"; }
     status.translatesAutoresizingMaskIntoConstraints = NO;
     status.numberOfLines = 0;
     status.font = [UIFont preferredFontForTextStyle:UIFontTextStyleHeadline];
-    status.text = @"Real-device iOS 26 shell with sandbox storage and a replaceable RPCS3 core bridge.";
+    status.text = @"Real-device iOS 26 shell linked to an upstream-derived RPCS3 static core archive.";
 
     self.textView = [[UITextView alloc] init];
     self.textView.translatesAutoresizingMaskIntoConstraints = NO;
@@ -86,18 +89,18 @@ static NSString *YesNo(int value) { return value ? @"yes" : @"no"; }
     NSProcessInfo *process = NSProcessInfo.processInfo;
     UIDevice *device = UIDevice.currentDevice;
     RPCS3IOSCoreDiagnostics core = rpcs3_ios_core_diagnostics();
-    NSString *coreMessage = core.message ? [NSString stringWithUTF8String:core.message] : @"none";
-    NSString *dataPath = core.data_path ? [NSString stringWithUTF8String:core.data_path] : @"not initialized";
 
     self.textView.text = [NSString stringWithFormat:
         @"Build target: arm64 iPhoneOS 26.0+\n"
          "Core state: %d\n"
          "Platform initialized: %@\n"
+         "Upstream RPCS3 crypto: %@\n"
          "PPU interpreter: %@\n"
          "SPU interpreter: %@\n"
          "JIT backend: %@\n"
          "Renderer backend: %@\n"
          "Sandbox data root: %@\n"
+         "Last ELF SHA-256: %@\n"
          "Core message: %@\n\n"
          "Device model: %@\n"
          "System: %@ %@\n"
@@ -107,9 +110,10 @@ static NSString *YesNo(int value) { return value ? @"yes" : @"no"; }
          "Thermal state: %ld\n"
          "Metal device: %@\n\n"
          "JIT probe: %@",
-         core.state, YesNo(core.platform_initialized),
+         core.state, YesNo(core.platform_initialized), YesNo(core.upstream_crypto_available),
          YesNo(core.ppu_interpreter_available), YesNo(core.spu_interpreter_available),
-         YesNo(core.jit_available), YesNo(core.renderer_available), dataPath, coreMessage,
+         YesNo(core.jit_available), YesNo(core.renderer_available),
+         UTF8OrNone(core.data_path), UTF8OrNone(core.last_boot_sha256), UTF8OrNone(core.message),
          DeviceModel(), device.systemName, device.systemVersion,
          (long)process.processorCount, ByteString(process.physicalMemory),
          process.lowPowerModeEnabled ? @"enabled" : @"disabled",
