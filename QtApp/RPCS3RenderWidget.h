@@ -23,6 +23,7 @@ public:
     bool setBackend(rpcs3::ios::render::backend_kind kind);
     bool startRenderer();
     void stopRenderer();
+    void registerAsGameSurface();
     QString statusText() const;
 
 signals:
