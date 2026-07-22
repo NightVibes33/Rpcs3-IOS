@@ -1,5 +1,6 @@
 #include "RPCS3QtMainWindow.h"
 #include "RPCS3CoreBridge.h"
+#include "RPCS3UpstreamRuntimeBridge.h"
 
 #include <QAction>
 #include <QApplication>
@@ -10,10 +11,14 @@
 #include <QFile>
 #include <QFileDialog>
 #include <QFileInfo>
+#include <QLayout>
+#include <QListWidget>
 #include <QMessageBox>
+#include <QPalette>
 #include <QStandardPaths>
 #include <QStatusBar>
 #include <QTimer>
+#include <QWidget>
 
 #ifndef RPCS3_QT_BUILD_MARKER
 #define RPCS3_QT_BUILD_MARKER "RPCS3 Qt iOS upstream main_window.ui"
@@ -49,7 +54,34 @@ QString uniquePackageDestination(const QString& directory, const QString& fileNa
         .arg(suffix));
 }
 
-void bindPlayablePackageFlow(RPCS3QtMainWindow& window)
+QWidget* createNativeRenderHost(RPCS3QtMainWindow& window)
+{
+    QWidget* central = window.centralWidget();
+    if (!central || !central->layout())
+        return nullptr;
+
+    auto* renderHost = new QWidget(central);
+    renderHost->setObjectName(QStringLiteral("rpcs3IOSNativeRenderHost"));
+    renderHost->setAttribute(Qt::WA_NativeWindow, true);
+    renderHost->setAutoFillBackground(true);
+    QPalette palette = renderHost->palette();
+    palette.setColor(QPalette::Window, Qt::black);
+    renderHost->setPalette(palette);
+    renderHost->setMinimumSize(1, 1);
+    renderHost->hide();
+    central->layout()->addWidget(renderHost);
+    return renderHost;
+}
+
+void setGameSurfaceVisible(RPCS3QtMainWindow& window, QWidget* renderHost, bool visible)
+{
+    if (QListWidget* gameList = window.findChild<QListWidget*>(QStringLiteral("rpcs3GameList")))
+        gameList->setVisible(!visible);
+    if (renderHost)
+        renderHost->setVisible(visible);
+}
+
+void bindPlayablePackageFlow(RPCS3QtMainWindow& window, QWidget* renderHost)
 {
     QAction* installAction = window.findChild<QAction*>(QStringLiteral("bootInstallPkgAct"));
     if (!installAction)
@@ -58,7 +90,7 @@ void bindPlayablePackageFlow(RPCS3QtMainWindow& window)
     // Replace the temporary staging-only handler installed by the generic
     // upstream QAction router with the real package_reader installation path.
     QObject::disconnect(installAction, nullptr, &window, nullptr);
-    QObject::connect(installAction, &QAction::triggered, &window, [&window]()
+    QObject::connect(installAction, &QAction::triggered, &window, [&window, renderHost]()
     {
         const QString selected = QFileDialog::getOpenFileName(
             &window,
@@ -129,6 +161,15 @@ void bindPlayablePackageFlow(RPCS3QtMainWindow& window)
             return;
         }
 
+        if (!renderHost || !rpcs3_ios_upstream_render_view_ready())
+        {
+            QMessageBox::critical(
+                &window,
+                QObject::tr("Renderer Surface Missing"),
+                QObject::tr("The package installed, but the native iOS CAMetalLayer surface is not attached. The title was not started."));
+            return;
+        }
+
         window.statusBar()->showMessage(QObject::tr("Booting installed title through upstream Emu.BootGame…"));
         QApplication::setOverrideCursor(QCursor(Qt::WaitCursor));
         const int booted = rpcs3_ios_core_boot_elf(installedBootPath.toUtf8().constData());
@@ -137,6 +178,7 @@ void bindPlayablePackageFlow(RPCS3QtMainWindow& window)
         const RPCS3IOSCoreDiagnostics bootDiagnostics = rpcs3_ios_core_diagnostics();
         if (!booted)
         {
+            setGameSurfaceVisible(window, renderHost, false);
             QMessageBox::critical(
                 &window,
                 QObject::tr("Installed PKG Boot Failed"),
@@ -148,15 +190,24 @@ void bindPlayablePackageFlow(RPCS3QtMainWindow& window)
             return;
         }
 
+        setGameSurfaceVisible(window, renderHost, true);
         QMessageBox::information(
             &window,
             QObject::tr("Installed PKG Boot Started"),
-            QObject::tr("RPCS3 installed the package and accepted its boot path through the real upstream Emulator::BootGame pipeline.\n\nInstalled path: %1\n\nGraphics are still using Null RSX, so visible gameplay requires the Metal renderer milestone.\n\n%2")
+            QObject::tr("RPCS3 installed the package and accepted its boot path through the real upstream Emulator::BootGame pipeline.\n\nInstalled path: %1\n\nThe native CAMetalLayer surface is attached. Visible output still depends on the Vulkan/MoltenVK renderer build replacing the current Null RSX fallback.\n\n%2")
                 .arg(installedBootPath,
                      bootDiagnostics.message
                          ? QString::fromUtf8(bootDiagnostics.message)
                          : QString()));
     });
+
+    if (QAction* stopAction = window.findChild<QAction*>(QStringLiteral("sysStopAct")))
+    {
+        QObject::connect(stopAction, &QAction::triggered, &window, [&window, renderHost]()
+        {
+            setGameSurfaceVisible(window, renderHost, false);
+        });
+    }
 }
 } // namespace
 
@@ -172,17 +223,37 @@ int main(int argc, char* argv[])
     const int initialized = rpcs3_ios_core_initialize(nullptr);
 
     RPCS3QtMainWindow window;
-    bindPlayablePackageFlow(window);
+    QWidget* renderHost = createNativeRenderHost(window);
+    bindPlayablePackageFlow(window, renderHost);
     window.showMaximized();
+    application.processEvents();
 
-    if (!initialized)
+    int renderSurfaceAttached = 0;
+    if (renderHost)
     {
-        QTimer::singleShot(0, &window, [&window]() {
+        const WId nativeId = renderHost->winId();
+        renderSurfaceAttached = rpcs3_ios_upstream_set_render_view(reinterpret_cast<void*>(nativeId));
+    }
+
+    QObject::connect(&application, &QCoreApplication::aboutToQuit, []()
+    {
+        rpcs3_ios_upstream_clear_render_view();
+    });
+
+    if (!initialized || !renderSurfaceAttached)
+    {
+        QTimer::singleShot(0, &window, [&window, initialized, renderSurfaceAttached]() {
             const RPCS3IOSCoreDiagnostics diagnostics = rpcs3_ios_core_diagnostics();
-            QMessageBox::critical(&window,
-                                  QStringLiteral("RPCS3 Core Initialization Failed"),
-                                  diagnostics.message ? QString::fromUtf8(diagnostics.message)
-                                                      : QStringLiteral("No diagnostic message was returned."));
+            const QString detail = diagnostics.message
+                ? QString::fromUtf8(diagnostics.message)
+                : QStringLiteral("No diagnostic message was returned.");
+            QMessageBox::critical(
+                &window,
+                QStringLiteral("RPCS3 Runtime Initialization Failed"),
+                QStringLiteral("Core initialized: %1\nRenderer surface attached: %2\n\n%3")
+                    .arg(initialized ? QStringLiteral("yes") : QStringLiteral("no"),
+                         renderSurfaceAttached ? QStringLiteral("yes") : QStringLiteral("no"),
+                         detail));
         });
     }
 
