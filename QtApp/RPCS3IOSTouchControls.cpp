@@ -2,7 +2,6 @@
 
 #include <QApplication>
 #include <QGridLayout>
-#include <QPointer>
 #include <QPushButton>
 #include <QSizePolicy>
 #include <QTimer>
@@ -26,6 +25,9 @@ QPushButton* makePadButton(
     button->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Preferred);
     button->setFocusPolicy(Qt::NoFocus);
     button->setAttribute(Qt::WA_AcceptTouchEvents, true);
+    // Force a native child UIView so the controls stay above the parent's
+    // runtime-owned CAMetalLayer on iPhone and iPad.
+    button->setAttribute(Qt::WA_NativeWindow, true);
     button->setStyleSheet(QStringLiteral(
         "QPushButton {"
         " color: white; background: rgba(20, 20, 24, 150);"
