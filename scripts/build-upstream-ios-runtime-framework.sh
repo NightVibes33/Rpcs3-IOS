@@ -38,6 +38,7 @@ command -v xcrun >/dev/null
 test -f "$REVISION_FILE"
 test -f "$PORT_ROOT/scripts/build-moltenvk-ios.sh"
 test -f "$PORT_ROOT/CoreBridge/RPCS3UpstreamFirmwareInstaller.cpp"
+test -f "$PORT_ROOT/CoreBridge/RPCS3IOSPadBridge.cpp"
 UPSTREAM_REVISION="$(tr -d '[:space:]' < "$REVISION_FILE")"
 test -n "$UPSTREAM_REVISION"
 
@@ -125,6 +126,7 @@ for symbol in \
   _rpcs3_ios_upstream_install_pkg \
   _rpcs3_ios_upstream_last_installed_boot_path \
   _rpcs3_ios_upstream_boot_game \
+  _rpcs3_ios_upstream_set_pad_state \
   _rpcs3_ios_upstream_pause \
   _rpcs3_ios_upstream_resume \
   _rpcs3_ios_upstream_stop; do
@@ -147,7 +149,8 @@ cat > "$BUILD/summary.md" <<EOF
 - MoltenVK: \`$(cat "$MOLTENVK_ROOT/version.txt")\`
 - Firmware installer: upstream PUP validation, SCE decryption, and nested TAR extraction into \`dev_flash\`
 - Package installer: upstream \`package_reader::extract_data\`
-- Exported lifecycle: render surface, initialize, install firmware, install PKG, BootGame, pause, resume, stop, state
+- Input: touch overlay feeds a connected RPCS3 LDD/cellPad controller
+- Exported lifecycle: render surface, initialize, install firmware, install PKG, BootGame, pad state, pause, resume, stop, state
 - Data root: host-selected RPCS3 sandbox through RPCS3_CONFIG_DIR
 EOF
 
