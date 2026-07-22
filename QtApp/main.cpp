@@ -5,6 +5,7 @@
 #include <QApplication>
 #include <QCoreApplication>
 #include <QCursor>
+#include <QDateTime>
 #include <QDir>
 #include <QFile>
 #include <QFileDialog>
