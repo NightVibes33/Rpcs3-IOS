@@ -3,6 +3,7 @@
 #import "RPCS3CoreBridge.h"
 #import "RPCS3GameLibrary.h"
 #import "RPCS3GameDetails.h"
+#import "RPCS3LaunchSession.h"
 #import "RPCS3Sidebar.h"
 #import "RPCS3Settings.h"
 #import "RPCS3Utilities.h"
@@ -67,7 +68,7 @@ static NSString *RPCS3Root(void) {
     (void)collectionView;(void)point; RPCS3GameEntry *entry=self.items[indexPath.item]; __weak RPCS3LibraryController *weakSelf=self;
     return [UIContextMenuConfiguration configurationWithIdentifier:nil previewProvider:^UIViewController *{ return [[RPCS3GameDetailsController alloc] initWithEntry:entry]; } actionProvider:^UIMenu *(NSArray<UIMenuElement *> *suggested){ (void)suggested;
         UIAction *details=[UIAction actionWithTitle:@"Game Details" image:[UIImage systemImageNamed:@"info.circle"] identifier:nil handler:^(__kindof UIAction *a){(void)a;[weakSelf.navigationController pushViewController:[[RPCS3GameDetailsController alloc] initWithEntry:entry] animated:YES];}];
-        UIAction *boot=[UIAction actionWithTitle:@"Boot" image:[UIImage systemImageNamed:@"play.fill"] identifier:nil handler:^(__kindof UIAction *a){(void)a;if(entry.bootURL)rpcs3_ios_core_boot_elf(entry.bootURL.path.fileSystemRepresentation);}]; boot.attributes=entry.bootURL?0:UIMenuElementAttributesDisabled;
+        UIAction *boot=[UIAction actionWithTitle:@"Launch Session" image:[UIImage systemImageNamed:@"play.fill"] identifier:nil handler:^(__kindof UIAction *a){(void)a;[weakSelf.navigationController pushViewController:[[RPCS3LaunchSessionController alloc] initWithEntry:entry] animated:YES];}]; boot.attributes=entry.bootURL?0:UIMenuElementAttributesDisabled;
         return [UIMenu menuWithTitle:entry.title children:@[boot,details]];
     }];
 }
