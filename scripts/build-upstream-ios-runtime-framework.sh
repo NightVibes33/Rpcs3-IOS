@@ -35,10 +35,14 @@ command -v git >/dev/null
 command -v python3 >/dev/null
 command -v xcrun >/dev/null
 
-test -f "$REVISION_FILE"
-test -f "$PORT_ROOT/scripts/build-moltenvk-ios.sh"
-test -f "$PORT_ROOT/CoreBridge/RPCS3UpstreamFirmwareInstaller.cpp"
-test -f "$PORT_ROOT/CoreBridge/RPCS3IOSPadBridge.cpp"
+for required in \
+  "$REVISION_FILE" \
+  "$PORT_ROOT/scripts/build-moltenvk-ios.sh" \
+  "$PORT_ROOT/scripts/patch-upstream-ios-cubeb.py" \
+  "$PORT_ROOT/CoreBridge/RPCS3UpstreamFirmwareInstaller.cpp" \
+  "$PORT_ROOT/CoreBridge/RPCS3IOSPadBridge.cpp"; do
+  test -f "$required"
+done
 UPSTREAM_REVISION="$(tr -d '[:space:]' < "$REVISION_FILE")"
 test -n "$UPSTREAM_REVISION"
 
@@ -69,6 +73,13 @@ python3 scripts/patch-upstream-ios-cubeb.py "$ROOT" \
   >"$BUILD/logs/cubeb.log" 2>&1
 python3 scripts/patch-upstream-ios-emu-graph.py "$ROOT" \
   >"$BUILD/logs/runtime-graph.log" 2>&1
+
+GENERATED_RUNTIME_BRIDGE="$ROOT/rpcs3/Emu/RPCS3IOSUpstreamRuntimeBridge.cpp"
+test -f "$GENERATED_RUNTIME_BRIDGE"
+grep -q 'Emu/Audio/Cubeb/CubebBackend.h' "$GENERATED_RUNTIME_BRIDGE"
+grep -q 'audio_renderer::cubeb' "$GENERATED_RUNTIME_BRIDGE"
+grep -q 'std::make_shared<CubebBackend>()' "$GENERATED_RUNTIME_BRIDGE"
+grep -q 'std::make_shared<cubeb_enumerator>()' "$GENERATED_RUNTIME_BRIDGE"
 
 UPSTREAM_SHA="$(git -C "$ROOT" rev-parse HEAD)"
 printf '%s\n' "$UPSTREAM_SHA" > "$BUILD/upstream-revision.txt"
@@ -114,6 +125,7 @@ file "$OUTPUT/RPCS3UpstreamRuntime" | tee "$BUILD/framework-file.txt"
 lipo -info "$OUTPUT/RPCS3UpstreamRuntime" | tee "$BUILD/framework-architectures.txt"
 otool -L "$OUTPUT/RPCS3UpstreamRuntime" | tee "$BUILD/framework-linked-libraries.txt"
 nm -gU "$OUTPUT/RPCS3UpstreamRuntime" > "$BUILD/framework-symbols.txt"
+strings "$OUTPUT/RPCS3UpstreamRuntime" > "$BUILD/framework-strings.txt"
 
 for symbol in \
   _rpcs3_ios_upstream_set_render_view \
@@ -134,6 +146,8 @@ for symbol in \
 done
 grep -q '_vkCreateInstance' "$BUILD/framework-symbols.txt"
 grep -q '_vkCreateMetalSurfaceEXT' "$BUILD/framework-symbols.txt"
+grep -q 'Cubeb' "$BUILD/framework-strings.txt"
+grep -q 'AudioToolbox.framework' "$BUILD/framework-linked-libraries.txt"
 
 cat > "$BUILD/summary.md" <<EOF
 # RPCS3 upstream iOS runtime framework
@@ -147,6 +161,7 @@ cat > "$BUILD/summary.md" <<EOF
 - Renderer lane: upstream Vulkan through pinned MoltenVK, with Null fallback
 - Native surface: Qt iOS \`UIView\` hosting a runtime-owned \`CAMetalLayer\`
 - MoltenVK: \`$(cat "$MOLTENVK_ROOT/version.txt")\`
+- Audio: upstream Cubeb through iOS AudioUnit/AudioToolbox, with Null fallback only when initialization fails
 - Firmware installer: upstream PUP validation, SCE decryption, and nested TAR extraction into \`dev_flash\`
 - Package installer: upstream \`package_reader::extract_data\`
 - Input: touch overlay feeds a connected RPCS3 LDD/cellPad controller
