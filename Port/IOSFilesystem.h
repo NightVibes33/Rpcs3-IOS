@@ -15,6 +15,8 @@ struct filesystem_layout
     std::string cache;
     std::string logs;
     std::string imports;
+    std::string firmware;
+    std::string keys;
     std::string error;
 };
 
