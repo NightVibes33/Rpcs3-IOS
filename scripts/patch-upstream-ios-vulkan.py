@@ -136,6 +136,7 @@ def add_port_renderer_sources(upstream_root: Path, port_root: Path, spirv_cross_
         renderers / "Metal/RPCS3MetalRenderer.mm",
         renderers / "Metal/RPCS3MetalRSXFormats.mm",
         renderers / "Metal/RPCS3MetalPipelineState.mm",
+        renderers / "Metal/RPCS3MetalShaderLibrary.mm",
         renderers / "Metal/RPCS3MetalGSRender.mm",
     ]
     cpp_sources = [
@@ -153,6 +154,7 @@ def add_port_renderer_sources(upstream_root: Path, port_root: Path, spirv_cross_
         renderers / "Metal/RPCS3MetalPipelineState.h",
         renderers / "Metal/RPCS3MetalPrimitiveExpander.h",
         renderers / "Metal/RPCS3MetalShaderTranslator.h",
+        renderers / "Metal/RPCS3MetalShaderLibrary.h",
         renderers / "Metal/RPCS3MetalGSRender.h",
     ]
     for required in [*objcxx_sources, *cpp_sources, *headers]:
@@ -194,6 +196,7 @@ if(RPCS3_IOS_UPSTREAM_GRAPH)
         RPCS3_IOS_METAL_RSX_PIPELINE_TRANSLATION=1
         RPCS3_IOS_METAL_RSX_DRAW_SUBMISSION=1
         RPCS3_IOS_METAL_SPIRV_TO_MSL=1
+        RPCS3_IOS_METAL_SHADER_LIBRARY_CACHE=1
     )
     target_link_libraries(rpcs3_emu PUBLIC
 {spirv_library_lines}
