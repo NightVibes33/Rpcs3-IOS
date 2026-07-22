@@ -74,15 +74,13 @@ def add_runtime_bridge_targets(upstream_root: Path) -> None:
     bridge_source = port_root / "CoreBridge/RPCS3UpstreamRuntimeBridge.cpp"
     probe_source = port_root / "CoreBridge/RPCS3UpstreamRuntimeLinkProbe.cpp"
     qt_app_root = port_root / "QtApp"
-    renderer_sources = [
-        port_root / "Renderers/Apple/RPCS3AppleSurface.mm",
-        port_root / "Renderers/Apple/RPCS3IOSGSFrame.mm",
-        port_root / "Renderers/Metal/RPCS3MetalRenderer.mm",
-        port_root / "Renderers/Metal/RPCS3MetalGSRender.mm",
+    renderer_headers = [
+        port_root / "Renderers/Apple/RPCS3IOSGSFrame.h",
+        port_root / "Renderers/Metal/RPCS3MetalGSRender.h",
     ]
-    for source in [bridge_source, probe_source, qt_app_root / "CMakeLists.txt", *renderer_sources]:
+    for source in [bridge_source, probe_source, qt_app_root / "CMakeLists.txt", *renderer_headers]:
         if not source.is_file():
-            raise SystemExit(f"Missing upstream runtime/renderer source: {source}")
+            raise SystemExit(f"Missing upstream runtime/renderer input: {source}")
 
     cmake = upstream_root / "rpcs3/Emu/CMakeLists.txt"
     marker = "# RPCS3_IOS_UPSTREAM_RUNTIME_BRIDGE"
@@ -90,18 +88,16 @@ def add_runtime_bridge_targets(upstream_root: Path) -> None:
     if marker in text:
         return
 
-    rendered_sources = "\n".join(f'        "{source.as_posix()}"' for source in renderer_sources)
+    # The Vulkan overlay already compiles AppleSurface, IOSGSFrame,
+    # MetalRenderer, and MetalGSRender directly into rpcs3_emu. Keep this
+    # bridge limited to the host callback implementation so those Objective-C++
+    # objects are linked exactly once.
     text += f'''
 
 {marker}
 if(RPCS3_IOS_UPSTREAM_GRAPH)
     add_library(rpcs3_ios_upstream_bridge STATIC
         "{bridge_source.as_posix()}"
-{rendered_sources}
-    )
-    set_source_files_properties(
-{rendered_sources}
-        PROPERTIES COMPILE_OPTIONS "-fobjc-arc"
     )
     target_include_directories(rpcs3_ios_upstream_bridge PRIVATE
         "{(port_root / 'CoreBridge').as_posix()}"
