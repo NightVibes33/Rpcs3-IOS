@@ -7,6 +7,7 @@ on:
     paths:
       - "Renderers/Metal/RPCS3MetalRSXFormats.*"
       - "Renderers/Metal/RPCS3MetalPrimitiveExpander.*"
+      - "Renderers/Metal/RPCS3MetalPipelineState.*"
       - "scripts/patch-upstream-ios-vulkan.py"
       - ".github/workflows/metal-rsx-translation.yml"
 
@@ -50,16 +51,21 @@ jobs:
           set -euo pipefail
           mkdir -p build-metal-rsx
           SDK="$(xcrun --sdk iphoneos --show-sdk-path)"
-          xcrun --sdk iphoneos clang++ \
-            -std=c++20 \
-            -fobjc-arc \
-            -arch arm64 \
-            -miphoneos-version-min=26.0 \
-            -isysroot "$SDK" \
-            -fmodules \
-            -Wall -Wextra -Werror \
+          COMMON=(
+            -std=c++20
+            -fobjc-arc
+            -arch arm64
+            -miphoneos-version-min=26.0
+            -isysroot "$SDK"
+            -fmodules
+            -Wall -Wextra -Werror
+          )
+          xcrun --sdk iphoneos clang++ "${COMMON[@]}" \
             -c Renderers/Metal/RPCS3MetalRSXFormats.mm \
             -o build-metal-rsx/RPCS3MetalRSXFormats.o
+          xcrun --sdk iphoneos clang++ "${COMMON[@]}" \
+            -c Renderers/Metal/RPCS3MetalPipelineState.mm \
+            -o build-metal-rsx/RPCS3MetalPipelineState.o
           xcrun --sdk iphoneos clang++ \
             -std=c++20 \
             -arch arm64 \
@@ -69,8 +75,7 @@ jobs:
             -c Renderers/Metal/RPCS3MetalPrimitiveExpander.cpp \
             -o build-metal-rsx/RPCS3MetalPrimitiveExpander.o
           file build-metal-rsx/*.o
-          lipo -info build-metal-rsx/RPCS3MetalRSXFormats.o
-          lipo -info build-metal-rsx/RPCS3MetalPrimitiveExpander.o
+          for object in build-metal-rsx/*.o; do lipo -info "$object"; done
 
       - name: Run primitive expansion tests on host
         shell: bash
