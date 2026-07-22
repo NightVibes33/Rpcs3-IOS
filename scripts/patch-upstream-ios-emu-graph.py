@@ -1,7 +1,10 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
+import os
 from pathlib import Path
+import subprocess
+import sys
 
 
 def replace_once(path: Path, needle: str, replacement: str, label: str) -> None:
@@ -44,7 +47,7 @@ endif()
 endif()
 ''',
         '''if (RPCS3_IOS_UPSTREAM_GRAPH)
-    message(STATUS "RPCS3 iOS: the external Qt iOS app owns the host UI; preserving rpcs3/Emu")
+    message(STATUS "RPCS3 iOS: the external Qt Widgets iOS app owns the host UI; preserving rpcs3/Emu")
 elseif (NOT ANDROID)
     add_subdirectory(rpcs3qt)
 endif()
@@ -66,47 +69,26 @@ elseif (NOT ANDROID)
     )
 
 
-def patch_ios_jit_write_protection(upstream_root: Path) -> None:
-    """Do not call the macOS-only pthread JIT toggle while compiling for iOS.
+def prepare_ios_runtime_dependencies(upstream_root: Path) -> None:
+    port_root = Path(__file__).resolve().parent.parent
+    ffmpeg_root = Path(
+        os.environ.get("RPCS3_IOS_FFMPEG_ROOT", port_root / "BuildSupport/ffmpeg-ios")
+    ).resolve()
+    build_script = port_root / "scripts/build-ffmpeg-ios.sh"
+    runtime_patch = port_root / "scripts/patch-upstream-ios-runtime-blockers.py"
 
-    The interpreter-first graph still keeps RPCS3's asmjit source in the target,
-    but iOS marks pthread_jit_write_protect_np unavailable. Executable-memory
-    enablement remains a separate entitlement/runtime task and is not faked here.
-    """
-    header = upstream_root / "Utilities/JIT.h"
-    replace_once(
-        header,
-        '''#ifdef __APPLE__
-	pthread_jit_write_protect_np(false);
-#endif
-''',
-        '''#if defined(__APPLE__) && !defined(RPCS3_IOS)
-	pthread_jit_write_protect_np(false);
-#endif
-''',
-        "Apple pthread JIT write-protection call",
-    )
+    if not build_script.is_file():
+        raise SystemExit(f"Missing FFmpeg iOS build script: {build_script}")
+    if not runtime_patch.is_file():
+        raise SystemExit(f"Missing runtime blocker patch: {runtime_patch}")
 
-
-def expose_ffmpeg_headers_for_static_graph(upstream_root: Path) -> None:
-    """Expose the pinned FFmpeg headers while keeping desktop archives unlinked.
-
-    rpcs3_emu is a static target, so this phase needs the exact upstream headers
-    to compile System.cpp and RSX declarations but does not yet need to resolve
-    FFmpeg symbols into a final executable. A real arm64-iOS FFmpeg archive is
-    still required before the emulator target can be linked into the app.
-    """
-    cmake = upstream_root / "3rdparty/CMakeLists.txt"
-    replace_once(
-        cmake,
-        '''	add_library(3rdparty_ffmpeg INTERFACE)
-	target_compile_definitions(3rdparty_ffmpeg INTERFACE RPCS3_IOS_FFMPEG_UNAVAILABLE=1)
-''',
-        '''	add_library(3rdparty_ffmpeg INTERFACE)
-	target_include_directories(3rdparty_ffmpeg SYSTEM INTERFACE "${CMAKE_CURRENT_SOURCE_DIR}/ffmpeg/include")
-	target_compile_definitions(3rdparty_ffmpeg INTERFACE RPCS3_IOS_FFMPEG_UNAVAILABLE=1)
-''',
-        "iOS deferred FFmpeg target",
+    environment = os.environ.copy()
+    environment["FFMPEG_IOS_ROOT"] = str(ffmpeg_root)
+    subprocess.run(["bash", str(build_script)], check=True, env=environment)
+    subprocess.run(
+        [sys.executable, str(runtime_patch), str(upstream_root), str(ffmpeg_root)],
+        check=True,
+        env=environment,
     )
 
 
@@ -118,10 +100,9 @@ def main() -> int:
     args = parser.parse_args()
 
     patch_top_level_graph(args.upstream_root)
-    patch_ios_jit_write_protection(args.upstream_root)
-    expose_ffmpeg_headers_for_static_graph(args.upstream_root)
+    prepare_ios_runtime_dependencies(args.upstream_root)
 
-    print(f"Patched upstream emulator graph and current iOS compile blockers: {args.upstream_root}")
+    print(f"Patched upstream emulator graph and iOS runtime dependencies: {args.upstream_root}")
     return 0
 
 
