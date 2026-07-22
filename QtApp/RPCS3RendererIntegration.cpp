@@ -1,5 +1,6 @@
 #include "RPCS3RendererIntegration.h"
 #include "RPCS3RenderWidget.h"
+#include "RPCS3CoreBridge.h"
 
 #include <QAction>
 #include <QActionGroup>
@@ -7,10 +8,30 @@
 #include <QMenu>
 #include <QMenuBar>
 #include <QStatusBar>
+#include <QVariant>
 #include <QVBoxLayout>
 
 using rpcs3::ios::render::backend_kind;
 using rpcs3::ios::render::renderer_backend_compiled;
+
+namespace
+{
+bool select_core_renderer(QMainWindow* window, RPCS3IOSRendererBackend renderer)
+{
+    if (rpcs3_ios_core_set_renderer(renderer))
+        return true;
+
+    const RPCS3IOSCoreDiagnostics diagnostics = rpcs3_ios_core_diagnostics();
+    if (window && window->statusBar())
+    {
+        window->statusBar()->showMessage(
+            diagnostics.message ? QString::fromUtf8(diagnostics.message)
+                                : QObject::tr("RPCS3 rejected the renderer change."),
+            8000);
+    }
+    return false;
+}
+} // namespace
 
 void RPCS3InstallRendererIntegration(QMainWindow* window)
 {
@@ -47,10 +68,17 @@ void RPCS3InstallRendererIntegration(QMainWindow* window)
     metal->setEnabled(renderer_backend_compiled(backend_kind::metal));
     backend_group->addAction(metal);
 
-    if (surface->backendKind() == backend_kind::vulkan && vulkan->isEnabled())
-        vulkan->setChecked(true);
-    else
+    const RPCS3IOSRendererBackend selected = rpcs3_ios_core_get_renderer();
+    if (selected == RPCS3IOSRendererMetal && metal->isEnabled())
+    {
         metal->setChecked(true);
+        surface->setBackend(backend_kind::metal);
+    }
+    else
+    {
+        vulkan->setChecked(true);
+        surface->setBackend(backend_kind::vulkan);
+    }
 
     renderer_menu->addSeparator();
     QAction* show_surface = renderer_menu->addAction(QObject::tr("Show Renderer Surface"));
@@ -60,18 +88,30 @@ void RPCS3InstallRendererIntegration(QMainWindow* window)
     QAction* self_test = renderer_menu->addAction(QObject::tr("Run GPU Self-Test"));
     self_test->setObjectName(QStringLiteral("rendererSelfTestAct"));
 
-    QObject::connect(vulkan, &QAction::triggered, surface, [surface, show_surface]()
+    QObject::connect(vulkan, &QAction::triggered, surface, [window, surface, show_surface, vulkan, metal]()
     {
+        if (!select_core_renderer(window, RPCS3IOSRendererVulkan))
+        {
+            metal->setChecked(true);
+            return;
+        }
         if (surface->setBackend(backend_kind::vulkan))
         {
+            vulkan->setChecked(true);
             show_surface->setChecked(true);
             surface->show();
         }
     });
-    QObject::connect(metal, &QAction::triggered, surface, [surface, show_surface]()
+    QObject::connect(metal, &QAction::triggered, surface, [window, surface, show_surface, vulkan, metal]()
     {
+        if (!select_core_renderer(window, RPCS3IOSRendererMetal))
+        {
+            vulkan->setChecked(true);
+            return;
+        }
         if (surface->setBackend(backend_kind::metal))
         {
+            metal->setChecked(true);
             show_surface->setChecked(true);
             surface->show();
         }
