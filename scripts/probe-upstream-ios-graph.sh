@@ -42,6 +42,9 @@ phase "Initialize upstream submodules"
 run_timed 1800 git -C "$ROOT" submodule sync --recursive
 run_timed 3600 git -C "$ROOT" submodule update --init --recursive --depth 1 --jobs 4
 
+phase "Export the complete upstream Qt UI hierarchy"
+run_timed 180 python3 scripts/export-upstream-qt-ui-model.py "$ROOT" "$BUILD/rpcs3-qt-ui-model.json"
+
 phase "Apply iOS upstream-graph overlay"
 run_timed 120 python3 scripts/apply-upstream-ios-overlay.py "$ROOT" --mode upstream
 run_timed 120 python3 scripts/patch-upstream-ios-emu-graph.py "$ROOT"
@@ -90,15 +93,19 @@ if [[ $configure_status -eq 0 ]]; then
   status=$build_status
 fi
 
+ui_file_count="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["ui_file_count"])' "$BUILD/rpcs3-qt-ui-model.json")"
+
 {
   echo "# RPCS3 iOS real upstream graph probe"
   echo
   echo "- Requested revision: \`$UPSTREAM_REVISION\`"
   echo "- Resolved commit: \`$(cat "$BUILD/upstream-revision.txt")\`"
+  echo "- Qt Designer UI files exported: \`$ui_file_count\`"
+  echo "- Complete UI model: \`$BUILD/rpcs3-qt-ui-model.json\`"
   echo "- Configure exit status: \`$configure_status\`"
   echo "- rpcs3_emu build exit status: \`$build_status\`"
   echo "- LLVM is intentionally disabled for this graph stage so the interpreter-based PPU/SPU path can compile before an iOS-safe JIT backend is introduced."
-  echo "- Desktop Qt/rpcs3qt are excluded; UIKit remains the host UI while upstream rpcs3/Emu and Emu.System stay in the graph."
+  echo "- Desktop Qt is excluded from the binary, but every upstream .ui document is exported as the UIKit conversion source, including nested menus, tabs, stacked pages, toolboxes, docks, and QAction identifiers."
   echo "- Curl is built from RPCS3's pinned submodule for arm64 iOS instead of locating incompatible host libraries."
   echo "- This probe now compiles the real upstream rpcs3_emu target instead of treating successful CMake generation as completion."
   if [[ $configure_status -ne 0 ]]; then
