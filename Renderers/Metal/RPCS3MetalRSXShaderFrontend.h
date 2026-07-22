@@ -4,7 +4,6 @@
 
 #include <cstdint>
 #include <memory>
-#include <stdexcept>
 #include <string>
 #include <vector>
 
@@ -13,27 +12,6 @@ struct RSXFragmentProgram;
 
 namespace rpcs3::ios::render::metal_rsx
 {
-enum class shader_resource_kind : std::uint8_t
-{
-    uniform_buffer,
-    texel_buffer,
-    texture,
-    storage_buffer,
-    storage_texture,
-    push_constant,
-};
-
-struct shader_resource_binding
-{
-    shader_stage stage = shader_stage::vertex;
-    shader_resource_kind kind = shader_resource_kind::storage_buffer;
-    std::uint32_t descriptor_set = 0;
-    std::uint32_t binding = 0;
-    std::uint32_t byte_offset = 0;
-    std::uint32_t byte_size = 0;
-    std::string name;
-};
-
 struct frontend_shader
 {
     shader_stage stage = shader_stage::vertex;
