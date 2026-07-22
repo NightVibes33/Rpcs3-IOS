@@ -4,6 +4,7 @@
 #import "RPCS3GameLibrary.h"
 #import "RPCS3GameDetails.h"
 #import "RPCS3Sidebar.h"
+#import "RPCS3Settings.h"
 
 static NSString *RPCS3Root(void) {
     RPCS3IOSCoreDiagnostics d = rpcs3_ios_core_diagnostics();
@@ -82,7 +83,11 @@ static NSString *RPCS3Root(void) {
 - (NSInteger)tableView:(UITableView *)tableView numberOfRowsInSection:(NSInteger)section { (void)tableView;return section==0?3:2; }
 - (NSString *)tableView:(UITableView *)tableView titleForHeaderInSection:(NSInteger)section { (void)tableView;return section==0?@"Install":@"Configuration"; }
 - (UITableViewCell *)tableView:(UITableView *)tableView cellForRowAtIndexPath:(NSIndexPath *)indexPath { UITableViewCell *cell=[tableView dequeueReusableCellWithIdentifier:@"row"]?:[[UITableViewCell alloc] initWithStyle:UITableViewCellStyleSubtitle reuseIdentifier:@"row"]; NSArray *titles=indexPath.section==0?@[@"Install Firmware",@"Install Packages",@"Import Keys / Licenses"]:@[@"Settings",@"Pads"]; NSArray *icons=indexPath.section==0?@[@"shippingbox",@"archivebox",@"key"]:@[@"gearshape",@"gamecontroller"]; cell.textLabel.text=titles[indexPath.row]; cell.imageView.image=[UIImage systemImageNamed:icons[indexPath.row]]; cell.accessoryType=UITableViewCellAccessoryDisclosureIndicator; return cell; }
-- (void)tableView:(UITableView *)tableView didSelectRowAtIndexPath:(NSIndexPath *)indexPath { [tableView deselectRowAtIndexPath:indexPath animated:YES]; if(indexPath.section!=0)return; self.kind=indexPath.row; UIDocumentPickerViewController *picker=[[UIDocumentPickerViewController alloc] initForOpeningContentTypes:@[UTTypeData] asCopy:YES]; picker.delegate=self; picker.allowsMultipleSelection=indexPath.row==2; [self presentViewController:picker animated:YES completion:nil]; }
+- (void)tableView:(UITableView *)tableView didSelectRowAtIndexPath:(NSIndexPath *)indexPath {
+    [tableView deselectRowAtIndexPath:indexPath animated:YES];
+    if(indexPath.section==1){ UIViewController *controller=indexPath.row==0?[[RPCS3SettingsController alloc] initWithStyle:UITableViewStyleInsetGrouped]:[[RPCS3PadsController alloc] initWithStyle:UITableViewStyleInsetGrouped]; [self.navigationController pushViewController:controller animated:YES]; return; }
+    self.kind=indexPath.row; UIDocumentPickerViewController *picker=[[UIDocumentPickerViewController alloc] initForOpeningContentTypes:@[UTTypeData] asCopy:YES]; picker.delegate=self; picker.allowsMultipleSelection=indexPath.row==2; [self presentViewController:picker animated:YES completion:nil];
+}
 - (void)documentPicker:(UIDocumentPickerViewController *)controller didPickDocumentsAtURLs:(NSArray<NSURL *> *)urls { (void)controller; NSString *folder=self.kind==0?@"firmware":self.kind==1?@"packages":@"keys"; NSString *path=[RPCS3Root() stringByAppendingPathComponent:folder]; [NSFileManager.defaultManager createDirectoryAtPath:path withIntermediateDirectories:YES attributes:nil error:nil]; for(NSURL *source in urls){ BOOL scoped=[source startAccessingSecurityScopedResource]; NSURL *destination=[NSURL fileURLWithPath:[path stringByAppendingPathComponent:source.lastPathComponent?:NSUUID.UUID.UUIDString]]; [NSFileManager.defaultManager removeItemAtURL:destination error:nil]; [NSFileManager.defaultManager copyItemAtURL:source toURL:destination error:nil]; if(scoped)[source stopAccessingSecurityScopedResource]; } }
 @end
 
