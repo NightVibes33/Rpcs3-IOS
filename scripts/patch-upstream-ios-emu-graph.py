@@ -72,8 +72,9 @@ elseif (NOT ANDROID)
 def add_runtime_bridge_targets(upstream_root: Path) -> None:
     port_root = Path(__file__).resolve().parent.parent
     bridge_source = port_root / "CoreBridge/RPCS3UpstreamRuntimeBridge.cpp"
+    bridge_header = port_root / "CoreBridge/RPCS3UpstreamRuntimeBridge.h"
     probe_source = port_root / "CoreBridge/RPCS3UpstreamRuntimeLinkProbe.cpp"
-    for source in (bridge_source, probe_source):
+    for source in (bridge_source, bridge_header, probe_source):
         if not source.is_file():
             raise SystemExit(f"Missing upstream runtime bridge source: {source}")
 
@@ -90,20 +91,50 @@ if(RPCS3_IOS_UPSTREAM_GRAPH)
     add_library(rpcs3_ios_upstream_bridge STATIC
         "{bridge_source.as_posix()}"
     )
-    target_include_directories(rpcs3_ios_upstream_bridge PRIVATE
+    target_include_directories(rpcs3_ios_upstream_bridge PUBLIC
         "{(port_root / 'CoreBridge').as_posix()}"
         "${{CMAKE_SOURCE_DIR}}"
         "${{CMAKE_SOURCE_DIR}}/rpcs3"
     )
     target_compile_definitions(rpcs3_ios_upstream_bridge PRIVATE RPCS3_IOS=1)
     target_link_libraries(rpcs3_ios_upstream_bridge PUBLIC rpcs3_emu)
+    set_target_properties(rpcs3_ios_upstream_bridge PROPERTIES
+        POSITION_INDEPENDENT_CODE ON
+    )
+
+    # A single embeddable product for the Qt iOS application. Linking this
+    # framework resolves rpcs3_emu and every transitive static dependency once,
+    # avoiding a manually maintained duplicate link list in the host project.
+    add_library(rpcs3_ios_upstream_runtime SHARED
+        "{bridge_source.as_posix()}"
+    )
+    target_include_directories(rpcs3_ios_upstream_runtime PUBLIC
+        "{(port_root / 'CoreBridge').as_posix()}"
+        "${{CMAKE_SOURCE_DIR}}"
+        "${{CMAKE_SOURCE_DIR}}/rpcs3"
+    )
+    target_compile_definitions(rpcs3_ios_upstream_runtime PRIVATE RPCS3_IOS=1)
+    target_link_libraries(rpcs3_ios_upstream_runtime PRIVATE rpcs3_emu)
+    set_target_properties(rpcs3_ios_upstream_runtime PROPERTIES
+        OUTPUT_NAME "RPCS3UpstreamRuntime"
+        FRAMEWORK TRUE
+        FRAMEWORK_VERSION A
+        MACOSX_FRAMEWORK_IDENTIFIER "com.nightvibes33.rpcs3ios.runtime"
+        PUBLIC_HEADER "{bridge_header.as_posix()}"
+        POSITION_INDEPENDENT_CODE ON
+        XCODE_ATTRIBUTE_CODE_SIGNING_ALLOWED "NO"
+        XCODE_ATTRIBUTE_CODE_SIGNING_REQUIRED "NO"
+        XCODE_ATTRIBUTE_IPHONEOS_DEPLOYMENT_TARGET "26.0"
+    )
 
     add_executable(rpcs3_ios_runtime_link_probe
         "{probe_source.as_posix()}"
     )
-    target_link_libraries(rpcs3_ios_runtime_link_probe PRIVATE rpcs3_ios_upstream_bridge)
+    target_link_libraries(rpcs3_ios_runtime_link_probe PRIVATE rpcs3_ios_upstream_runtime)
     set_target_properties(rpcs3_ios_runtime_link_probe PROPERTIES
         OUTPUT_NAME "rpcs3-ios-runtime-link-probe"
+        BUILD_RPATH "@executable_path/Frameworks"
+        INSTALL_RPATH "@executable_path/Frameworks"
         XCODE_ATTRIBUTE_CODE_SIGNING_ALLOWED "NO"
         XCODE_ATTRIBUTE_CODE_SIGNING_REQUIRED "NO"
     )
@@ -140,7 +171,7 @@ def main() -> int:
     patch_ios_runtime_dependencies(args.upstream_root)
     add_runtime_bridge_targets(args.upstream_root)
 
-    print(f"Patched upstream emulator graph, runtime dependencies, and Emu.Init link probe: {args.upstream_root}")
+    print(f"Patched upstream emulator graph, shared iOS runtime framework, and Emu.BootGame link probe: {args.upstream_root}")
     return 0
 
 
