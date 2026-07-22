@@ -22,12 +22,6 @@ public:
                 float content_scale,
                 std::string& error) override;
 
-    bool compile_spirv_shader(
-        std::span<const std::uint32_t> spirv,
-        metal_rsx::shader_stage stage,
-        std::span<const metal_rsx::shader_resource_binding> resources,
-        metal_rsx::compiled_shader& output,
-        std::string& error);
     bool compile_spirv_shader(std::span<const std::uint32_t> spirv,
                               metal_rsx::shader_stage stage,
                               metal_rsx::compiled_shader& output,
