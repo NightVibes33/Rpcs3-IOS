@@ -113,6 +113,7 @@ def add_port_renderer_sources(upstream_root: Path, port_root: Path) -> None:
         renderers / "Apple/RPCS3AppleSurface.mm",
         renderers / "Apple/RPCS3IOSGSFrame.mm",
         renderers / "Metal/RPCS3MetalRenderer.mm",
+        renderers / "Metal/RPCS3MetalRSXFormats.mm",
         renderers / "Metal/RPCS3MetalGSRender.mm",
     ]
     headers = [
@@ -120,6 +121,7 @@ def add_port_renderer_sources(upstream_root: Path, port_root: Path) -> None:
         renderers / "Apple/RPCS3AppleSurface.h",
         renderers / "Apple/RPCS3IOSGSFrame.h",
         renderers / "Metal/RPCS3MetalRenderer.h",
+        renderers / "Metal/RPCS3MetalRSXFormats.h",
         renderers / "Metal/RPCS3MetalGSRender.h",
     ]
     for required in [*sources, *headers]:
@@ -146,6 +148,7 @@ if(RPCS3_IOS_UPSTREAM_GRAPH)
     target_compile_definitions(rpcs3_emu PUBLIC
         RPCS3_IOS_HAS_MOLTENVK=1
         RPCS3_IOS_HAS_NATIVE_METAL=1
+        RPCS3_IOS_METAL_RSX_FORMAT_TRANSLATION=1
     )
     target_link_libraries(rpcs3_emu PUBLIC
         "-framework UIKit"
