@@ -1,7 +1,7 @@
 #import "RPCS3UpstreamMenuModel.h"
 
 static UIAction *RPCS3Action(NSString *title, NSString *identifier, NSString *symbol, RPCS3UpstreamMenuActionHandler handler) {
-    UIAction *action = [UIAction actionWithTitle:title image:symbol.length ? [UIImage systemImageNamed:symbol] : nil identifier:[UIActionIdentifier identifierWithString:identifier] handler:^(__kindof UIAction *sender) {
+    UIAction *action = [UIAction actionWithTitle:title image:symbol.length ? [UIImage systemImageNamed:symbol] : nil identifier:identifier handler:^(__kindof UIAction *sender) {
         (void)sender;
         if (handler) handler(identifier);
     }];
