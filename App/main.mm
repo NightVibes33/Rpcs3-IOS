@@ -1,209 +1,133 @@
 #import <UIKit/UIKit.h>
-#import <Metal/Metal.h>
 #import <UniformTypeIdentifiers/UniformTypeIdentifiers.h>
-#import <sys/mman.h>
-#import <sys/sysctl.h>
 #import "RPCS3CoreBridge.h"
 
-static NSString *ByteString(uint64_t value) {
-    return [NSByteCountFormatter stringFromByteCount:(long long)value countStyle:NSByteCountFormatterCountStyleMemory];
+static NSString *RPCS3Root(void) {
+    RPCS3IOSCoreDiagnostics d = rpcs3_ios_core_diagnostics();
+    return d.data_path ? ([NSString stringWithUTF8String:d.data_path] ?: @"") : @"";
 }
 
-static NSString *DeviceModel(void) {
-    size_t size = 0;
-    sysctlbyname("hw.machine", NULL, &size, NULL, 0);
-    if (size == 0) return @"unknown";
-    char *machine = (char *)calloc(1, size);
-    sysctlbyname("hw.machine", machine, &size, NULL, 0);
-    NSString *result = [NSString stringWithUTF8String:machine] ?: @"unknown";
-    free(machine);
-    return result;
-}
-
-static NSString *JITProbe(void) {
-#ifdef MAP_JIT
-    size_t pageSize = (size_t)getpagesize();
-    void *memory = mmap(NULL, pageSize, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANON | MAP_JIT, -1, 0);
-    if (memory == MAP_FAILED) return @"MAP_JIT allocation failed.";
-    munmap(memory, pageSize);
-    return @"MAP_JIT allocation succeeded; executable guest-code execution remains unverified.";
-#else
-    return @"MAP_JIT is not exposed by this SDK.";
-#endif
-}
-
-static NSString *YesNo(int value) { return value ? @"yes" : @"no"; }
-static NSString *UTF8OrNone(const char *value) {
-    return value ? ([NSString stringWithUTF8String:value] ?: @"invalid UTF-8") : @"none";
-}
-
-@interface MainViewController : UIViewController <UIDocumentPickerDelegate>
-@property(nonatomic, strong) UITextView *textView;
+@interface RPCS3LibraryController : UITableViewController <UIDocumentPickerDelegate>
+@property(nonatomic, strong) NSArray<NSURL *> *items;
 @end
 
-@implementation MainViewController
+@implementation RPCS3LibraryController
 - (void)viewDidLoad {
     [super viewDidLoad];
-    self.view.backgroundColor = UIColor.systemBackgroundColor;
-    self.title = @"RPCS3 iOS Bring-Up";
-
-    UILabel *status = [[UILabel alloc] init];
-    status.translatesAutoresizingMaskIntoConstraints = NO;
-    status.numberOfLines = 0;
-    status.font = [UIFont preferredFontForTextStyle:UIFontTextStyleHeadline];
-    status.text = @"Upstream-derived arm64 core archive with sandboxed ELF import and validation.";
-
-    self.textView = [[UITextView alloc] init];
-    self.textView.translatesAutoresizingMaskIntoConstraints = NO;
-    self.textView.editable = NO;
-    self.textView.font = [UIFont monospacedSystemFontOfSize:13 weight:UIFontWeightRegular];
-    self.textView.backgroundColor = UIColor.secondarySystemBackgroundColor;
-    self.textView.layer.cornerRadius = 12;
-    self.textView.textContainerInset = UIEdgeInsetsMake(14, 14, 14, 14);
-
-    UIButton *importELF = [UIButton buttonWithType:UIButtonTypeSystem];
-    [importELF setTitle:@"Import ELF" forState:UIControlStateNormal];
-    [importELF addTarget:self action:@selector(importELF) forControlEvents:UIControlEventTouchUpInside];
-
-    UIButton *refresh = [UIButton buttonWithType:UIButtonTypeSystem];
-    [refresh setTitle:@"Refresh Diagnostics" forState:UIControlStateNormal];
-    [refresh addTarget:self action:@selector(refreshDiagnostics) forControlEvents:UIControlEventTouchUpInside];
-
-    UIStackView *actions = [[UIStackView alloc] initWithArrangedSubviews:@[importELF, refresh]];
-    actions.translatesAutoresizingMaskIntoConstraints = NO;
-    actions.axis = UILayoutConstraintAxisHorizontal;
-    actions.alignment = UIStackViewAlignmentCenter;
-    actions.distribution = UIStackViewDistributionFillEqually;
-    actions.spacing = 12;
-
-    [self.view addSubview:status];
-    [self.view addSubview:self.textView];
-    [self.view addSubview:actions];
-
-    UILayoutGuide *guide = self.view.safeAreaLayoutGuide;
-    [NSLayoutConstraint activateConstraints:@[
-        [status.topAnchor constraintEqualToAnchor:guide.topAnchor constant:16],
-        [status.leadingAnchor constraintEqualToAnchor:guide.leadingAnchor constant:16],
-        [status.trailingAnchor constraintEqualToAnchor:guide.trailingAnchor constant:-16],
-        [self.textView.topAnchor constraintEqualToAnchor:status.bottomAnchor constant:14],
-        [self.textView.leadingAnchor constraintEqualToAnchor:guide.leadingAnchor constant:16],
-        [self.textView.trailingAnchor constraintEqualToAnchor:guide.trailingAnchor constant:-16],
-        [actions.topAnchor constraintEqualToAnchor:self.textView.bottomAnchor constant:12],
-        [actions.leadingAnchor constraintEqualToAnchor:guide.leadingAnchor constant:16],
-        [actions.trailingAnchor constraintEqualToAnchor:guide.trailingAnchor constant:-16],
-        [actions.bottomAnchor constraintEqualToAnchor:guide.bottomAnchor constant:-16]
-    ]];
-    [self refreshDiagnostics];
+    self.title = @"Games";
+    self.navigationItem.rightBarButtonItem = [[UIBarButtonItem alloc] initWithBarButtonSystemItem:UIBarButtonSystemItemAdd target:self action:@selector(importGame)];
+    [self.tableView registerClass:UITableViewCell.class forCellReuseIdentifier:@"game"];
+    [self reloadItems];
 }
-
-- (void)importELF {
-    UIDocumentPickerViewController *picker =
-        [[UIDocumentPickerViewController alloc] initForOpeningContentTypes:@[UTTypeData] asCopy:YES];
+- (void)viewWillAppear:(BOOL)animated { [super viewWillAppear:animated]; [self reloadItems]; }
+- (NSString *)importsPath { return [RPCS3Root() stringByAppendingPathComponent:@"imports"]; }
+- (void)reloadItems {
+    NSArray *items = [[NSFileManager defaultManager] contentsOfDirectoryAtURL:[NSURL fileURLWithPath:self.importsPath] includingPropertiesForKeys:@[NSURLFileSizeKey] options:NSDirectoryEnumerationSkipsHiddenFiles error:nil] ?: @[];
+    self.items = [items sortedArrayUsingComparator:^NSComparisonResult(NSURL *a, NSURL *b) { return [a.lastPathComponent localizedCaseInsensitiveCompare:b.lastPathComponent]; }];
+    [self.tableView reloadData];
+}
+- (void)importGame {
+    UIDocumentPickerViewController *picker = [[UIDocumentPickerViewController alloc] initForOpeningContentTypes:@[UTTypeData] asCopy:YES];
     picker.delegate = self;
-    picker.allowsMultipleSelection = NO;
+    picker.allowsMultipleSelection = YES;
     [self presentViewController:picker animated:YES completion:nil];
 }
-
-- (void)documentPicker:(UIDocumentPickerViewController *)controller
- didPickDocumentsAtURLs:(NSArray<NSURL *> *)urls {
+- (void)documentPicker:(UIDocumentPickerViewController *)controller didPickDocumentsAtURLs:(NSArray<NSURL *> *)urls {
     (void)controller;
-    NSURL *source = urls.firstObject;
-    if (!source) return;
-
-    RPCS3IOSCoreDiagnostics core = rpcs3_ios_core_diagnostics();
-    if (!core.data_path) {
-        [self showError:@"The RPCS3 sandbox is not initialized."];
-        return;
+    [[NSFileManager defaultManager] createDirectoryAtPath:self.importsPath withIntermediateDirectories:YES attributes:nil error:nil];
+    for (NSURL *source in urls) {
+        NSString *name = source.lastPathComponent.length ? source.lastPathComponent : NSUUID.UUID.UUIDString;
+        NSURL *destination = [NSURL fileURLWithPath:[self.importsPath stringByAppendingPathComponent:name]];
+        if ([[NSFileManager defaultManager] fileExistsAtPath:destination.path]) destination = [NSURL fileURLWithPath:[self.importsPath stringByAppendingPathComponent:[NSString stringWithFormat:@"%@-%@", NSUUID.UUID.UUIDString, name]]];
+        BOOL scoped = [source startAccessingSecurityScopedResource];
+        [[NSFileManager defaultManager] copyItemAtURL:source toURL:destination error:nil];
+        if (scoped) [source stopAccessingSecurityScopedResource];
     }
-
-    NSString *root = [NSString stringWithUTF8String:core.data_path];
-    NSString *imports = [root stringByAppendingPathComponent:@"imports"];
-    NSString *name = source.lastPathComponent.length ? source.lastPathComponent : @"boot.elf";
-    NSString *uniqueName = [NSString stringWithFormat:@"%@-%@", NSUUID.UUID.UUIDString, name];
-    NSURL *destination = [NSURL fileURLWithPath:[imports stringByAppendingPathComponent:uniqueName]];
-
-    BOOL scoped = [source startAccessingSecurityScopedResource];
-    NSError *error = nil;
-    [[NSFileManager defaultManager] createDirectoryAtPath:imports
-                              withIntermediateDirectories:YES
-                                               attributes:nil
-                                                    error:&error];
-    if (!error) {
-        [[NSFileManager defaultManager] copyItemAtURL:source toURL:destination error:&error];
-    }
-    if (scoped) [source stopAccessingSecurityScopedResource];
-
-    if (error) {
-        [self showError:error.localizedDescription ?: @"Unable to import the selected file."];
-        return;
-    }
-
-    rpcs3_ios_core_boot_elf(destination.path.fileSystemRepresentation);
-    [self refreshDiagnostics];
+    [self reloadItems];
 }
-
-- (void)showError:(NSString *)message {
-    UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"Import failed"
-                                                                   message:message
-                                                            preferredStyle:UIAlertControllerStyleAlert];
+- (NSInteger)tableView:(UITableView *)tableView numberOfRowsInSection:(NSInteger)section { (void)tableView; (void)section; return self.items.count; }
+- (UITableViewCell *)tableView:(UITableView *)tableView cellForRowAtIndexPath:(NSIndexPath *)indexPath {
+    UITableViewCell *cell = [tableView dequeueReusableCellWithIdentifier:@"game" forIndexPath:indexPath];
+    NSURL *url = self.items[indexPath.row];
+    UIListContentConfiguration *content = [UIListContentConfiguration subtitleCellConfiguration];
+    content.text = url.lastPathComponent;
+    content.secondaryText = @"Imported PS3 boot content";
+    content.image = [UIImage systemImageNamed:@"gamecontroller.fill"];
+    cell.contentConfiguration = content;
+    cell.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
+    return cell;
+}
+- (void)tableView:(UITableView *)tableView didSelectRowAtIndexPath:(NSIndexPath *)indexPath {
+    [tableView deselectRowAtIndexPath:indexPath animated:YES];
+    NSURL *url = self.items[indexPath.row];
+    int ready = rpcs3_ios_core_boot_elf(url.path.fileSystemRepresentation);
+    RPCS3IOSCoreDiagnostics d = rpcs3_ios_core_diagnostics();
+    NSString *message = d.message ? [NSString stringWithUTF8String:d.message] : @"No loader message";
+    UIAlertController *alert = [UIAlertController alertControllerWithTitle:(ready ? @"Ready" : @"Loader result") message:message preferredStyle:UIAlertControllerStyleAlert];
     [alert addAction:[UIAlertAction actionWithTitle:@"OK" style:UIAlertActionStyleDefault handler:nil]];
     [self presentViewController:alert animated:YES completion:nil];
 }
+@end
 
-- (void)refreshDiagnostics {
-    id<MTLDevice> gpu = MTLCreateSystemDefaultDevice();
-    NSProcessInfo *process = NSProcessInfo.processInfo;
-    UIDevice *device = UIDevice.currentDevice;
-    RPCS3IOSCoreDiagnostics core = rpcs3_ios_core_diagnostics();
+@interface RPCS3ManageController : UIViewController <UIDocumentPickerDelegate>
+@property(nonatomic) NSInteger kind;
+@property(nonatomic, strong) UILabel *status;
+@end
 
-    self.textView.text = [NSString stringWithFormat:
-        @"Build target: arm64 iPhoneOS 26.0+\n"
-         "Core state: %d\n"
-         "Platform initialized: %@\n"
-         "Upstream RPCS3 crypto: %@\n"
-         "PPU interpreter: %@\n"
-         "SPU interpreter: %@\n"
-         "JIT backend: %@\n"
-         "Renderer backend: %@\n"
-         "Sandbox data root: %@\n"
-         "Last ELF SHA-256: %@\n"
-         "Core message: %@\n\n"
-         "Device model: %@\n"
-         "System: %@ %@\n"
-         "Processor count: %ld\n"
-         "Physical memory: %@\n"
-         "Low Power Mode: %@\n"
-         "Thermal state: %ld\n"
-         "Metal device: %@\n\n"
-         "JIT probe: %@",
-         core.state, YesNo(core.platform_initialized), YesNo(core.upstream_crypto_available),
-         YesNo(core.ppu_interpreter_available), YesNo(core.spu_interpreter_available),
-         YesNo(core.jit_available), YesNo(core.renderer_available),
-         UTF8OrNone(core.data_path), UTF8OrNone(core.last_boot_sha256), UTF8OrNone(core.message),
-         DeviceModel(), device.systemName, device.systemVersion,
-         (long)process.processorCount, ByteString(process.physicalMemory),
-         process.lowPowerModeEnabled ? @"enabled" : @"disabled",
-         (long)process.thermalState, gpu.name ?: @"unavailable", JITProbe()];
+@implementation RPCS3ManageController
+- (void)viewDidLoad {
+    [super viewDidLoad];
+    self.title = @"Manage";
+    self.view.backgroundColor = UIColor.systemBackgroundColor;
+    UILabel *heading = [[UILabel alloc] init]; heading.text = @"RPCS3 Content Manager"; heading.font = [UIFont preferredFontForTextStyle:UIFontTextStyleTitle2];
+    UILabel *detail = [[UILabel alloc] init]; detail.text = @"Install firmware and import user-owned key material into the RPCS3 sandbox."; detail.numberOfLines = 0;
+    UIButton *firmware = [UIButton buttonWithType:UIButtonTypeSystem]; [firmware setTitle:@"Install Firmware" forState:UIControlStateNormal]; [firmware addTarget:self action:@selector(importFirmware) forControlEvents:UIControlEventTouchUpInside];
+    UIButton *keys = [UIButton buttonWithType:UIButtonTypeSystem]; [keys setTitle:@"Import Keys" forState:UIControlStateNormal]; [keys addTarget:self action:@selector(importKeys) forControlEvents:UIControlEventTouchUpInside];
+    self.status = [[UILabel alloc] init]; self.status.numberOfLines = 0;
+    UIStackView *stack = [[UIStackView alloc] initWithArrangedSubviews:@[heading, detail, firmware, keys, self.status]];
+    stack.translatesAutoresizingMaskIntoConstraints = NO; stack.axis = UILayoutConstraintAxisVertical; stack.spacing = 16;
+    [self.view addSubview:stack];
+    [NSLayoutConstraint activateConstraints:@[[stack.topAnchor constraintEqualToAnchor:self.view.safeAreaLayoutGuide.topAnchor constant:24],[stack.leadingAnchor constraintEqualToAnchor:self.view.safeAreaLayoutGuide.leadingAnchor constant:20],[stack.trailingAnchor constraintEqualToAnchor:self.view.safeAreaLayoutGuide.trailingAnchor constant:-20]]];
+    [self updateStatus];
 }
+- (NSString *)pathForKind { return [RPCS3Root() stringByAppendingPathComponent:(self.kind == 1 ? @"keys" : @"firmware")]; }
+- (void)pick:(NSInteger)kind { self.kind = kind; UIDocumentPickerViewController *p = [[UIDocumentPickerViewController alloc] initForOpeningContentTypes:@[UTTypeData] asCopy:YES]; p.delegate = self; p.allowsMultipleSelection = kind == 1; [self presentViewController:p animated:YES completion:nil]; }
+- (void)importFirmware { [self pick:0]; }
+- (void)importKeys { [self pick:1]; }
+- (void)documentPicker:(UIDocumentPickerViewController *)controller didPickDocumentsAtURLs:(NSArray<NSURL *> *)urls {
+    (void)controller; NSString *directory = self.pathForKind; [[NSFileManager defaultManager] createDirectoryAtPath:directory withIntermediateDirectories:YES attributes:nil error:nil];
+    for (NSURL *source in urls) { NSURL *destination = [NSURL fileURLWithPath:[directory stringByAppendingPathComponent:source.lastPathComponent ?: NSUUID.UUID.UUIDString]]; [[NSFileManager defaultManager] removeItemAtURL:destination error:nil]; BOOL scoped = [source startAccessingSecurityScopedResource]; [[NSFileManager defaultManager] copyItemAtURL:source toURL:destination error:nil]; if (scoped) [source stopAccessingSecurityScopedResource]; }
+    [self updateStatus];
+}
+- (void)updateStatus { NSUInteger f = [[NSFileManager defaultManager] contentsOfDirectoryAtPath:[RPCS3Root() stringByAppendingPathComponent:@"firmware"] error:nil].count; NSUInteger k = [[NSFileManager defaultManager] contentsOfDirectoryAtPath:[RPCS3Root() stringByAppendingPathComponent:@"keys"] error:nil].count; self.status.text = [NSString stringWithFormat:@"Firmware files: %lu\nKey files: %lu", (unsigned long)f, (unsigned long)k]; }
+@end
+
+@interface RPCS3InfoController : UIViewController
+@property(nonatomic, strong) UITextView *textView;
+@end
+@implementation RPCS3InfoController
+- (void)viewDidLoad { [super viewDidLoad]; self.title = @"Status"; self.view.backgroundColor = UIColor.systemBackgroundColor; self.textView = [[UITextView alloc] init]; self.textView.translatesAutoresizingMaskIntoConstraints = NO; self.textView.editable = NO; self.textView.font = [UIFont monospacedSystemFontOfSize:12 weight:UIFontWeightRegular]; [self.view addSubview:self.textView]; [NSLayoutConstraint activateConstraints:@[[self.textView.topAnchor constraintEqualToAnchor:self.view.safeAreaLayoutGuide.topAnchor],[self.textView.bottomAnchor constraintEqualToAnchor:self.view.safeAreaLayoutGuide.bottomAnchor],[self.textView.leadingAnchor constraintEqualToAnchor:self.view.leadingAnchor],[self.textView.trailingAnchor constraintEqualToAnchor:self.view.trailingAnchor]]]; }
+- (void)viewWillAppear:(BOOL)animated { [super viewWillAppear:animated]; RPCS3IOSCoreDiagnostics d = rpcs3_ios_core_diagnostics(); NSString *m = d.message ? [NSString stringWithUTF8String:d.message] : @"none"; self.textView.text = [NSString stringWithFormat:@"RPCS3 iOS\n\nCore state: %d\nPlatform: %@\nPPU: %@\nSPU: %@\nJIT: %@\nMetal: %@\nRoot: %@\n\n%@", d.state, d.platform_initialized?@"ready":@"not ready", d.ppu_interpreter_available?@"ready":@"pending", d.spu_interpreter_available?@"ready":@"pending", d.jit_available?@"available":@"unavailable", d.renderer_available?@"available":@"unavailable", RPCS3Root(), m]; }
 @end
 
 @interface AppDelegate : UIResponder <UIApplicationDelegate>
 @property(nonatomic, strong) UIWindow *window;
 @end
-
 @implementation AppDelegate
 - (BOOL)application:(UIApplication *)application didFinishLaunchingWithOptions:(NSDictionary *)launchOptions {
-    (void)application; (void)launchOptions;
-    rpcs3_ios_core_initialize(nullptr);
-    self.window = [[UIWindow alloc] initWithFrame:UIScreen.mainScreen.bounds];
-    self.window.rootViewController = [[UINavigationController alloc] initWithRootViewController:[[MainViewController alloc] init]];
-    [self.window makeKeyAndVisible];
-    return YES;
+    (void)application; (void)launchOptions; rpcs3_ios_core_initialize(nullptr);
+    RPCS3LibraryController *games = [[RPCS3LibraryController alloc] initWithStyle:UITableViewStyleInsetGrouped];
+    RPCS3ManageController *manage = [[RPCS3ManageController alloc] init];
+    RPCS3InfoController *status = [[RPCS3InfoController alloc] init];
+    UINavigationController *g = [[UINavigationController alloc] initWithRootViewController:games];
+    UINavigationController *m = [[UINavigationController alloc] initWithRootViewController:manage];
+    UINavigationController *s = [[UINavigationController alloc] initWithRootViewController:status];
+    g.tabBarItem = [[UITabBarItem alloc] initWithTitle:@"Games" image:[UIImage systemImageNamed:@"square.grid.2x2"] tag:0];
+    m.tabBarItem = [[UITabBarItem alloc] initWithTitle:@"Manage" image:[UIImage systemImageNamed:@"tray.and.arrow.down"] tag:1];
+    s.tabBarItem = [[UITabBarItem alloc] initWithTitle:@"Status" image:[UIImage systemImageNamed:@"waveform.path.ecg"] tag:2];
+    UITabBarController *tabs = [[UITabBarController alloc] init]; tabs.viewControllers = @[g,m,s];
+    self.window = [[UIWindow alloc] initWithFrame:UIScreen.mainScreen.bounds]; self.window.rootViewController = tabs; [self.window makeKeyAndVisible]; return YES;
 }
 @end
 
-int main(int argc, char *argv[]) {
-    @autoreleasepool {
-        return UIApplicationMain(argc, argv, nil, NSStringFromClass(AppDelegate.class));
-    }
-}
+int main(int argc, char *argv[]) { @autoreleasepool { return UIApplicationMain(argc, argv, nil, NSStringFromClass(AppDelegate.class)); } }
