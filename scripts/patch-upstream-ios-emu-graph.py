@@ -140,6 +140,74 @@ elseif (NOT ANDROID)
     )
 
 
+def make_ios_runtime_bridge(upstream_root: Path, bridge_source: Path) -> Path:
+    """Generate the shipping bridge with Cubeb's iOS AudioUnit backend enabled."""
+    generated = upstream_root / "rpcs3/Emu/RPCS3IOSUpstreamRuntimeBridge.cpp"
+    text = bridge_source.read_text(encoding="utf-8")
+
+    include_needle = '''#include "Emu/Audio/Null/NullAudioBackend.h"
+#include "Emu/Audio/Null/null_enumerator.h"
+'''
+    include_replacement = '''#include "Emu/Audio/Null/NullAudioBackend.h"
+#include "Emu/Audio/Null/null_enumerator.h"
+#include "Emu/Audio/Cubeb/CubebBackend.h"
+#include "Emu/Audio/Cubeb/cubeb_enumerator.h"
+'''
+    if include_needle not in text:
+        raise SystemExit("Unable to locate the runtime audio includes")
+    text = text.replace(include_needle, include_replacement, 1)
+
+    config_needle = "    g_cfg.audio.renderer.set(audio_renderer::null);\n"
+    config_replacement = "    g_cfg.audio.renderer.set(audio_renderer::cubeb);\n"
+    if config_needle not in text:
+        raise SystemExit("Unable to locate the runtime audio renderer setting")
+    text = text.replace(config_needle, config_replacement, 1)
+
+    callback_needle = '''    callbacks.get_audio = []() -> std::shared_ptr<AudioBackend>
+    {
+        return std::make_shared<NullAudioBackend>();
+    };
+    callbacks.get_audio_enumerator = [](u64) -> std::shared_ptr<audio_device_enumerator>
+    {
+        return std::make_shared<null_enumerator>();
+    };
+'''
+    callback_replacement = '''    callbacks.get_audio = []() -> std::shared_ptr<AudioBackend>
+    {
+        std::shared_ptr<AudioBackend> result = std::make_shared<CubebBackend>();
+        if (!result->Initialized())
+        {
+            result = std::make_shared<NullAudioBackend>();
+        }
+        return result;
+    };
+    callbacks.get_audio_enumerator = [](u64 renderer) -> std::shared_ptr<audio_device_enumerator>
+    {
+        if (static_cast<audio_renderer>(renderer) == audio_renderer::cubeb)
+        {
+            return std::make_shared<cubeb_enumerator>();
+        }
+        return std::make_shared<null_enumerator>();
+    };
+'''
+    if callback_needle not in text:
+        raise SystemExit("Unable to locate the runtime audio callbacks")
+    text = text.replace(callback_needle, callback_replacement, 1)
+
+    required = (
+        '#include "Emu/Audio/Cubeb/CubebBackend.h"',
+        "g_cfg.audio.renderer.set(audio_renderer::cubeb);",
+        "std::make_shared<CubebBackend>()",
+        "std::make_shared<cubeb_enumerator>()",
+    )
+    for marker in required:
+        if marker not in text:
+            raise SystemExit(f"Generated iOS runtime bridge is missing Cubeb marker: {marker}")
+
+    generated.write_text(text, encoding="utf-8")
+    return generated
+
+
 def add_runtime_bridge_targets(upstream_root: Path) -> None:
     port_root = Path(__file__).resolve().parent.parent
     bridge_source = port_root / "CoreBridge/RPCS3UpstreamRuntimeBridge.cpp"
@@ -152,6 +220,8 @@ def add_runtime_bridge_targets(upstream_root: Path) -> None:
     for source in (bridge_source, firmware_source, pad_source, bridge_header, probe_source, gs_frame_header, gs_frame_source):
         if not source.is_file():
             raise SystemExit(f"Missing upstream runtime bridge source: {source}")
+
+    generated_bridge_source = make_ios_runtime_bridge(upstream_root, bridge_source)
 
     cmake = upstream_root / "rpcs3/Emu/CMakeLists.txt"
     marker = "# RPCS3_IOS_UPSTREAM_RUNTIME_BRIDGE"
@@ -166,7 +236,7 @@ if(RPCS3_IOS_UPSTREAM_GRAPH)
     enable_language(OBJCXX)
 
     add_library(rpcs3_ios_upstream_bridge STATIC
-        "{bridge_source.as_posix()}"
+        "{generated_bridge_source.as_posix()}"
         "{firmware_source.as_posix()}"
         "{pad_source.as_posix()}"
     )
@@ -183,7 +253,7 @@ if(RPCS3_IOS_UPSTREAM_GRAPH)
     )
 
     add_library(rpcs3_ios_upstream_runtime SHARED
-        "{bridge_source.as_posix()}"
+        "{generated_bridge_source.as_posix()}"
         "{firmware_source.as_posix()}"
         "{pad_source.as_posix()}"
         "{gs_frame_source.as_posix()}"
@@ -206,6 +276,9 @@ if(RPCS3_IOS_UPSTREAM_GRAPH)
         "-framework Metal"
         "-framework CoreGraphics"
         "-framework IOSurface"
+        "-framework AudioUnit"
+        "-framework CoreAudio"
+        "-framework AudioToolbox"
     )
     set_target_properties(rpcs3_ios_upstream_runtime PROPERTIES
         OUTPUT_NAME "RPCS3UpstreamRuntime"
@@ -263,7 +336,7 @@ def main() -> int:
     patch_ios_runtime_dependencies(args.upstream_root)
     add_runtime_bridge_targets(args.upstream_root)
 
-    print(f"Patched upstream graph for runtime, firmware installer, touch pad, and full Qt frontend iOS lanes: {args.upstream_root}")
+    print(f"Patched upstream graph for runtime, firmware installer, touch pad, Cubeb AudioUnit, and full Qt frontend iOS lanes: {args.upstream_root}")
     return 0
 
 
