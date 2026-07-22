@@ -12,6 +12,7 @@ TIMEOUT_RUNNER="$PORT_ROOT/scripts/run-with-timeout.py"
 PHASE1_COLLECTOR="$PORT_ROOT/scripts/collect-emusystem-phase1-evidence.py"
 FFMPEG_ROOT="${RPCS3_IOS_FFMPEG_ROOT:-$PORT_ROOT/BuildSupport/ffmpeg-ios}"
 MOLTENVK_ROOT="${RPCS3_IOS_MOLTENVK_ROOT:-$PORT_ROOT/BuildSupport/MoltenVK}"
+GRAPH_TARGET="${RPCS3_IOS_GRAPH_TARGET:-rpcs3_ios_runtime_link_probe}"
 export RPCS3_IOS_FFMPEG_ROOT="$FFMPEG_ROOT"
 export FFMPEG_IOS_ROOT="$FFMPEG_ROOT"
 export RPCS3_IOS_MOLTENVK_ROOT="$MOLTENVK_ROOT"
@@ -110,18 +111,18 @@ phase "CMake configure exit status=$configure_status"
 
 build_status=125
 if [[ $configure_status -eq 0 ]]; then
-  phase "Compile the real upstream rpcs3_emu target with Vulkan and Metal for arm64 iOS"
+  phase "Compile and link $GRAPH_TARGET with Emu.System, VKGSRender, MoltenVK, and Metal"
   set +e
   python3 "$TIMEOUT_RUNNER" 7200 cmake --build "$BUILD/tree" \
-    --target rpcs3_emu \
+    --target "$GRAPH_TARGET" \
     --config Release \
     --parallel 3 \
-    2>&1 | tee "$LOG_DIR/build-rpcs3-emu.log"
+    2>&1 | tee "$LOG_DIR/build-runtime-link-probe.log"
   build_status=${PIPESTATUS[0]}
   set -e
-  phase "rpcs3_emu build exit status=$build_status"
+  phase "$GRAPH_TARGET build exit status=$build_status"
 else
-  phase "Skipping rpcs3_emu compile because configure failed"
+  phase "Skipping runtime link compile because configure failed"
 fi
 
 phase1_status=125
@@ -159,29 +160,24 @@ if [[ -f "$BUILD/phase1-emusystem-evidence.json" ]]; then
 fi
 
 {
-  echo "# RPCS3 iOS real upstream Vulkan and Metal graph probe"
+  echo "# RPCS3 iOS real upstream Vulkan and Metal link probe"
   echo
   echo "- Requested revision: \`$UPSTREAM_REVISION\`"
   echo "- Resolved commit: \`$(cat "$BUILD/upstream-revision.txt")\`"
+  echo "- Build target: \`$GRAPH_TARGET\`"
   echo "- Qt Designer UI files exported: \`$ui_file_count\`"
   echo "- Nested Qt widgets exported: \`$widget_count\`"
-  echo "- Complete UI model: \`$BUILD/rpcs3-qt-ui-model.json\`"
-  echo "- FFmpeg target: \`arm64-apple-ios${DEPLOYMENT_TARGET:-26.0}\`"
   echo "- FFmpeg install: \`$FFMPEG_ROOT\`"
-  echo "- MoltenVK install: \`$MOLTENVK_ROOT\`"
   echo "- MoltenVK device binary: \`$MOLTENVK_BINARY\`"
-  echo "- Vulkan path: \`VK_EXT_metal_surface through CAMetalLayer\`"
   echo "- Configure exit status: \`$configure_status\`"
-  echo "- rpcs3_emu build exit status: \`$build_status\`"
+  echo "- Runtime link exit status: \`$build_status\`"
   echo "- Phase 1 evidence exit status: \`$phase1_status\`"
   echo "- Upstream Emu/System.cpp configured: \`$system_cpp_configured\`"
   echo "- Upstream Emu/System.cpp object built: \`$system_cpp_object_built\`"
   echo "- Configured upstream Emu source files: \`$configured_emu_source_count\`"
-  echo "- Phase 1 evidence: \`$BUILD/phase1-emusystem-evidence.json\`"
-  echo "- LLVM is intentionally disabled so interpreter-based PPU/SPU paths compile before entitlement-dependent JIT work."
-  echo "- Pinned FFmpeg and MoltenVK are real arm64-iOS dependencies in the upstream graph."
-  echo "- RPCS3's existing Vulkan RSX sources are compiled against MoltenVK; the native Metal GS renderer is compiled in the same rpcs3_emu target."
-  echo "- Compilation is not treated as physical-device guest execution until the Qt host and Emu callbacks are linked into one IPA."
+  echo "- LLVM is intentionally disabled for the interpreter-first execution lane."
+  echo "- The link target forces resolution of Emu.Init, PPU/SPU interpreters, upstream VKGSRender, MoltenVK, the UIKit GS frame, and the native Metal GS renderer."
+  echo "- The cross-compiled iOS executable is linked but not executed on the macOS runner."
   if [[ $configure_status -ne 0 ]]; then
     echo "- Configure tail:"
     echo
@@ -192,10 +188,10 @@ fi
     echo "- The build tail below is the next concrete runtime porting blocker:"
     echo
     echo '```text'
-    tail -n 140 "$LOG_DIR/build-rpcs3-emu.log"
+    tail -n 160 "$LOG_DIR/build-runtime-link-probe.log"
     echo '```'
   elif [[ $phase1_status -ne 0 ]]; then
-    echo "- The target compiled, but Phase 1 source evidence validation failed:"
+    echo "- The target linked, but Phase 1 evidence validation failed:"
     echo
     echo '```text'
     tail -n 100 "$LOG_DIR/phase1-emusystem-evidence.log"
