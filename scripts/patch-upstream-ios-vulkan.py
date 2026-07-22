@@ -79,6 +79,64 @@ void* GetCAMetalLayerFromMetalView(void* view) { return ((NSView*)view).layer; }
 ''', encoding="utf-8")
 
 
+def add_port_renderer_sources(upstream_root: Path, port_root: Path) -> None:
+    cmake = upstream_root / "rpcs3/Emu/CMakeLists.txt"
+    text = cmake.read_text(encoding="utf-8")
+    marker = "# RPCS3 iOS native renderer sources"
+    if marker in text:
+        return
+
+    renderers = port_root / "Renderers"
+    sources = [
+        renderers / "Apple/RPCS3AppleSurface.mm",
+        renderers / "Apple/RPCS3IOSGSFrame.mm",
+        renderers / "Metal/RPCS3MetalRenderer.mm",
+        renderers / "Metal/RPCS3MetalGSRender.mm",
+    ]
+    headers = [
+        renderers / "RPCS3RendererBackend.h",
+        renderers / "Apple/RPCS3AppleSurface.h",
+        renderers / "Apple/RPCS3IOSGSFrame.h",
+        renderers / "Metal/RPCS3MetalRenderer.h",
+        renderers / "Metal/RPCS3MetalGSRender.h",
+    ]
+    for required in [*sources, *headers]:
+        if not required.exists():
+            raise SystemExit(f"Missing renderer source: {required}")
+
+    source_lines = "\n".join(f'        "{path.as_posix()}"' for path in sources)
+    block = f'''
+
+{marker}
+if(RPCS3_IOS_UPSTREAM_GRAPH)
+    set(RPCS3_IOS_NATIVE_RENDERER_SOURCES
+{source_lines}
+    )
+    target_sources(rpcs3_emu PRIVATE ${{RPCS3_IOS_NATIVE_RENDERER_SOURCES}})
+    set_source_files_properties(${{RPCS3_IOS_NATIVE_RENDERER_SOURCES}} PROPERTIES
+        COMPILE_OPTIONS "-fobjc-arc"
+    )
+    target_include_directories(rpcs3_emu PUBLIC
+        "{renderers.as_posix()}"
+        "{(renderers / 'Apple').as_posix()}"
+        "{(renderers / 'Metal').as_posix()}"
+    )
+    target_compile_definitions(rpcs3_emu PUBLIC
+        RPCS3_IOS_HAS_MOLTENVK=1
+        RPCS3_IOS_HAS_NATIVE_METAL=1
+    )
+    target_link_libraries(rpcs3_emu PUBLIC
+        "-framework UIKit"
+        "-framework Metal"
+        "-framework QuartzCore"
+        "-framework CoreGraphics"
+        "-framework Foundation"
+    )
+endif()
+'''
+    cmake.write_text(text + block, encoding="utf-8")
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("upstream_root", type=Path)
@@ -87,9 +145,11 @@ def main() -> int:
 
     upstream_root = args.upstream_root.resolve()
     moltenvk_root = args.moltenvk_root.resolve()
+    port_root = Path(__file__).resolve().parent.parent
     patch_dependency_graph(upstream_root, moltenvk_root)
     patch_metal_layer(upstream_root)
-    print(f"Patched upstream Vulkan for iOS using MoltenVK at {moltenvk_root}")
+    add_port_renderer_sources(upstream_root, port_root)
+    print(f"Patched upstream Vulkan and native Metal renderers for iOS using MoltenVK at {moltenvk_root}")
     return 0
 
 
