@@ -3,13 +3,15 @@ name: Probe Real RPCS3 iOS Graph
 on:
   workflow_dispatch:
   push:
-    branches: [main]
+    branches: [main, rsx-renderer-integration]
     paths:
       - "Port/**"
       - "CoreBridge/**"
+      - "Renderers/**"
       - "cmake/**"
       - "scripts/**"
       - "UPSTREAM_RPCS3_REVISION"
+      - "MOLTENVK_REVISION"
       - ".github/workflows/upstream-graph-probe.yml"
 
 permissions:
@@ -26,10 +28,12 @@ jobs:
     runs-on: macos-26
     timeout-minutes: 240
     env:
-      STATUS_CONTEXT: "RPCS3 real upstream graph"
+      STATUS_CONTEXT: "RPCS3 Vulkan Metal graph"
       DEPLOYMENT_TARGET: "26.0"
       RPCS3_IOS_FFMPEG_ROOT: "${{ github.workspace }}/BuildSupport/ffmpeg-ios"
       FFMPEG_IOS_ROOT: "${{ github.workspace }}/BuildSupport/ffmpeg-ios"
+      RPCS3_IOS_MOLTENVK_ROOT: "${{ github.workspace }}/BuildSupport/MoltenVK"
+      MOLTENVK_ROOT: "${{ github.workspace }}/BuildSupport/MoltenVK"
     steps:
       - name: Checkout iOS port
         uses: actions/checkout@v4
@@ -46,7 +50,7 @@ jobs:
             -H "Accept: application/vnd.github+json" \
             -H "X-GitHub-Api-Version: 2022-11-28" \
             "https://api.github.com/repos/$GITHUB_REPOSITORY/statuses/$GITHUB_SHA" \
-            -d "{\"state\":\"pending\",\"context\":\"$STATUS_CONTEXT\",\"description\":\"Building the real upstream RPCS3 target for iOS\",\"target_url\":\"$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID\"}"
+            -d "{\"state\":\"pending\",\"context\":\"$STATUS_CONTEXT\",\"description\":\"Linking Emu.System with MoltenVK and native Metal\",\"target_url\":\"$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID\"}"
 
       - name: Select iOS 26 SDK
         shell: bash
@@ -75,7 +79,16 @@ jobs:
             .cache/ffmpeg-n7.1
           key: ffmpeg-n7.1-${{ runner.os }}-${{ runner.arch }}-iphoneos26-arm64-v1
 
-      - name: Build real upstream RPCS3 graph
+      - name: Restore MoltenVK iOS cache
+        id: moltenvk-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            BuildSupport/MoltenVK
+            .cache/MoltenVK
+          key: moltenvk-${{ hashFiles('MOLTENVK_REVISION') }}-${{ runner.os }}-${{ runner.arch }}-iphoneos26-arm64-v1
+
+      - name: Build real upstream RPCS3 Vulkan and Metal graph
         id: graph
         shell: bash
         run: |
@@ -94,11 +107,20 @@ jobs:
             .cache/ffmpeg-n7.1
           key: ffmpeg-n7.1-${{ runner.os }}-${{ runner.arch }}-iphoneos26-arm64-v1
 
+      - name: Save MoltenVK iOS cache
+        if: always() && steps.moltenvk-cache.outputs.cache-hit != 'true' && hashFiles('BuildSupport/MoltenVK/MoltenVK.xcframework/ios-arm64/MoltenVK.framework/MoltenVK') != ''
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            BuildSupport/MoltenVK
+            .cache/MoltenVK
+          key: moltenvk-${{ hashFiles('MOLTENVK_REVISION') }}-${{ runner.os }}-${{ runner.arch }}-iphoneos26-arm64-v1
+
       - name: Upload graph evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: RPCS3-real-upstream-ios-graph
+          name: RPCS3-Vulkan-Metal-upstream-ios-graph
           path: cmake-ios-upstream-graph/**
           if-no-files-found: warn
           retention-days: 30
@@ -113,10 +135,10 @@ jobs:
           probe_status="${{ steps.graph.outputs.status }}"
           if [[ "$probe_status" == "0" ]]; then
             state="success"
-            description="Real upstream rpcs3_emu target compiled for iOS"
+            description="Emu.System, MoltenVK, and Metal linked for arm64 iOS"
           else
             state="failure"
-            description="Upstream rpcs3_emu reached a documented iOS blocker"
+            description="Vulkan/Metal graph reached a documented iOS blocker"
           fi
           curl --fail --silent --show-error --max-time 30 \
             -X POST \
