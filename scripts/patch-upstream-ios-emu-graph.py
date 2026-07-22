@@ -74,13 +74,23 @@ def patch_ios_runtime_dependencies(upstream_root: Path) -> None:
     ffmpeg_root = Path(
         os.environ.get("RPCS3_IOS_FFMPEG_ROOT", port_root / "BuildSupport/ffmpeg-ios")
     ).resolve()
+    moltenvk_root = Path(
+        os.environ.get("RPCS3_IOS_MOLTENVK_ROOT", port_root / "BuildSupport/MoltenVK")
+    ).resolve()
     runtime_patch = port_root / "scripts/patch-upstream-ios-runtime-blockers.py"
+    vulkan_patch = port_root / "scripts/patch-upstream-ios-vulkan.py"
 
-    if not runtime_patch.is_file():
-        raise SystemExit(f"Missing runtime blocker patch: {runtime_patch}")
+    for required in (runtime_patch, vulkan_patch):
+        if not required.is_file():
+            raise SystemExit(f"Missing upstream patch: {required}")
 
     subprocess.run(
         [sys.executable, str(runtime_patch), str(upstream_root), str(ffmpeg_root)],
+        check=True,
+        env=os.environ.copy(),
+    )
+    subprocess.run(
+        [sys.executable, str(vulkan_patch), str(upstream_root), str(moltenvk_root)],
         check=True,
         env=os.environ.copy(),
     )
@@ -96,7 +106,7 @@ def main() -> int:
     patch_top_level_graph(args.upstream_root)
     patch_ios_runtime_dependencies(args.upstream_root)
 
-    print(f"Patched upstream emulator graph and iOS runtime dependencies: {args.upstream_root}")
+    print(f"Patched upstream emulator graph, Vulkan, and iOS runtime dependencies: {args.upstream_root}")
     return 0
 
 
