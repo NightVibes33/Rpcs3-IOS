@@ -1,0 +1,210 @@
+name: Build Unified RPCS3 Qt Runtime IPA
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [rsx-renderer-integration]
+    paths:
+      - "QtApp/**"
+      - "CoreBridge/**"
+      - "Renderers/**"
+      - "Port/**"
+      - "cmake/**"
+      - "scripts/**"
+      - "UPSTREAM_RPCS3_REVISION"
+      - "MOLTENVK_REVISION"
+      - ".github/workflows/build-unified-ios.yml"
+
+permissions:
+  contents: read
+  statuses: write
+
+concurrency:
+  group: rpcs3-unified-ios-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Unified Qt Emu.System Vulkan Metal IPA
+    runs-on: macos-26
+    timeout-minutes: 300
+    env:
+      STATUS_CONTEXT: "RPCS3 unified Qt runtime IPA"
+      DEPLOYMENT_TARGET: "26.0"
+      QT_VERSION: "6.11.1"
+      QT_ROOT: "${{ github.workspace }}/.qt"
+      UNIFIED_BUILD: "${{ github.workspace }}/cmake-ios-unified"
+      RPCS3_IOS_FFMPEG_ROOT: "${{ github.workspace }}/BuildSupport/ffmpeg-ios"
+      FFMPEG_IOS_ROOT: "${{ github.workspace }}/BuildSupport/ffmpeg-ios"
+      RPCS3_IOS_MOLTENVK_ROOT: "${{ github.workspace }}/BuildSupport/MoltenVK"
+      MOLTENVK_ROOT: "${{ github.workspace }}/BuildSupport/MoltenVK"
+      CI_LOGS: "${{ github.workspace }}/ci-logs"
+    steps:
+      - name: Checkout iOS port
+        uses: actions/checkout@v4
+
+      - name: Publish pending status
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          curl --fail --silent --show-error --max-time 30 \
+            -X POST \
+            -H "Authorization: Bearer $GITHUB_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "https://api.github.com/repos/$GITHUB_REPOSITORY/statuses/$GITHUB_SHA" \
+            -d "{\"state\":\"pending\",\"context\":\"$STATUS_CONTEXT\",\"description\":\"Building unified RPCS3 Qt runtime IPA\",\"target_url\":\"$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID\"}"
+
+      - name: Select iOS 26 SDK
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$CI_LOGS"
+          sdk="$(xcrun --sdk iphoneos --show-sdk-version 2>/dev/null || true)"
+          if [[ "$sdk" != 26.* ]]; then
+            while IFS= read -r app; do
+              developer="$app/Contents/Developer"
+              candidate="$(DEVELOPER_DIR="$developer" xcrun --sdk iphoneos --show-sdk-version 2>/dev/null || true)"
+              if [[ "$candidate" == 26.* ]]; then
+                sudo xcode-select -s "$developer"
+                break
+              fi
+            done < <(find -L /Applications -maxdepth 1 -name 'Xcode*.app' -print | sort)
+          fi
+          xcodebuild -version | tee "$CI_LOGS/xcode-version.txt"
+          xcrun --sdk iphoneos --show-sdk-version | tee "$CI_LOGS/sdk-version.txt"
+
+      - name: Restore Qt for iOS
+        id: qt-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: ${{ env.QT_ROOT }}
+          key: qt-${{ runner.os }}-${{ runner.arch }}-ios-${{ env.QT_VERSION }}-base-v3
+
+      - name: Install Qt for iOS and host tools
+        if: steps.qt-cache.outputs.cache-hit != 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          AQT_VENV="$RUNNER_TEMP/aqt-venv"
+          python3 -m venv "$AQT_VENV"
+          source "$AQT_VENV/bin/activate"
+          python -m pip install --upgrade pip aqtinstall
+          IOS_ARCH="$(python -m aqt list-qt mac ios --arch "$QT_VERSION" | tr ' ' '\n' | sed '/^$/d' | head -n 1)"
+          test -n "$IOS_ARCH"
+          python -m aqt install-qt mac ios "$QT_VERSION" "$IOS_ARCH" --autodesktop -O "$QT_ROOT"
+
+      - name: Save Qt cache
+        if: steps.qt-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ${{ env.QT_ROOT }}
+          key: ${{ steps.qt-cache.outputs.cache-primary-key }}
+
+      - name: Restore FFmpeg iOS cache
+        id: ffmpeg-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            BuildSupport/ffmpeg-ios
+            .cache/ffmpeg-n7.1
+          key: ffmpeg-n7.1-${{ runner.os }}-${{ runner.arch }}-iphoneos26-arm64-v1
+
+      - name: Restore MoltenVK iOS cache
+        id: moltenvk-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            BuildSupport/MoltenVK
+            .cache/MoltenVK
+          key: moltenvk-${{ hashFiles('MOLTENVK_REVISION') }}-${{ runner.os }}-${{ runner.arch }}-iphoneos26-arm64-v2
+
+      - name: Build unified RPCS3 Qt runtime
+        id: unified
+        shell: bash
+        run: |
+          set +e
+          bash scripts/build-unified-qt-ios-app.sh 2>&1 | tee "$CI_LOGS/unified-build-console.log"
+          status=${PIPESTATUS[0]}
+          echo "status=$status" >> "$GITHUB_OUTPUT"
+          exit 0
+
+      - name: Save FFmpeg cache
+        if: always() && steps.ffmpeg-cache.outputs.cache-hit != 'true' && hashFiles('BuildSupport/ffmpeg-ios/.rpcs3-ios-ffmpeg-n7.1') != ''
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            BuildSupport/ffmpeg-ios
+            .cache/ffmpeg-n7.1
+          key: ffmpeg-n7.1-${{ runner.os }}-${{ runner.arch }}-iphoneos26-arm64-v1
+
+      - name: Save MoltenVK cache
+        if: always() && steps.moltenvk-cache.outputs.cache-hit != 'true' && hashFiles('BuildSupport/MoltenVK/device-binary-path.txt') != ''
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            BuildSupport/MoltenVK
+            .cache/MoltenVK
+          key: moltenvk-${{ hashFiles('MOLTENVK_REVISION') }}-${{ runner.os }}-${{ runner.arch }}-iphoneos26-arm64-v2
+
+      - name: Package unified unsigned IPA
+        if: steps.unified.outputs.status == '0'
+        shell: bash
+        run: |
+          set -euo pipefail
+          APP="$(cat "$UNIFIED_BUILD/app-path.txt")"
+          rm -rf Payload output
+          mkdir -p Payload output
+          cp -R "$APP" Payload/RPCS3-iOS.app
+          rm -rf Payload/RPCS3-iOS.app/_CodeSignature
+          rm -f Payload/RPCS3-iOS.app/embedded.mobileprovision
+          SHORT_SHA="$(printf '%s' "$GITHUB_SHA" | cut -c1-7)"
+          IPA="output/RPCS3-Qt-Runtime-Vulkan-Metal-iOS26-${SHORT_SHA}-unsigned.ipa"
+          /usr/bin/ditto -c -k --sequesterRsrc --keepParent Payload "$IPA"
+          shasum -a 256 "$IPA" > "$IPA.sha256"
+          unzip -l "$IPA"
+
+      - name: Upload unified IPA
+        if: steps.unified.outputs.status == '0'
+        uses: actions/upload-artifact@v4
+        with:
+          name: RPCS3-Qt-Runtime-Vulkan-Metal-iOS26-unsigned
+          path: output/*
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Upload unified build evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: RPCS3-unified-iOS-build-evidence
+          path: |
+            cmake-ios-unified/**
+            ci-logs/**
+          if-no-files-found: warn
+          retention-days: 30
+
+      - name: Publish final status
+        if: always()
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          build_status="${{ steps.unified.outputs.status }}"
+          if [[ "$build_status" == "0" ]]; then
+            state="success"
+            description="Unified Qt, Emu.System, Vulkan, and Metal IPA built"
+          else
+            state="failure"
+            description="Unified runtime IPA reached a documented build blocker"
+          fi
+          curl --fail --silent --show-error --max-time 30 \
+            -X POST \
+            -H "Authorization: Bearer $GITHUB_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "https://api.github.com/repos/$GITHUB_REPOSITORY/statuses/$GITHUB_SHA" \
+            -d "{\"state\":\"$state\",\"context\":\"$STATUS_CONTEXT\",\"description\":\"$description\",\"target_url\":\"$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID\"}"
