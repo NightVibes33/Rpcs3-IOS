@@ -29,50 +29,74 @@ jobs:
     env:
       DEPLOYMENT_TARGET: "26.0"
       DERIVED_DATA: "${{ github.workspace }}/DerivedData"
+      CI_LOGS: "${{ github.workspace }}/ci-logs"
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Select newest installed Xcode 26
+      - name: Select an installed Xcode with iOS 26 SDK
         shell: bash
         run: |
           set -euo pipefail
-          XCODE_PATH="$(find /Applications -maxdepth 1 -type d -name 'Xcode_26*.app' -print | sort | tail -n 1)"
-          if [[ -z "$XCODE_PATH" ]]; then
-            echo "No Xcode 26 installation exists on the macos-26 image."
-            find /Applications -maxdepth 1 -type d -name 'Xcode*.app' -print | sort
-            exit 1
+          mkdir -p "$CI_LOGS"
+          echo "Current developer directory: $(xcode-select -p)"
+          xcodebuild -version || true
+          CURRENT_SDK="$(xcrun --sdk iphoneos --show-sdk-version 2>/dev/null || true)"
+
+          if [[ "$CURRENT_SDK" != 26.* ]]; then
+            XCODE_PATH=""
+            while IFS= read -r candidate; do
+              developer="$candidate/Contents/Developer"
+              [[ -d "$developer" ]] || continue
+              sdk="$(DEVELOPER_DIR="$developer" xcrun --sdk iphoneos --show-sdk-version 2>/dev/null || true)"
+              echo "Candidate: $candidate (iphoneos $sdk)"
+              if [[ "$sdk" == 26.* ]]; then
+                XCODE_PATH="$candidate"
+              fi
+            done < <(find -L /Applications -maxdepth 1 -name 'Xcode*.app' -print | sort)
+
+            if [[ -z "$XCODE_PATH" ]]; then
+              echo "No installed Xcode exposes an iOS 26 SDK."
+              find -L /Applications -maxdepth 1 -name 'Xcode*.app' -print | sort
+              exit 1
+            fi
+
+            echo "Selecting $XCODE_PATH"
+            sudo xcode-select -s "$XCODE_PATH/Contents/Developer"
           fi
-          echo "Selecting $XCODE_PATH"
-          sudo xcode-select -s "$XCODE_PATH/Contents/Developer"
-          xcodebuild -version
-          cmake --version
+
+          xcodebuild -version | tee "$CI_LOGS/xcode-version.txt"
+          cmake --version | tee "$CI_LOGS/cmake-version.txt"
           SDK_VERSION="$(xcrun --sdk iphoneos --show-sdk-version)"
-          echo "iphoneos SDK: $SDK_VERSION"
-          case "$SDK_VERSION" in
-            26.*) ;;
-            *) echo "Expected an iOS 26 SDK."; exit 1 ;;
-          esac
+          echo "iphoneos SDK: $SDK_VERSION" | tee "$CI_LOGS/sdk-version.txt"
+          [[ "$SDK_VERSION" == 26.* ]] || { echo "Expected iOS 26 SDK, got $SDK_VERSION"; exit 1; }
 
       - name: Install XcodeGen
         shell: bash
         run: |
           set -euo pipefail
-          brew install xcodegen
-          xcodegen --version
+          if ! command -v xcodegen >/dev/null 2>&1; then
+            brew install xcodegen
+          fi
+          xcodegen --version | tee "$CI_LOGS/xcodegen-version.txt"
 
       - name: Build upstream-derived RPCS3 core archive
         shell: bash
-        run: bash scripts/build-upstream-ios-core.sh
+        run: |
+          set -o pipefail
+          bash scripts/build-upstream-ios-core.sh 2>&1 | tee "$CI_LOGS/core-build-console.log"
 
       - name: Generate Xcode project
-        run: xcodegen generate --spec project.yml
+        shell: bash
+        run: |
+          set -o pipefail
+          xcodegen generate --spec project.yml 2>&1 | tee "$CI_LOGS/xcodegen.log"
 
       - name: Build unsigned physical-device app
         shell: bash
         run: |
-          set -euo pipefail
+          set -o pipefail
           xcodebuild \
             -project RPCS3-iOS.xcodeproj \
             -scheme RPCS3-iOS \
@@ -86,7 +110,7 @@ jobs:
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGN_IDENTITY='' \
-            clean build
+            clean build 2>&1 | tee "$CI_LOGS/xcodebuild.log"
 
       - name: Validate upstream core and device bundle
         id: bundle
@@ -140,6 +164,15 @@ jobs:
           name: RPCS3-iOS-iOS26-unsigned
           path: output/*
           if-no-files-found: error
+          retention-days: 30
+
+      - name: Upload CI logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: RPCS3-iOS-ci-logs
+          path: ci-logs/**
+          if-no-files-found: warn
           retention-days: 30
 
       - name: Upload upstream core build evidence
