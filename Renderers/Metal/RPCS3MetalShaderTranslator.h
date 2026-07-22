@@ -29,8 +29,8 @@ struct shader_resource_binding
 {
     shader_resource_kind kind = shader_resource_kind::uniform_buffer;
     std::uint32_t spirv_id = 0;
-    std::uint32_t descriptor_set = 0;
-    std::uint32_t descriptor_binding = 0;
+    std::uint32_t descriptor_set = UINT32_MAX;
+    std::uint32_t descriptor_binding = UINT32_MAX;
     std::uint32_t metal_index = UINT32_MAX;
     std::uint32_t metal_secondary_index = UINT32_MAX;
     std::string name;
