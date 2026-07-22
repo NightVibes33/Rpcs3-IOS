@@ -14,10 +14,12 @@ typedef enum RPCS3IOSCoreState {
 
 typedef struct RPCS3IOSCoreDiagnostics {
     RPCS3IOSCoreState state;
+    int platform_initialized;
     int ppu_interpreter_available;
     int spu_interpreter_available;
     int jit_available;
     int renderer_available;
+    const char *data_path;
     const char *message;
 } RPCS3IOSCoreDiagnostics;
 
