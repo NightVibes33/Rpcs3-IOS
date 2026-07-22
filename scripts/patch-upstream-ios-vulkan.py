@@ -109,12 +109,16 @@ def add_port_renderer_sources(upstream_root: Path, port_root: Path) -> None:
         return
 
     renderers = port_root / "Renderers"
-    sources = [
+    objcxx_sources = [
         renderers / "Apple/RPCS3AppleSurface.mm",
         renderers / "Apple/RPCS3IOSGSFrame.mm",
         renderers / "Metal/RPCS3MetalRenderer.mm",
         renderers / "Metal/RPCS3MetalRSXFormats.mm",
+        renderers / "Metal/RPCS3MetalPipelineState.mm",
         renderers / "Metal/RPCS3MetalGSRender.mm",
+    ]
+    cpp_sources = [
+        renderers / "Metal/RPCS3MetalPrimitiveExpander.cpp",
     ]
     headers = [
         renderers / "RPCS3RendererBackend.h",
@@ -122,22 +126,31 @@ def add_port_renderer_sources(upstream_root: Path, port_root: Path) -> None:
         renderers / "Apple/RPCS3IOSGSFrame.h",
         renderers / "Metal/RPCS3MetalRenderer.h",
         renderers / "Metal/RPCS3MetalRSXFormats.h",
+        renderers / "Metal/RPCS3MetalPipelineState.h",
+        renderers / "Metal/RPCS3MetalPrimitiveExpander.h",
         renderers / "Metal/RPCS3MetalGSRender.h",
     ]
-    for required in [*sources, *headers]:
+    for required in [*objcxx_sources, *cpp_sources, *headers]:
         if not required.exists():
             raise SystemExit(f"Missing renderer source: {required}")
 
-    source_lines = "\n".join(f'        "{path.as_posix()}"' for path in sources)
+    objcxx_lines = "\n".join(f'        "{path.as_posix()}"' for path in objcxx_sources)
+    cpp_lines = "\n".join(f'        "{path.as_posix()}"' for path in cpp_sources)
     block = f'''
 
 {marker}
 if(RPCS3_IOS_UPSTREAM_GRAPH)
-    set(RPCS3_IOS_NATIVE_RENDERER_SOURCES
-{source_lines}
+    set(RPCS3_IOS_NATIVE_RENDERER_OBJCXX_SOURCES
+{objcxx_lines}
     )
-    target_sources(rpcs3_emu PRIVATE ${{RPCS3_IOS_NATIVE_RENDERER_SOURCES}})
-    set_source_files_properties(${{RPCS3_IOS_NATIVE_RENDERER_SOURCES}} PROPERTIES
+    set(RPCS3_IOS_NATIVE_RENDERER_CPP_SOURCES
+{cpp_lines}
+    )
+    target_sources(rpcs3_emu PRIVATE
+        ${{RPCS3_IOS_NATIVE_RENDERER_OBJCXX_SOURCES}}
+        ${{RPCS3_IOS_NATIVE_RENDERER_CPP_SOURCES}}
+    )
+    set_source_files_properties(${{RPCS3_IOS_NATIVE_RENDERER_OBJCXX_SOURCES}} PROPERTIES
         COMPILE_OPTIONS "-fobjc-arc"
     )
     target_include_directories(rpcs3_emu PUBLIC
@@ -149,6 +162,7 @@ if(RPCS3_IOS_UPSTREAM_GRAPH)
         RPCS3_IOS_HAS_MOLTENVK=1
         RPCS3_IOS_HAS_NATIVE_METAL=1
         RPCS3_IOS_METAL_RSX_FORMAT_TRANSLATION=1
+        RPCS3_IOS_METAL_RSX_PIPELINE_TRANSLATION=1
     )
     target_link_libraries(rpcs3_emu PUBLIC
         "-framework UIKit"
