@@ -7,6 +7,7 @@ PRODUCT_DIR="${PRODUCT_DIR:-BuildSupport}"
 PORT_ROOT="$(pwd)"
 TOOLCHAIN="$PORT_ROOT/cmake/toolchains/ios-arm64.cmake"
 REVISION_FILE="$PORT_ROOT/UPSTREAM_RPCS3_REVISION"
+UI_MODEL="$PORT_ROOT/App/Generated/RPCS3QtUIModel.json"
 
 command -v cmake >/dev/null
 command -v xcrun >/dev/null
@@ -27,7 +28,15 @@ git -C "$ROOT" submodule update --init --recursive --depth 1
 
 python3 scripts/apply-upstream-ios-overlay.py "$ROOT" --mode bootstrap
 rm -rf "$BUILD"
-mkdir -p "$BUILD/logs" "$PRODUCT_DIR"
+mkdir -p "$BUILD/logs" "$PRODUCT_DIR" "$(dirname "$UI_MODEL")"
+
+# Export the real Qt Designer hierarchy before XcodeGen runs. Because this file
+# lives under App/, XcodeGen copies it into the IPA as a resource consumed by
+# the UIKit menu/tab renderer. It includes nested layouts, tab pages, stacked
+# pages, docks, controls, and QAction identifiers from the pinned RPCS3 tag.
+python3 scripts/export-upstream-qt-ui-model.py "$ROOT" "$UI_MODEL" \
+  >"$BUILD/logs/export-qt-ui-model.log" 2>&1
+cp "$UI_MODEL" "$BUILD/rpcs3-qt-ui-model.json"
 
 UPSTREAM_SHA="$(git -C "$ROOT" rev-parse HEAD)"
 SDK_VERSION="$(xcrun --sdk iphoneos --show-sdk-version)"
@@ -65,6 +74,15 @@ grep -q 'probe_ps3_self' "$BUILD/archive-symbols.txt"
 grep -q 'build_plain_self_load_plan' "$BUILD/archive-symbols.txt"
 grep -q 'extract_plain_self_to_elf' "$BUILD/archive-symbols.txt"
 grep -q 'sha256' "$BUILD/archive-members.txt"
+python3 - "$UI_MODEL" <<'PY'
+import json, sys
+model = json.load(open(sys.argv[1], encoding="utf-8"))
+assert model["schema"] >= 2
+assert model["ui_file_count"] > 0
+assert model["widget_count"] > 0
+assert any(d["file"] == "main_window.ui" for d in model["documents"])
+assert any(d["file"] == "settings_dialog.ui" for d in model["documents"])
+PY
 
 cat > "$BUILD/summary.md" <<EOF
 # RPCS3 iOS pinned upstream core archive
@@ -74,6 +92,7 @@ cat > "$BUILD/summary.md" <<EOF
 - iPhoneOS SDK: \`$SDK_VERSION\`
 - Target: \`arm64-apple-ios26.0\`
 - Product: \`$OUTPUT\`
+- Bundled Qt UI model: \`$UI_MODEL\`
 - Checkout includes initialized upstream submodules.
 - The bootstrap archive remains the shipping lane while the separate upstream-graph probe identifies blockers in RPCS3's real build graph.
 EOF
