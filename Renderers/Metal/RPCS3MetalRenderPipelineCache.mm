@@ -125,7 +125,7 @@ bool render_pipeline_cache::get_or_create(const render_pipeline_request& request
         descriptor.label = @"RPCS3 translated RSX pipeline";
         descriptor.vertexFunction = vertex;
         descriptor.fragmentFunction = fragment;
-        descriptor.sampleCount = std::max<std::uint32_t>(request.sample_count, 1);
+        descriptor.rasterSampleCount = std::max<std::uint32_t>(request.sample_count, 1);
         descriptor.colorAttachments[0].pixelFormat =
             static_cast<MTLPixelFormat>(request.color_pixel_format);
         descriptor.depthAttachmentPixelFormat =
