@@ -5,10 +5,10 @@ VERSION="${MOLTENVK_VERSION:-1.4.1}"
 PORT_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 OUTPUT="${MOLTENVK_IOS_ROOT:-$PORT_ROOT/BuildSupport/moltenvk-ios}"
 CACHE_DIR="${MOLTENVK_CACHE_DIR:-$PORT_ROOT/BuildSupport/downloads/moltenvk-$VERSION}"
-ARCHIVE="$CACHE_DIR/moltenvk-release"
+ARCHIVE="$CACHE_DIR/MoltenVK-all.tar"
 EXTRACTED="$CACHE_DIR/extracted"
-RELEASE_JSON="$CACHE_DIR/release.json"
 SLICE_INFO_FILE="$CACHE_DIR/ios-device-slice.txt"
+ASSET_URL="${MOLTENVK_ASSET_URL:-https://github.com/KhronosGroup/MoltenVK/releases/download/v$VERSION/MoltenVK-all.tar}"
 
 mkdir -p "$CACHE_DIR" "$PORT_ROOT/BuildSupport"
 
@@ -25,57 +25,36 @@ command -v curl >/dev/null
 command -v python3 >/dev/null
 command -v shasum >/dev/null
 
-if [[ -n "${GITHUB_TOKEN:-}" ]]; then
-    curl --fail --location --silent --show-error \
-        -H "Authorization: Bearer $GITHUB_TOKEN" \
-        -H "Accept: application/vnd.github+json" \
-        -H "X-GitHub-Api-Version: 2022-11-28" \
-        "https://api.github.com/repos/KhronosGroup/MoltenVK/releases/tags/v$VERSION" \
-        -o "$RELEASE_JSON"
-else
-    curl --fail --location --silent --show-error \
-        -H "Accept: application/vnd.github+json" \
-        -H "X-GitHub-Api-Version: 2022-11-28" \
-        "https://api.github.com/repos/KhronosGroup/MoltenVK/releases/tags/v$VERSION" \
-        -o "$RELEASE_JSON"
+# The asset name is part of MoltenVK's published release contract. Download it
+# directly instead of first querying api.github.com, whose anonymous rate limit
+# can return HTTP 403 on shared GitHub-hosted runners.
+rm -f "$ARCHIVE"
+curl \
+    --fail \
+    --location \
+    --silent \
+    --show-error \
+    --retry 6 \
+    --retry-delay 3 \
+    --retry-all-errors \
+    --connect-timeout 30 \
+    --max-time 1200 \
+    --user-agent "RPCS3-iOS-CI/1.0" \
+    -H "Accept: application/octet-stream" \
+    "$ASSET_URL" \
+    -o "$ARCHIVE"
+
+# Reject HTML/error pages and truncated downloads before extraction. The
+# published MoltenVK distribution is substantially larger than one megabyte.
+ARCHIVE_SIZE="$(stat -f '%z' "$ARCHIVE" 2>/dev/null || stat -c '%s' "$ARCHIVE")"
+if [[ "$ARCHIVE_SIZE" -lt 1048576 ]]; then
+    echo "MoltenVK archive is unexpectedly small: $ARCHIVE_SIZE bytes" >&2
+    file "$ARCHIVE" >&2 || true
+    exit 1
 fi
-
-ASSET_URL="$(python3 - "$RELEASE_JSON" <<'PY'
-import json
-import sys
-
-release = json.load(open(sys.argv[1], encoding="utf-8"))
-assets = release.get("assets", [])
-preferred = []
-for asset in assets:
-    name = asset.get("name", "")
-    lower = name.lower()
-    if "moltenvk" not in lower:
-        continue
-    score = 0
-    if "all" in lower:
-        score += 20
-    if lower.endswith((".tar", ".tar.gz", ".tgz", ".zip")):
-        score += 10
-    if "ios" in lower:
-        score += 5
-    preferred.append((score, name, asset.get("browser_download_url", "")))
-if not preferred:
-    raise SystemExit("The pinned MoltenVK release contains no downloadable runtime package")
-preferred.sort(reverse=True)
-url = preferred[0][2]
-if not url:
-    raise SystemExit("The selected MoltenVK release asset has no download URL")
-print(url)
-PY
-)"
 
 rm -rf "$EXTRACTED" "$OUTPUT"
 mkdir -p "$EXTRACTED" "$OUTPUT/include" "$OUTPUT/lib"
-
-curl --fail --location --silent --show-error \
-    "$ASSET_URL" \
-    -o "$ARCHIVE"
 
 if unzip -t "$ARCHIVE" >/dev/null 2>&1; then
     unzip -q "$ARCHIVE" -d "$EXTRACTED"
@@ -158,6 +137,7 @@ test -f "$OUTPUT/lib/libMoltenVK.a"
 
 printf '%s\n' "$VERSION" > "$OUTPUT/version.txt"
 printf '%s\n' "$ASSET_URL" > "$OUTPUT/source-url.txt"
+shasum -a 256 "$ARCHIVE" > "$OUTPUT/MoltenVK-all.tar.sha256"
 shasum -a 256 "$OUTPUT/lib/libMoltenVK.a" > "$OUTPUT/lib/libMoltenVK.a.sha256"
 
 file "$OUTPUT/lib/libMoltenVK.a"
