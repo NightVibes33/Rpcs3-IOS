@@ -86,7 +86,7 @@ jobs:
           path: |
             BuildSupport/MoltenVK
             .cache/MoltenVK
-          key: moltenvk-${{ hashFiles('MOLTENVK_REVISION') }}-${{ runner.os }}-${{ runner.arch }}-iphoneos26-arm64-v1
+          key: moltenvk-${{ hashFiles('MOLTENVK_REVISION') }}-${{ runner.os }}-${{ runner.arch }}-iphoneos26-arm64-v2
 
       - name: Build real upstream RPCS3 Vulkan and Metal graph
         id: graph
@@ -108,13 +108,13 @@ jobs:
           key: ffmpeg-n7.1-${{ runner.os }}-${{ runner.arch }}-iphoneos26-arm64-v1
 
       - name: Save MoltenVK iOS cache
-        if: always() && steps.moltenvk-cache.outputs.cache-hit != 'true' && hashFiles('BuildSupport/MoltenVK/MoltenVK.xcframework/ios-arm64/MoltenVK.framework/MoltenVK') != ''
+        if: always() && steps.moltenvk-cache.outputs.cache-hit != 'true' && hashFiles('BuildSupport/MoltenVK/device-binary-path.txt') != ''
         uses: actions/cache/save@v4
         with:
           path: |
             BuildSupport/MoltenVK
             .cache/MoltenVK
-          key: moltenvk-${{ hashFiles('MOLTENVK_REVISION') }}-${{ runner.os }}-${{ runner.arch }}-iphoneos26-arm64-v1
+          key: moltenvk-${{ hashFiles('MOLTENVK_REVISION') }}-${{ runner.os }}-${{ runner.arch }}-iphoneos26-arm64-v2
 
       - name: Upload graph evidence
         if: always()
