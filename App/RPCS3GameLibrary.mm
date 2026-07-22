@@ -32,13 +32,8 @@ static NSURL *FirstExisting(NSURL *root, NSArray<NSString *> *relativePaths) {
     NSMutableSet<NSString *> *seenRoots = [NSMutableSet set];
 
     for (NSURL *url in enumerator) {
-        if (![url.lastPathComponent caseInsensitiveCompare:@"PARAM.SFO"] == NSOrderedSame) continue;
+        if ([url.lastPathComponent caseInsensitiveCompare:@"PARAM.SFO"] != NSOrderedSame) continue;
         NSString *parentName = url.URLByDeletingLastPathComponent.lastPathComponent;
-        if (![parentName caseInsensitiveCompare:@"PS3_GAME"] == NSOrderedSame &&
-            ![parentName caseInsensitiveCompare:@"C00"] == NSOrderedSame &&
-            ![parentName caseInsensitiveCompare:@"USRDIR"] == NSOrderedSame) {
-            // Installed titles commonly keep PARAM.SFO at the title root; accept those too.
-        }
         NSURL *gameRoot = url.URLByDeletingLastPathComponent;
         if ([parentName caseInsensitiveCompare:@"PS3_GAME"] == NSOrderedSame) {
             gameRoot = gameRoot.URLByDeletingLastPathComponent;
@@ -49,10 +44,12 @@ static NSURL *FirstExisting(NSURL *root, NSArray<NSString *> *relativePaths) {
         if (!metadata.valid) continue;
 
         RPCS3GameEntry *entry = [RPCS3GameEntry new];
-        entry.title = Text(metadata.title).length ? Text(metadata.title) : gameRoot.lastPathComponent;
+        NSString *title = Text(metadata.title);
+        NSString *appVersion = Text(metadata.app_version);
+        entry.title = title.length ? title : gameRoot.lastPathComponent;
         entry.titleID = Text(metadata.title_id);
         entry.category = Text(metadata.category);
-        entry.version = Text(metadata.app_version).length ? Text(metadata.app_version) : Text(metadata.version);
+        entry.version = appVersion.length ? appVersion : Text(metadata.version);
         entry.rootURL = gameRoot;
         NSURL *contentRoot = url.URLByDeletingLastPathComponent;
         entry.iconURL = FirstExisting(contentRoot, @[@"ICON0.PNG", @"ICON0.png"]);
@@ -61,7 +58,6 @@ static NSURL *FirstExisting(NSURL *root, NSArray<NSString *> *relativePaths) {
         [seenRoots addObject:gameRoot.path];
     }
 
-    // Keep standalone imports visible until folder/package installation is complete.
     NSArray<NSURL *> *imports = [fm contentsOfDirectoryAtURL:[root URLByAppendingPathComponent:@"imports"]
                                   includingPropertiesForKeys:nil
                                                      options:NSDirectoryEnumerationSkipsHiddenFiles
