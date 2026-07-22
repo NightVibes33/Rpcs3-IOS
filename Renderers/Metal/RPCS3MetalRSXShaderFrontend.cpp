@@ -5,6 +5,7 @@
 #include "Emu/RSX/VK/VKVertexProgram.h"
 
 #include <exception>
+#include <stdexcept>
 #include <utility>
 
 namespace rpcs3::ios::render::metal_rsx
@@ -39,7 +40,10 @@ std::vector<shader_resource_binding> translate_resources(
     std::vector<shader_resource_binding> resources;
     resources.reserve(inputs.size());
 
-    for (const auto& input : inputs)
+    // program_input::as_push_constant() is non-const in upstream v0.0.40.
+    // Copy each small descriptor so the native backend can read the variant
+    // without mutating RPCS3's frontend-owned binding table.
+    for (auto input : inputs)
     {
         shader_resource_binding binding;
         binding.stage = stage;
