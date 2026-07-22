@@ -32,6 +32,7 @@ if(RPCS3_IOS_UPSTREAM_GRAPH)
     if(NOT DEFINED RPCS3_IOS_PORT_ROOT)
         message(FATAL_ERROR "RPCS3_IOS_PORT_ROOT must point to the iOS port repository")
     endif()
+    enable_language(OBJCXX)
     add_compile_definitions(
         RPCS3_IOS=1
         RPCS3_PLATFORM_MOBILE=1
@@ -197,6 +198,42 @@ elseif(NOT ANDROID)
     cmake.write_text(text.replace(needle, replacement, 1), encoding="utf-8")
 
 
+def patch_metal_layer_for_ios(upstream_root: Path) -> None:
+    source = upstream_root / "rpcs3/Emu/RSX/VK/vkutils/metal_layer.mm"
+    text = source.read_text(encoding="utf-8")
+    needle = '''#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wold-style-cast"
+#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
+#pragma GCC diagnostic ignored "-Wmissing-declarations"
+#import <Foundation/Foundation.h>
+#import <AppKit/AppKit.h>
+#import <QuartzCore/QuartzCore.h>
+
+void* GetCAMetalLayerFromMetalView(void* view) { return ((NSView*)view).layer; }
+#pragma GCC diagnostic pop
+'''
+    replacement = '''#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wold-style-cast"
+#pragma GCC diagnostic ignored "-Wdeprecated-declarations"
+#pragma GCC diagnostic ignored "-Wmissing-declarations"
+#import <TargetConditionals.h>
+#import <Foundation/Foundation.h>
+#import <QuartzCore/QuartzCore.h>
+
+#if TARGET_OS_IPHONE
+#import <UIKit/UIKit.h>
+void* GetCAMetalLayerFromMetalView(void* view) { return ((UIView*)view).layer; }
+#else
+#import <AppKit/AppKit.h>
+void* GetCAMetalLayerFromMetalView(void* view) { return ((NSView*)view).layer; }
+#endif
+#pragma GCC diagnostic pop
+'''
+    if needle not in text:
+        raise SystemExit("Unable to locate upstream macOS Metal-layer bridge")
+    source.write_text(text.replace(needle, replacement, 1), encoding="utf-8")
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("upstream_root", type=Path)
@@ -215,6 +252,7 @@ def main() -> int:
         patch_libusb_for_ios(args.upstream_root)
         patch_asmjit_for_ios(args.upstream_root)
         patch_ffmpeg_for_ios(args.upstream_root)
+        patch_metal_layer_for_ios(args.upstream_root)
 
     print(f"Applied {args.mode} iOS overlay to {cmake}")
     return 0
