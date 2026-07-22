@@ -25,17 +25,20 @@ command -v curl >/dev/null
 command -v python3 >/dev/null
 command -v shasum >/dev/null
 
-AUTH_ARGS=()
 if [[ -n "${GITHUB_TOKEN:-}" ]]; then
-    AUTH_ARGS=(-H "Authorization: Bearer $GITHUB_TOKEN")
+    curl --fail --location --silent --show-error \
+        -H "Authorization: Bearer $GITHUB_TOKEN" \
+        -H "Accept: application/vnd.github+json" \
+        -H "X-GitHub-Api-Version: 2022-11-28" \
+        "https://api.github.com/repos/KhronosGroup/MoltenVK/releases/tags/v$VERSION" \
+        -o "$RELEASE_JSON"
+else
+    curl --fail --location --silent --show-error \
+        -H "Accept: application/vnd.github+json" \
+        -H "X-GitHub-Api-Version: 2022-11-28" \
+        "https://api.github.com/repos/KhronosGroup/MoltenVK/releases/tags/v$VERSION" \
+        -o "$RELEASE_JSON"
 fi
-
-curl --fail --location --silent --show-error \
-    "${AUTH_ARGS[@]}" \
-    -H "Accept: application/vnd.github+json" \
-    -H "X-GitHub-Api-Version: 2022-11-28" \
-    "https://api.github.com/repos/KhronosGroup/MoltenVK/releases/tags/v$VERSION" \
-    -o "$RELEASE_JSON"
 
 ASSET_URL="$(python3 - "$RELEASE_JSON" <<'PY'
 import json
@@ -71,7 +74,6 @@ rm -rf "$EXTRACTED" "$OUTPUT"
 mkdir -p "$EXTRACTED" "$OUTPUT/include" "$OUTPUT/lib"
 
 curl --fail --location --silent --show-error \
-    "${AUTH_ARGS[@]}" \
     "$ASSET_URL" \
     -o "$ARCHIVE"
 
