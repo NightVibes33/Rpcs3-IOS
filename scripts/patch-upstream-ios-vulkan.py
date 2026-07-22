@@ -134,6 +134,7 @@ def add_port_renderer_sources(upstream_root: Path, port_root: Path, spirv_cross_
         renderers / "Apple/RPCS3AppleSurface.mm",
         renderers / "Apple/RPCS3IOSGSFrame.mm",
         renderers / "Metal/RPCS3MetalRenderer.mm",
+        renderers / "Metal/RPCS3MetalResourceBinder.mm",
         renderers / "Metal/RPCS3MetalRSXFormats.mm",
         renderers / "Metal/RPCS3MetalPipelineState.mm",
         renderers / "Metal/RPCS3MetalRenderPipelineCache.mm",
@@ -152,6 +153,7 @@ def add_port_renderer_sources(upstream_root: Path, port_root: Path, spirv_cross_
         renderers / "Apple/RPCS3IOSGSFrame.h",
         renderers / "Metal/RPCS3MetalDrawSubmission.h",
         renderers / "Metal/RPCS3MetalRenderer.h",
+        renderers / "Metal/RPCS3MetalResourceBinder.h",
         renderers / "Metal/RPCS3MetalRSXFormats.h",
         renderers / "Metal/RPCS3MetalPipelineState.h",
         renderers / "Metal/RPCS3MetalRenderPipelineCache.h",
@@ -203,6 +205,7 @@ if(RPCS3_IOS_UPSTREAM_GRAPH)
         RPCS3_IOS_METAL_SHADER_LIBRARY_CACHE=1
         RPCS3_IOS_METAL_RENDER_PIPELINE_CACHE=1
         RPCS3_IOS_METAL_LIVE_PROGRAM_COMPILER=1
+        RPCS3_IOS_METAL_REFLECTED_RESOURCE_BINDING=1
     )
     target_link_libraries(rpcs3_emu PUBLIC
 {spirv_library_lines}
