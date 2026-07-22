@@ -1,5 +1,6 @@
 #include "RPCS3ELFProbe.h"
 
+#include "rpcs3/util/endian.hpp"
 #include "rpcs3/Loader/ELF.h"
 
 #include <array>
