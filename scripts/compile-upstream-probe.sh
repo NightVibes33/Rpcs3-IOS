@@ -3,7 +3,7 @@ set -euo pipefail
 
 ROOT="${1:-upstream-rpcs3}"
 OUT="${OUT:-compile-probe}"
-TOOLCHAIN="${TOOLCHAIN:-$PWD/cmake/toolchains/ios-arm64.cmake}"
+MANIFEST="${MANIFEST:-Port/portable-sources.txt}"
 
 rm -rf "$OUT"
 mkdir -p "$OUT/logs" "$OUT/objects"
@@ -24,17 +24,28 @@ upstream_sha=$UPSTREAM_SHA
 sdkroot=$SDKROOT
 clang=$CLANG
 target=$TARGET
+manifest=$MANIFEST
 EOF
 
-cat > "$OUT/probe.cpp" <<'EOF'
-#include <TargetConditionals.h>
-#include <cstdint>
-#include <string>
-#include <vector>
+COMMON=(
+  -target "$TARGET"
+  -isysroot "$SDKROOT"
+  -std=c++20
+  -DRPCS3_IOS=1
+  -DRPCS3_PLATFORM_MOBILE=1
+  -DRPCS3_PLATFORM_DESKTOP=0
+  -include "$PWD/Port/IOSPlatform.h"
+  -I"$PWD/Port"
+  -I"$ROOT"
+  -I"$ROOT/Utilities"
+  -I"$ROOT/rpcs3"
+  -I"$ROOT/3rdparty"
+)
 
-#if !TARGET_OS_IPHONE
-#error This probe must target physical iOS.
-#endif
+cat > "$OUT/probe.cpp" <<'EOF'
+#include "IOSPlatform.h"
+#include <cstdint>
+#include <vector>
 
 int rpcs3_ios_toolchain_probe()
 {
@@ -43,30 +54,23 @@ int rpcs3_ios_toolchain_probe()
 }
 EOF
 
-"$CLANGXX" \
-  -target "$TARGET" \
-  -isysroot "$SDKROOT" \
-  -std=c++20 \
-  -fvisibility=hidden \
-  -fno-exceptions \
-  -fno-rtti \
-  -c "$OUT/probe.cpp" \
+"$CLANGXX" "${COMMON[@]}" -c "$OUT/probe.cpp" \
   -o "$OUT/objects/toolchain-probe.o" \
   >"$OUT/logs/toolchain-probe.log" 2>&1
 
-# Compile selected upstream translation units individually. Failures are retained as
-# actionable logs while successful objects prove which pieces already cross-compile.
-candidates=(
-  "Utilities/StrFmt.cpp"
-  "Utilities/File.cpp"
-  "Utilities/Thread.cpp"
-  "Utilities/Log.cpp"
-  "rpcs3/Loader/PSF.cpp"
-  "rpcs3/Loader/TROPUSR.cpp"
-)
+"$CLANGXX" "${COMMON[@]}" -fobjc-arc -c Port/IOSPlatform.mm \
+  -o "$OUT/objects/ios-platform.o" \
+  >"$OUT/logs/ios-platform.log" 2>&1
+
+mapfile_compat() {
+  while IFS= read -r line; do
+    [[ -z "$line" || "$line" == \#* ]] && continue
+    printf '%s\0' "$line"
+  done < "$MANIFEST"
+}
 
 : > "$OUT/results.tsv"
-for relative in "${candidates[@]}"; do
+while IFS= read -r -d '' relative; do
   source="$ROOT/$relative"
   name="$(echo "$relative" | tr '/.' '__')"
   log="$OUT/logs/$name.log"
@@ -78,18 +82,7 @@ for relative in "${candidates[@]}"; do
   fi
 
   set +e
-  "$CLANGXX" \
-    -target "$TARGET" \
-    -isysroot "$SDKROOT" \
-    -std=c++20 \
-    -DRPCS3_IOS=1 \
-    -I"$ROOT" \
-    -I"$ROOT/Utilities" \
-    -I"$ROOT/rpcs3" \
-    -I"$ROOT/3rdparty" \
-    -c "$source" \
-    -o "$object" \
-    >"$log" 2>&1
+  "$CLANGXX" "${COMMON[@]}" -c "$source" -o "$object" >"$log" 2>&1
   status=$?
   set -e
 
@@ -98,10 +91,11 @@ for relative in "${candidates[@]}"; do
   else
     printf 'fail\t%s\n' "$relative" >> "$OUT/results.tsv"
   fi
-done
+done < <(mapfile_compat)
 
 python3 - "$OUT" <<'PY'
 from pathlib import Path
+import re
 import sys
 out = Path(sys.argv[1])
 rows = []
@@ -117,16 +111,25 @@ summary = [
     f"- Passed: {passed}",
     f"- Failed: {failed}",
     f"- Missing: {missing}",
+    "- Platform adapter: compiled",
     "",
-    "| Status | Translation unit |",
-    "|---|---|",
+    "| Status | Translation unit | First diagnostic |",
+    "|---|---|---|",
 ]
-summary += [f"| {s} | `{p}` |" for s, p in rows]
+for status, path in rows:
+    log = out / "logs" / path.replace('/', '__').replace('.', '__')
+    log = log.with_suffix('.log')
+    diagnostic = ""
+    if log.exists():
+        for text in log.read_text(errors="replace").splitlines():
+            if " error:" in text or "fatal error:" in text:
+                diagnostic = re.sub(r"\|", "\\|", text.strip())[:180]
+                break
+    summary.append(f"| {status} | `{path}` | {diagnostic} |")
 (out / "summary.md").write_text("\n".join(summary) + "\n")
 PY
 
-# The toolchain probe must pass. Upstream source failures are expected and become
-# the next concrete patch list.
 test -f "$OUT/objects/toolchain-probe.o"
+test -f "$OUT/objects/ios-platform.o"
 tar -czf "$OUT.tar.gz" "$OUT"
 cat "$OUT/summary.md"
