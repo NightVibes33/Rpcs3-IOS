@@ -34,9 +34,10 @@ if(RPCS3_IOS_UPSTREAM_REVISION STREQUAL "")
     message(FATAL_ERROR "UPSTREAM_RPCS3_REVISION is empty")
 endif()
 
-# The shipping archive currently contains real upstream implementation code, but
-# not Emu.System or guest execution. This is deliberately classified as
-# partial-upstream rather than execution-capable.
+# The bootstrap archive contains real upstream loader/crypto implementation, but
+# not Emu.System or guest execution. Runtime operations are present as honest
+# unavailable stubs until the execution-core target replaces them in the same
+# upstream CMake graph.
 set(RPCS3_IOS_BUILD_CAPABILITY_LEVEL 1)
 set(RPCS3_IOS_BUILD_CLASSIFICATION "partial-upstream")
 set(RPCS3_IOS_GENERATED_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated")
@@ -59,6 +60,7 @@ endforeach()
 add_library(rpcs3_ios_core STATIC
     ${RPCS3_IOS_OBJCXX_SOURCES}
     ${RPCS3_IOS_UPSTREAM_SOURCES}
+    "${RPCS3_IOS_PORT_ROOT}/CoreBridge/RPCS3CoreOperationsStub.cpp"
     "${RPCS3_IOS_PORT_ROOT}/Port/RPCS3CryptoCompat.cpp"
     "${RPCS3_IOS_PORT_ROOT}/Port/RPCS3ELFProbe.cpp"
     "${RPCS3_IOS_PORT_ROOT}/Port/RPCS3SELFProbe.cpp"
