@@ -23,6 +23,7 @@ bool g_upstream_initialized = false;
 RPCS3IOSCoreState g_state = RPCS3IOSCoreStateUnavailable;
 std::string g_data_path;
 std::string g_last_boot_sha256;
+std::string g_last_installed_boot_path;
 std::string g_message = "RPCS3 iOS upstream runtime has not been initialized.";
 
 void set_failure(std::string message)
@@ -194,6 +195,7 @@ int rpcs3_ios_core_initialize(const char* data_path)
     g_platform_initialized = true;
     g_data_path = layout.root;
     g_last_boot_sha256.clear();
+    g_last_installed_boot_path.clear();
 
     if (!rpcs3_ios_upstream_initialize(layout.root.c_str()))
     {
@@ -209,6 +211,63 @@ int rpcs3_ios_core_initialize(const char* data_path)
     g_state = RPCS3IOSCoreStateReady;
     g_message = "Real upstream Emu.Init completed. PPU/SPU interpreter execution is linked; Metal rendering is not connected yet.";
     return 1;
+}
+
+int rpcs3_ios_core_install_pkg(const char* pkg_path)
+{
+    std::lock_guard lock(g_mutex);
+    g_last_installed_boot_path.clear();
+
+    if (!g_platform_initialized || !g_upstream_initialized)
+    {
+        set_failure("Initialize the real upstream RPCS3 runtime before installing a package.");
+        return 0;
+    }
+    if (!pkg_path || !*pkg_path)
+    {
+        set_failure("No PKG path was supplied.");
+        return 0;
+    }
+    if (!rpcs3::ios::path_is_within_app_container(pkg_path))
+    {
+        set_failure("The selected PKG must be copied into the RPCS3 app container before installation.");
+        return 0;
+    }
+
+    std::error_code error;
+    if (!std::filesystem::is_regular_file(pkg_path, error) || error)
+    {
+        set_failure("The selected PKG is not a readable regular file.");
+        return 0;
+    }
+
+    if (!rpcs3_ios_upstream_install_pkg(pkg_path))
+    {
+        const char* upstream_message = rpcs3_ios_upstream_last_message();
+        set_failure(upstream_message && *upstream_message
+            ? upstream_message
+            : "RPCS3's upstream package installer failed without a diagnostic message.");
+        return 0;
+    }
+
+    const char* installed_boot_path = rpcs3_ios_upstream_last_installed_boot_path();
+    if (installed_boot_path && *installed_boot_path)
+        g_last_installed_boot_path = installed_boot_path;
+
+    const char* upstream_message = rpcs3_ios_upstream_last_message();
+    g_message = upstream_message && *upstream_message
+        ? upstream_message
+        : "RPCS3 installed the selected package.";
+    g_state = RPCS3IOSCoreStateReady;
+    return 1;
+}
+
+const char* rpcs3_ios_core_last_installed_boot_path(void)
+{
+    thread_local std::string copy;
+    std::lock_guard lock(g_mutex);
+    copy = g_last_installed_boot_path;
+    return copy.c_str();
 }
 
 int rpcs3_ios_core_boot_elf(const char* boot_path)
