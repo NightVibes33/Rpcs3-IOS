@@ -2,161 +2,88 @@
 from __future__ import annotations
 
 import argparse
+import base64
+import json
+import subprocess
+import tempfile
+import urllib.request
 from pathlib import Path
 
+# Mozilla vendors the same Cubeb revision used by pinned RPCS3 and applies this
+# complete iOS AudioUnit compile/runtime patch. Address the immutable Git blob
+# directly so later gecko-dev branch changes cannot alter the graph build.
+PATCH_BLOB_SHA = "465ae0f98a159751136c62c6d5ba49c5f983bd65"
+PATCH_API_URL = (
+    "https://api.github.com/repos/mozilla/gecko-dev/git/blobs/" + PATCH_BLOB_SHA
+)
 
-def replace_once(text: str, old: str, new: str, description: str) -> str:
-    if old not in text:
-        raise SystemExit(f"Unable to locate Cubeb region: {description}")
-    return text.replace(old, new, 1)
+
+def download_patch() -> bytes:
+    request = urllib.request.Request(
+        PATCH_API_URL,
+        headers={
+            "Accept": "application/vnd.github+json",
+            "User-Agent": "RPCS3-iOS-upstream-graph",
+        },
+    )
+    with urllib.request.urlopen(request, timeout=60) as response:
+        payload = json.load(response)
+
+    if payload.get("sha") != PATCH_BLOB_SHA or payload.get("encoding") != "base64":
+        raise SystemExit("Mozilla Cubeb patch blob response failed verification")
+
+    content = base64.b64decode(payload["content"], validate=False)
+    required = (
+        b"diff --git a/src/cubeb_audiounit.cpp",
+        b"#if TARGET_OS_IPHONE",
+        b"audiounit_get_preferred_sample_rate",
+        b"audiounit_register_device_collection_changed",
+    )
+    for marker in required:
+        if marker not in content:
+            raise SystemExit(f"Mozilla Cubeb patch is missing marker: {marker!r}")
+    return content
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(
-        description="Keep Cubeb's AudioUnit stream backend while excluding macOS-only CoreAudio device APIs on iOS"
+        description="Apply Mozilla's complete AudioUnit iOS backport to RPCS3's pinned Cubeb submodule"
     )
     parser.add_argument("upstream_root", type=Path)
     args = parser.parse_args()
 
-    source = args.upstream_root / "3rdparty/cubeb/cubeb/src/cubeb_audiounit.cpp"
-    text = source.read_text(encoding="utf-8")
+    cubeb_root = args.upstream_root / "3rdparty/cubeb/cubeb"
+    source = cubeb_root / "src/cubeb_audiounit.cpp"
+    if not source.is_file():
+        raise SystemExit(f"Pinned Cubeb AudioUnit source was not found: {source}")
 
-    text = replace_once(
-        text,
-        "using namespace std;\n\n",
-        """using namespace std;
+    patch = download_patch()
+    with tempfile.NamedTemporaryFile(prefix="cubeb-ios-", suffix=".patch") as handle:
+        handle.write(patch)
+        handle.flush()
+        subprocess.run(
+            ["git", "-C", str(cubeb_root), "apply", "--check", handle.name],
+            check=True,
+        )
+        subprocess.run(
+            ["git", "-C", str(cubeb_root), "apply", handle.name],
+            check=True,
+        )
 
-#if TARGET_OS_IPHONE
-// AudioUnit is available to iOS applications, but the desktop CoreAudio
-// AudioObject device-enumeration types are not. Cubeb's iOS stream path uses
-// integer device placeholders and the current route selected by iOS.
-typedef UInt32 AudioDeviceID;
-typedef UInt32 AudioObjectID;
-#ifndef kAudioObjectUnknown
-#define kAudioObjectUnknown 0
-#endif
-#define AudioGetCurrentHostTime mach_absolute_time
-#endif
-
-""",
-        "early iOS AudioUnit type aliases",
+    updated = source.read_text(encoding="utf-8")
+    verification_markers = (
+        "const UInt32 kAudioObjectUnknown = 0;",
+        "#if TARGET_OS_IPHONE\n  *rate = 44100;",
+        "audiounit_register_device_collection_changed",
     )
+    for marker in verification_markers:
+        if marker not in updated:
+            raise SystemExit(f"Applied Cubeb iOS backport failed verification: {marker}")
 
-    property_addresses = """const AudioObjectPropertyAddress DEFAULT_INPUT_DEVICE_PROPERTY_ADDRESS = {
-    kAudioHardwarePropertyDefaultInputDevice, kAudioObjectPropertyScopeGlobal,
-    kAudioObjectPropertyElementMaster};
-
-const AudioObjectPropertyAddress DEFAULT_OUTPUT_DEVICE_PROPERTY_ADDRESS = {
-    kAudioHardwarePropertyDefaultOutputDevice, kAudioObjectPropertyScopeGlobal,
-    kAudioObjectPropertyElementMaster};
-
-const AudioObjectPropertyAddress DEVICE_IS_ALIVE_PROPERTY_ADDRESS = {
-    kAudioDevicePropertyDeviceIsAlive, kAudioObjectPropertyScopeGlobal,
-    kAudioObjectPropertyElementMaster};
-
-const AudioObjectPropertyAddress DEVICES_PROPERTY_ADDRESS = {
-    kAudioHardwarePropertyDevices, kAudioObjectPropertyScopeGlobal,
-    kAudioObjectPropertyElementMaster};
-
-const AudioObjectPropertyAddress INPUT_DATA_SOURCE_PROPERTY_ADDRESS = {
-    kAudioDevicePropertyDataSource, kAudioDevicePropertyScopeInput,
-    kAudioObjectPropertyElementMaster};
-
-const AudioObjectPropertyAddress OUTPUT_DATA_SOURCE_PROPERTY_ADDRESS = {
-    kAudioDevicePropertyDataSource, kAudioDevicePropertyScopeOutput,
-    kAudioObjectPropertyElementMaster};
-"""
-    text = replace_once(
-        text,
-        property_addresses,
-        "#if !TARGET_OS_IPHONE\n" + property_addresses + "#endif\n",
-        "desktop CoreAudio property addresses",
+    print(
+        "Applied Mozilla Cubeb iOS AudioUnit backport "
+        f"blob {PATCH_BLOB_SHA} to {source}"
     )
-
-    device_declarations = """static vector<AudioObjectID>
-audiounit_get_devices_of_type(cubeb_device_type devtype);
-static UInt32
-audiounit_get_device_presentation_latency(AudioObjectID devid,
-                                          AudioObjectPropertyScope scope);
-"""
-    text = replace_once(
-        text,
-        device_declarations,
-        "#if !TARGET_OS_IPHONE\n" + device_declarations + "#endif\n",
-        "desktop device-query declarations",
-    )
-
-    listener_struct = """struct property_listener {
-  AudioDeviceID device_id;
-  const AudioObjectPropertyAddress * property_address;
-  AudioObjectPropertyListenerProc callback;
-  cubeb_stream * stream;
-
-  property_listener(AudioDeviceID id,
-                    const AudioObjectPropertyAddress * address,
-                    AudioObjectPropertyListenerProc proc, cubeb_stream * stm)
-      : device_id(id), property_address(address), callback(proc), stream(stm)
-  {
-  }
-};
-"""
-    text = replace_once(
-        text,
-        listener_struct,
-        "#if !TARGET_OS_IPHONE\n" + listener_struct + "#endif\n",
-        "desktop property-listener structure",
-    )
-
-    listener_fields = """  /* Listeners indicating what system events are monitored. */
-  unique_ptr<property_listener> default_input_listener;
-  unique_ptr<property_listener> default_output_listener;
-  unique_ptr<property_listener> input_alive_listener;
-  unique_ptr<property_listener> input_source_listener;
-  unique_ptr<property_listener> output_source_listener;
-"""
-    text = replace_once(
-        text,
-        listener_fields,
-        "#if !TARGET_OS_IPHONE\n" + listener_fields + "#endif\n",
-        "desktop listener storage",
-    )
-
-    late_aliases = """#if TARGET_OS_IPHONE
-typedef UInt32 AudioDeviceID;
-typedef UInt32 AudioObjectID;
-
-#define AudioGetCurrentHostTime mach_absolute_time
-
-#endif
-
-"""
-    text = replace_once(text, late_aliases, "", "late duplicate iOS aliases")
-
-    text = replace_once(
-        text,
-        "      audiounit_reinit_stream_async(stm, DEV_INPUT | DEV_OUTPUT);",
-        """#if !TARGET_OS_IPHONE
-      audiounit_reinit_stream_async(stm, DEV_INPUT | DEV_OUTPUT);
-#else
-      // iOS owns route changes through AVAudioSession. Stop this stream instead
-      // of invoking Cubeb's macOS AudioObject listener/reopen machinery.
-      stm->shutdown = true;
-#endif""",
-        "desktop asynchronous stream reinitialization call",
-    )
-
-    required = (
-        "#if TARGET_OS_IPHONE\n// AudioUnit is available",
-        "#if !TARGET_OS_IPHONE\nconst AudioObjectPropertyAddress",
-        "#if !TARGET_OS_IPHONE\nstruct property_listener",
-        "iOS owns route changes through AVAudioSession",
-    )
-    for marker in required:
-        if marker not in text:
-            raise SystemExit(f"Cubeb iOS patch verification failed: {marker}")
-
-    source.write_text(text, encoding="utf-8")
-    print(f"Patched Cubeb AudioUnit iOS guards in {source}")
     return 0
 
 
