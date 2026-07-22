@@ -28,6 +28,7 @@ int rpcs3_ios_upstream_initialize(const char* data_root);
 int rpcs3_ios_upstream_install_firmware(const char* pup_path);
 int rpcs3_ios_upstream_firmware_ready(void);
 const char* rpcs3_ios_upstream_firmware_version(void);
+const char* rpcs3_ios_upstream_firmware_last_message(void);
 
 // Installs a PS3 PKG through upstream package_reader::extract_data(). Returns 1
 // only when RPCS3 reports a complete successful extraction into dev_hdd0/game.
