@@ -111,6 +111,58 @@ else
   phase "Skipping rpcs3_emu compile because configure failed"
 fi
 
+bridge_status=125
+if [[ $configure_status -eq 0 && $build_status -eq 0 ]]; then
+  phase "Compile the non-Qt upstream Emu.Init bridge target"
+  set +e
+  python3 "$TIMEOUT_RUNNER" 1800 cmake --build "$BUILD/tree" \
+    --target rpcs3_ios_upstream_bridge \
+    --config Release \
+    --parallel 3 \
+    2>&1 | tee "$LOG_DIR/build-upstream-runtime-bridge.log"
+  bridge_status=${PIPESTATUS[0]}
+  set -e
+  phase "rpcs3_ios_upstream_bridge build exit status=$bridge_status"
+else
+  phase "Skipping upstream runtime bridge because rpcs3_emu did not compile"
+fi
+
+link_probe_status=125
+probe_binary=""
+probe_symbol_present=false
+if [[ $configure_status -eq 0 && $build_status -eq 0 && $bridge_status -eq 0 ]]; then
+  phase "Link the arm64 iOS executable that calls the real Emu.Init bridge"
+  set +e
+  python3 "$TIMEOUT_RUNNER" 3600 cmake --build "$BUILD/tree" \
+    --target rpcs3_ios_runtime_link_probe \
+    --config Release \
+    --parallel 3 \
+    2>&1 | tee "$LOG_DIR/build-runtime-link-probe.log"
+  link_probe_status=${PIPESTATUS[0]}
+  set -e
+  phase "rpcs3_ios_runtime_link_probe build exit status=$link_probe_status"
+
+  if [[ $link_probe_status -eq 0 ]]; then
+    probe_binary="$(find "$BUILD/tree" -type f -name 'rpcs3-ios-runtime-link-probe' -print | head -n 1)"
+    if [[ -z "$probe_binary" || ! -f "$probe_binary" ]]; then
+      phase "Runtime link target reported success but produced no probe executable"
+      link_probe_status=126
+    else
+      file "$probe_binary" | tee "$BUILD/runtime-link-probe-file.txt"
+      lipo -info "$probe_binary" | tee "$BUILD/runtime-link-probe-architectures.txt"
+      nm -gU "$probe_binary" > "$BUILD/runtime-link-probe-symbols.txt"
+      if grep -q '_rpcs3_ios_upstream_runtime_link_probe' "$BUILD/runtime-link-probe-symbols.txt"; then
+        probe_symbol_present=true
+      else
+        phase "Runtime link probe is missing the exported bridge symbol"
+        link_probe_status=127
+      fi
+    fi
+  fi
+else
+  phase "Skipping runtime link probe because its upstream target or bridge failed"
+fi
+
 phase1_status=125
 if [[ $configure_status -eq 0 ]]; then
   phase "Collect Phase 1 Emu.System evidence"
@@ -127,12 +179,10 @@ if [[ $configure_status -eq 0 ]]; then
 fi
 
 status=$configure_status
-if [[ $configure_status -eq 0 ]]; then
-  status=$build_status
-  if [[ $phase1_status -ne 0 && $status -eq 0 ]]; then
-    status=$phase1_status
-  fi
-fi
+if [[ $status -eq 0 ]]; then status=$build_status; fi
+if [[ $status -eq 0 ]]; then status=$bridge_status; fi
+if [[ $status -eq 0 ]]; then status=$link_probe_status; fi
+if [[ $status -eq 0 && $phase1_status -ne 0 ]]; then status=$phase1_status; fi
 
 ui_file_count="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["ui_file_count"])' "$BUILD/rpcs3-qt-ui-model.json")"
 widget_count="$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get("widget_count", 0))' "$BUILD/rpcs3-qt-ui-model.json")"
@@ -158,6 +208,10 @@ fi
   echo "- Renderer lane: \`Null RSX (Vulkan/OpenGL disabled for interpreter execution proof)\`"
   echo "- Configure exit status: \`$configure_status\`"
   echo "- rpcs3_emu build exit status: \`$build_status\`"
+  echo "- Upstream runtime bridge build exit status: \`$bridge_status\`"
+  echo "- Emu.Init runtime link probe exit status: \`$link_probe_status\`"
+  echo "- Runtime link probe binary: \`${probe_binary:-not-produced}\`"
+  echo "- Runtime bridge symbol present in linked executable: \`$probe_symbol_present\`"
   echo "- Phase 1 evidence exit status: \`$phase1_status\`"
   echo "- Upstream Emu/System.cpp configured: \`$system_cpp_configured\`"
   echo "- Upstream Emu/System.cpp object built: \`$system_cpp_object_built\`"
@@ -167,8 +221,8 @@ fi
   echo "- The desktop executable is excluded from this core graph; the shipped host is the separate Qt Widgets iOS application generated from RPCS3's upstream Qt UI."
   echo "- Pinned FFmpeg is built as real arm64-iOS static libraries and linked into the upstream graph."
   echo "- Vulkan and OpenGL are intentionally disabled in this phase; rendering is added after interpreter guest execution is proven."
-  echo "- This probe compiles the real upstream rpcs3_emu target and separately proves whether System.cpp entered the build."
-  echo "- Compilation is not treated as physical-device Emu.System initialization or guest execution."
+  echo "- Success now requires a fully linked arm64 iOS executable that calls the real non-Qt Emu.Init bridge; configuring an unused bridge target is not accepted."
+  echo "- The probe executable is cross-linked only. Physical-device execution evidence is still required before the project is classified as execution-capable."
   if [[ $configure_status -ne 0 ]]; then
     echo "- Configure tail:"
     echo
@@ -176,13 +230,25 @@ fi
     tail -n 100 "$LOG_DIR/configure.log"
     echo '```'
   elif [[ $build_status -ne 0 ]]; then
-    echo "- The build tail below is the next concrete runtime porting blocker:"
+    echo "- The rpcs3_emu build tail below is the next concrete runtime porting blocker:"
     echo
     echo '```text'
     tail -n 140 "$LOG_DIR/build-rpcs3-emu.log"
     echo '```'
+  elif [[ $bridge_status -ne 0 ]]; then
+    echo "- The bridge compile tail below is the next concrete Phase 1 blocker:"
+    echo
+    echo '```text'
+    tail -n 140 "$LOG_DIR/build-upstream-runtime-bridge.log"
+    echo '```'
+  elif [[ $link_probe_status -ne 0 ]]; then
+    echo "- The full Emu.Init link tail below is the next concrete Phase 1 blocker:"
+    echo
+    echo '```text'
+    tail -n 180 "$LOG_DIR/build-runtime-link-probe.log"
+    echo '```'
   elif [[ $phase1_status -ne 0 ]]; then
-    echo "- The target compiled, but Phase 1 source evidence validation failed:"
+    echo "- The targets compiled and linked, but Phase 1 source evidence validation failed:"
     echo
     echo '```text'
     tail -n 100 "$LOG_DIR/phase1-emusystem-evidence.log"
