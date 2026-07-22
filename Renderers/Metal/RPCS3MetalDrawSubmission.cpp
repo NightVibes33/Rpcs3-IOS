@@ -4,6 +4,32 @@
 
 namespace rpcs3::ios::render::metal_rsx
 {
+namespace
+{
+bool validate_upload(const buffer_upload& upload, const char* label, std::string& error)
+{
+    if (!upload.bytes || upload.byte_count == 0)
+    {
+        error = std::string("Metal draw submission has an empty ") + label + ".";
+        return false;
+    }
+    return true;
+}
+
+bool validate_binding_index(std::uint32_t index, const char* label, std::string& error)
+{
+    // Metal's exact per-stage limits vary by device family. Reject obviously
+    // invalid reflected indices here and let the native API enforce the
+    // device-specific maximum during encoding.
+    if (index == UINT32_MAX || index > 1023)
+    {
+        error = std::string("Metal draw submission has an invalid ") + label + " index.";
+        return false;
+    }
+    return true;
+}
+} // namespace
+
 bool validate_draw_submission(
     const draw_submission& submission,
     std::string& error) noexcept
@@ -26,10 +52,54 @@ bool validate_draw_submission(
         return false;
     }
 
-    if (!submission.vertex_buffer.bytes || submission.vertex_buffer.byte_count == 0)
+    if (!submission.has_vertex_resources())
     {
-        error = "Metal draw submission has no translated vertex data.";
+        error = "Metal draw submission has no translated vertex resources.";
         return false;
+    }
+
+    for (const auto& binding : submission.buffers)
+    {
+        if (!validate_binding_index(binding.index, "buffer binding", error) ||
+            !validate_upload(binding.upload, "buffer binding", error))
+            return false;
+    }
+
+    for (const auto& binding : submission.texture_buffers)
+    {
+        if (!validate_binding_index(binding.index, "texture-buffer binding", error) ||
+            !validate_upload(binding.upload, "texture-buffer binding", error))
+            return false;
+        if (!binding.pixel_format || !binding.bytes_per_texel)
+        {
+            error = "Metal texture-buffer binding has no pixel format or texel size.";
+            return false;
+        }
+        if (binding.upload.byte_count % binding.bytes_per_texel)
+        {
+            error = "Metal texture-buffer byte count is not aligned to its texel size.";
+            return false;
+        }
+    }
+
+    for (const auto& binding : submission.textures)
+    {
+        if (!validate_binding_index(binding.index, "texture binding", error) || !binding.texture)
+        {
+            if (error.empty())
+                error = "Metal texture binding has no texture.";
+            return false;
+        }
+    }
+
+    for (const auto& binding : submission.samplers)
+    {
+        if (!validate_binding_index(binding.index, "sampler binding", error) || !binding.sampler)
+        {
+            if (error.empty())
+                error = "Metal sampler binding has no sampler.";
+            return false;
+        }
     }
 
     if (!submission.indexed())
