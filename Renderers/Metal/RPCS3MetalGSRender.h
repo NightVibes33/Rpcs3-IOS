@@ -5,6 +5,7 @@
 #include "RPCS3MetalPipelineState.h"
 #include "RPCS3MetalProgramCompiler.h"
 #include "RPCS3MetalRenderer.h"
+#include "RPCS3MetalResourceBindings.h"
 #include "RPCS3MetalRSXFormats.h"
 
 #include <string>
@@ -44,6 +45,7 @@ private:
     bool m_cached_program_pair_valid = false;
     metal_rsx::compiled_shader m_cached_vertex_shader{};
     metal_rsx::compiled_shader m_cached_fragment_shader{};
+    metal_rsx::vertex_resource_bindings m_vertex_bindings{};
     metal_rsx::primitive_mapping m_primitive_mapping{};
     metal_rsx::depth_stencil_state m_depth_stencil_state{};
     metal_rsx::color_blend_state m_color_blend_state{};
