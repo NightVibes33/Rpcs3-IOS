@@ -6,7 +6,6 @@
 
 #include <atomic>
 #include <mutex>
-#include <utility>
 
 @interface RPCS3IOSMetalView : UIView
 @end
@@ -50,16 +49,30 @@ void run_on_main_async(void (^operation)(void))
     }
 }
 
-void update_layer_metrics(RPCS3IOSMetalView* view, int pixel_width, int pixel_height)
+void update_metrics_locked(RPCS3IOSMetalView* view)
 {
     if (!view)
     {
         return;
     }
 
-    CAMetalLayer* layer = static_cast<CAMetalLayer*>(view.layer);
-    layer.contentsScale = UIScreen.mainScreen.scale;
-    layer.drawableSize = CGSizeMake(static_cast<CGFloat>(pixel_width), static_cast<CGFloat>(pixel_height));
+    const CGFloat scale = view.window.screen.scale > 0.0 ? view.window.screen.scale : UIScreen.mainScreen.scale;
+    const CGSize points = view.bounds.size;
+    const int pixel_width = static_cast<int>(points.width * scale);
+    const int pixel_height = static_cast<int>(points.height * scale);
+    const double refresh = view.window.screen.maximumFramesPerSecond > 0
+        ? static_cast<double>(view.window.screen.maximumFramesPerSecond)
+        : 60.0;
+
+    g_pixel_width.store(pixel_width > 0 ? pixel_width : 1280, std::memory_order_release);
+    g_pixel_height.store(pixel_height > 0 ? pixel_height : 720, std::memory_order_release);
+    g_refresh_rate.store(refresh, std::memory_order_release);
+
+    CAMetalLayer* layer = (CAMetalLayer*)view.layer;
+    layer.contentsScale = scale;
+    layer.drawableSize = CGSizeMake(
+        static_cast<CGFloat>(g_pixel_width.load(std::memory_order_relaxed)),
+        static_cast<CGFloat>(g_pixel_height.load(std::memory_order_relaxed)));
     layer.framebufferOnly = NO;
     layer.opaque = YES;
     layer.presentsWithTransaction = NO;
@@ -107,6 +120,8 @@ public:
         void* view = m_view;
         run_on_main_async(^{
             RPCS3IOSMetalView* metal_view = (__bridge RPCS3IOSMetalView*)view;
+            metal_view.frame = metal_view.superview.bounds;
+            update_metrics_locked(metal_view);
             metal_view.hidden = NO;
             [metal_view.superview bringSubviewToFront:metal_view];
         });
@@ -132,7 +147,7 @@ public:
 
     void flip(draw_context_t, bool) override
     {
-        // VKGSRender presents directly through the CAMetalLayer-backed Vulkan swapchain.
+        // RPCS3's Vulkan backend presents directly through VK_EXT_metal_surface.
     }
 
     int client_width() override
@@ -183,16 +198,18 @@ private:
 };
 } // namespace
 
-int rpcs3_ios_attach_metal_view(void* host_view, int pixel_width, int pixel_height, double refresh_rate)
+namespace rpcs3::ios
 {
-    if (!host_view || pixel_width <= 0 || pixel_height <= 0)
+bool attach_render_view(void* native_view)
+{
+    if (!native_view)
     {
-        return 0;
+        return false;
     }
 
-    __block int attached = 0;
+    __block bool attached = false;
     run_on_main_sync(^{
-        UIView* host = (__bridge UIView*)host_view;
+        UIView* host = (__bridge UIView*)native_view;
         if (!host)
         {
             return;
@@ -214,46 +231,28 @@ int rpcs3_ios_attach_metal_view(void* host_view, int pixel_width, int pixel_heig
             g_metal_view.frame = host.bounds;
         }
 
-        g_pixel_width.store(pixel_width, std::memory_order_release);
-        g_pixel_height.store(pixel_height, std::memory_order_release);
-        g_refresh_rate.store(refresh_rate > 0.0 ? refresh_rate : 60.0, std::memory_order_release);
-        update_layer_metrics(g_metal_view, pixel_width, pixel_height);
-        attached = 1;
+        update_metrics_locked(g_metal_view);
+        attached = true;
     });
     return attached;
 }
 
-void rpcs3_ios_update_metal_view_metrics(int pixel_width, int pixel_height, double refresh_rate)
+void detach_render_view()
 {
-    if (pixel_width <= 0 || pixel_height <= 0)
-    {
-        return;
-    }
-
-    g_pixel_width.store(pixel_width, std::memory_order_release);
-    g_pixel_height.store(pixel_height, std::memory_order_release);
-    if (refresh_rate > 0.0)
-    {
-        g_refresh_rate.store(refresh_rate, std::memory_order_release);
-    }
-
-    run_on_main_async(^{
+    run_on_main_sync(^{
         std::lock_guard lock(g_surface_mutex);
-        if (g_metal_view)
-        {
-            g_metal_view.frame = g_metal_view.superview.bounds;
-            update_layer_metrics(g_metal_view, pixel_width, pixel_height);
-        }
+        [g_metal_view removeFromSuperview];
+        g_metal_view = nil;
     });
 }
 
-bool rpcs3_ios_has_metal_view()
+bool render_view_ready()
 {
     std::lock_guard lock(g_surface_mutex);
     return g_metal_view != nil;
 }
 
-std::unique_ptr<GSFrameBase> rpcs3_ios_make_gs_frame()
+std::unique_ptr<GSFrameBase> make_gs_frame()
 {
     std::lock_guard lock(g_surface_mutex);
     if (!g_metal_view)
@@ -263,3 +262,4 @@ std::unique_ptr<GSFrameBase> rpcs3_ios_make_gs_frame()
 
     return std::make_unique<RPCS3IOSGSFrame>((__bridge void*)g_metal_view);
 }
+} // namespace rpcs3::ios
