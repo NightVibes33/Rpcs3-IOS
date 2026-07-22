@@ -1,125 +1,250 @@
 # RPCS3 iOS Roadmap Status
 
-This file tracks implementation progress against [`REAL_RPCS3_IOS_BUILD_PLAN.md`](REAL_RPCS3_IOS_BUILD_PLAN.md). A phase is only marked complete when its stated exit criteria are supported by build or physical-device evidence.
+This file tracks evidence-based implementation progress against [`REAL_RPCS3_IOS_BUILD_PLAN.md`](REAL_RPCS3_IOS_BUILD_PLAN.md).
+
+The detailed feature-by-feature truth table is in [`RPCS3_PARITY_AUDIT.md`](RPCS3_PARITY_AUDIT.md).
+
+A phase is complete only when its exit criteria are supported by build artifacts and physical-device evidence. Bundled `.ui` files, API declarations, linked object files and successful IPA packaging are not sufficient by themselves.
+
+## Current product classification
+
+```text
+RPCS3 iOS upstream-core integration prototype with a custom Qt launcher shell
+```
+
+The project is **not yet a playable PS3 emulator** and is **not yet a complete port of the RPCS3 application**.
 
 ## Phase 0 — Honest baseline
 
-**Status: complete in source; current CI verification pending**
+**Status: complete**
 
-Completed:
-
-- Runtime diagnostics distinguish probe-only, partial-upstream, and execution-capable states.
-- The pinned RPCS3 revision and direct upstream source count are compiled into diagnostics.
-- CI generates upstream source, archive member, symbol, and resolved-revision evidence.
-- The synthetic PPU/SPU runtime scaffold is excluded from the shipping archive.
-- JIT and renderer availability remain false until actual linked and device-tested backends exist.
-
-Current classification remains:
-
-```text
-partial-upstream
-```
-
-Compilation and linking alone do not grant execution-capable status.
+- Diagnostics distinguish probe-only, partial-upstream and execution-capable states.
+- The pinned upstream revision is recorded.
+- CI records upstream sources, symbols and build products.
+- The project no longer treats a synthetic instruction loop or copied UI file as RPCS3 execution.
+- The README and parity audit distinguish linked source from working/device-tested behavior.
 
 ## Phase 1 — Upstream core bootstrap
 
-**Status: active; real runtime integration implemented in source, CI/device evidence pending**
+**Status: implemented in source; device-unproven**
 
-Implemented in source:
+Present in source:
 
-- The real upstream `rpcs3_emu` target configures for arm64 iOS without the desktop Qt host.
-- LLVM/JIT is disabled for the interpreter-first path.
-- PPU and SPU use RPCS3's upstream static interpreter modes.
-- The non-Qt bridge initializes the real global `Emu` lifecycle.
-- Required Null keyboard, mouse, pad-thread, audio, camera, music, and `NullGSRender` objects are initialized through upstream fixed-object storage.
-- The bridge exposes initialize, `Emulator::BootGame`, pause, resume, stop, state, and diagnostic entry points.
-- `RPCS3UpstreamRuntime.framework` packages the real emulator graph as one embeddable iOS runtime.
-- The Qt IPA build links and embeds that framework under `Frameworks/`.
-- The host and upstream runtime share one authoritative sandbox root through `RPCS3_CONFIG_DIR`.
+- Pinned upstream `rpcs3_emu` graph configured for arm64 iOS.
+- Desktop `rpcs3_ui` excluded from the runtime graph.
+- LLVM/JIT disabled for the interpreter-first lane.
+- Upstream static PPU and SPU interpreter modes selected.
+- Narrow bridge for `Emu.Init()`, `Emu.BootGame()`, pause, resume, stop, state and diagnostics.
+- `RPCS3UpstreamRuntime.framework` embedded in the Qt IPA.
+- Shared sandbox data root through `RPCS3_CONFIG_DIR`.
 
-Still required before Phase 1 completion:
+Required evidence:
 
-- Green framework and IPA CI evidence for the current bridge.
-- Physical-device evidence that `Emu.Init()` completes.
-- Physical-device evidence that an installed title enters the real PPU/LV2 boot path.
-- Clean shutdown evidence without deadlocks.
+- Green framework and IPA build for the current head.
+- Physical-device proof that `Emu.Init()` completes.
+- Physical-device proof that workers, VM and VFS initialize correctly.
+- Physical-device proof of clean stop and relaunch without deadlock.
 
-## First playable PKG vertical slice
+## Frontend parity
 
-**Target application: a user-provided legal PS3 PKG such as PKGi or a smaller homebrew test package.**
+**Status: custom launcher shell; upstream desktop frontend not ported**
 
-Implemented in source:
+The current Qt app bundles upstream `.ui` documents, but it does not compile the upstream `rpcs3_ui` target or most of its implementation classes.
 
-1. The Qt **Install Packages** action copies the selected PKG into the app sandbox.
-2. The runtime calls upstream `package_reader::extract_data()` directly.
-3. RPCS3 installs the package into the shared `dev_hdd0/game` tree.
-4. The bridge stores RPCS3's returned installed `USRDIR/EBOOT.BIN` path.
-5. The Qt host refreshes the game list and automatically calls upstream `Emulator::BootGame()` on that path.
-6. Build validation requires the installer and lifecycle symbols in the embedded runtime and final app.
+Current host behavior is limited to:
 
-Not yet complete:
+- custom action routing;
+- raw `.ui` loading through `QUiLoader`;
+- sandbox file staging/import;
+- basic directory-scanned game list;
+- narrow bridge diagnostics and lifecycle calls;
+- dedicated PKG install/auto-boot flow.
 
-- Current output uses upstream `NullGSRender`, so there is no visible gameplay.
-- GameController/touch input is not yet connected to the upstream pad thread.
-- Audio remains the upstream Null backend.
-- PKGi networking has not been validated on device.
-- A successful package install and boot has not yet been recorded from a physical iPhone.
-
-Exit criteria for this vertical slice:
-
-- A legal PKG installs without partial files.
-- RPCS3 returns and accepts the installed boot path.
-- The title reaches its main loop through real PPU/SPU/LV2 execution.
-- RSX frames are presented through the iOS renderer.
-- At least one controller or touch input path works.
-- The title remains responsive long enough to navigate and perform its core function.
+Most settings, managers, tools and dialogs are visual forms without their upstream C++ behavior, or actions routed to `showPending()`.
 
 ## Phase 2 — Platform foundations
 
-**Status: partially prepared, not complete**
+**Status: partial; major device blockers unproven**
 
-Available groundwork:
+Present:
 
-- Sandbox data-root creation and shared RPCS3 virtual-storage paths.
-- Physical-device and Metal capability queries.
-- Security-conscious imports copied into the app container.
-- Initial iOS compatibility work for USB, FFmpeg, Cubeb, executable-memory restrictions, and configuration paths.
+- sandbox storage layout;
+- physical-device and Metal capability checks;
+- import-to-container flow;
+- initial libusb, FFmpeg, Cubeb, JIT-restriction and config-path overlays.
 
 Still required:
 
-- Upstream VM reservation/mapping/protection tests on device.
-- Thread/TLS/priority and atomic wait/wake validation.
-- Runtime memory-pressure and background/foreground recovery.
+- VM reservation, mapping, protection, guard-page and shared-memory tests;
+- thread/TLS/priority/semaphore/atomic wait-wake tests;
+- memory-pressure behavior;
+- background/foreground suspension and recovery;
+- complete runtime log export from a physical device.
 
-## Renderer milestone
+## Phase 3 — PPU execution
 
-**Status: Null RSX boot lane active; visible renderer not implemented**
+**Status: upstream implementation linked; guest execution unproven**
 
-The first visible renderer must preserve upstream RSX command processing and replace only the platform renderer/presentation layer. The planned order is:
+- Static PPU interpreter selected.
+- Upstream loaders and `BootGame()` are linked.
+- No physical-device evidence yet proves a PPU guest reaches its main loop.
 
-1. Prove the PKG reaches RSX initialization with `NullGSRender`.
-2. Add an iOS frame/surface object backed by `CAMetalLayer`.
-3. Add the RPCS3 renderer enum/factory path for the iOS backend.
-4. Implement RSX resources, shaders, render targets, synchronization, and presentation in Metal.
-5. Evaluate RPCS3 Vulkan over MoltenVK as an additional compatibility path without treating it as the native Metal backend.
+Exit requires a controlled legal homebrew workload executing through upstream PPU code with logs and stable shutdown.
 
-## Remaining phases
+## Phase 4 — LV2/HLE runtime
 
-The following are not exit-criteria complete:
+**Status: upstream source linked; behavior unproven**
 
-- Complete LV2/HLE validation.
-- Complete SPU execution validation.
-- Firmware installation and VSH/XMB boot.
-- ISO/disc mounting.
-- RSX-to-Metal rendering.
-- AudioUnit output.
-- GameController/touch guest input.
-- Networking validation.
-- Compatibility and performance optimization.
+The graph contains upstream LV2 and module implementations, but there is no device evidence that process, memory, thread, event, filesystem, sysutil, input, audio and networking services work correctly on iOS.
 
-## Classification rules
+Exit requires a homebrew application reaching and remaining in its main loop through real upstream LV2/HLE paths.
 
-- **Probe-only:** no direct upstream implementation object is present in the shipping core.
-- **Partial-upstream:** direct upstream runtime code is present, but physical-device initialization and guest execution are not proven.
-- **Execution-capable:** reserved for a build with physical-device `Emu.Init()`, guest execution, and clean lifecycle evidence.
+## Phase 5 — SPU execution
+
+**Status: upstream implementation linked; guest workload unproven**
+
+- Static SPU interpreter selected.
+- No device evidence proves SPU threads, MFC/DMA, reservations or PPU/SPU synchronization.
+
+## Phase 6 — Firmware and VSH/XMB
+
+**Status: incomplete**
+
+Current source declares firmware bridge APIs, but a complete verified PUP installation workflow is not yet present end to end.
+
+Required:
+
+1. User selects an official unmodified `PS3UPDAT.PUP`.
+2. File is copied into the app sandbox.
+3. Upstream PUP/SCE/TAR implementation validates and extracts it.
+4. Required `dev_flash` files and firmware version are verified.
+5. PKG/title boot is blocked when firmware is missing.
+6. VSH starts through RPCS3's proper VSH boot path, not merely by finding and directly submitting `vsh.self`.
+7. XMB renders, accepts input and uses the same `dev_hdd0` as the host game list.
+
+## Phase 7 — PKG, folders and ISO
+
+### PKG
+
+**Status: upstream install call exists; device-unproven**
+
+- Host copies a selected PKG into the sandbox.
+- Runtime calls upstream `package_reader::extract_data()`.
+- Host attempts to auto-boot the returned path.
+- No physical-device package install/boot result has been captured.
+
+### Folder/SELF/ELF
+
+**Status: bridge exists; device-unproven**
+
+The host performs its own simple executable discovery. Upstream boot acceptance and guest execution are not proven.
+
+### ISO/disc
+
+**Status: placeholder**
+
+The current host stages ISO/disc files. Proper upstream ISO parsing, decryption, `dev_bdvd` mount, disc insertion/ejection and boot are not connected end to end.
+
+### RAP/RIF/licenses
+
+**Status: placeholder**
+
+The current host stages files into a keys directory. Upstream license import, account association and content activation are not implemented end to end.
+
+## Phase 8 — Rendering
+
+### Vulkan through MoltenVK
+
+**Status: source path implemented; physical-device frame unproven**
+
+Present:
+
+- pinned MoltenVK dependency builder;
+- upstream Vulkan source included in the runtime graph;
+- custom iOS `UIView`/`CAMetalLayer` frame host;
+- bridge selects upstream `VKGSRender` when the surface exists.
+
+Required:
+
+- framework and final IPA link proof for current head;
+- physical-device Vulkan instance/device creation;
+- successful Metal-surface and swapchain creation;
+- first real RSX frame;
+- resize/orientation/drawable-loss recovery;
+- stable frame presentation during a guest workload.
+
+### Native Metal backend
+
+**Status: missing**
+
+No native RPCS3 Metal renderer exists in the repository yet. MoltenVK is the first compatibility path, not proof of a native Metal backend.
+
+## Phase 9 — Audio
+
+**Status: missing**
+
+The runtime currently returns `NullAudioBackend` and a null enumerator. AudioUnit/AVAudioSession output, buffering, route changes and interruption recovery are not implemented.
+
+## Phase 10 — Input
+
+**Status: missing**
+
+The upstream pad thread is linked, but no usable GameController or touch guest-input backend is connected. Keyboard and mouse handlers are Null.
+
+## Host services and dialogs
+
+**Status: mostly missing**
+
+The runtime currently returns empty or no-op implementations for major host contracts, including:
+
+- message and OSK dialogs;
+- save-data dialogs;
+- send/receive message dialogs;
+- trophy notifications;
+- localization and fonts;
+- image decoding/scaling;
+- microphone/video source;
+- breakpoints and several host-control callbacks.
+
+These services can block real applications even after PPU/LV2 execution begins.
+
+## First playable PKG vertical slice
+
+**Target:** one legal user-provided homebrew PKG first, then PKGi.
+
+Required gates:
+
+1. Real firmware install and readiness validation.
+2. Physical-device VM/thread/VFS/`Emu.Init()` proof.
+3. Real PKG extraction and PPU/LV2 main-loop proof.
+4. One real RSX frame through Vulkan/MoltenVK.
+5. At least one usable controller or touch input path.
+6. For PKGi: validated sockets, DNS, TLS, storage and any required OSK/dialog behavior.
+
+The vertical slice is complete only when the title is visible, controllable, responsive and able to perform its core function.
+
+## Full RPCS3 application parity after first playability
+
+Still required:
+
+- functional game list, metadata and compatibility integration;
+- global and per-title configuration;
+- users, licenses, savedata and trophies;
+- patch, cheat, screenshot, cache and shader management;
+- VSH/XMB and shared content environment;
+- ISO/disc lifecycle;
+- savestates;
+- debugger and developer tools;
+- audio, input, networking and lifecycle recovery;
+- performance and compatibility work.
+
+## Completion rules
+
+- `.ui` present ≠ feature implemented.
+- API declared ≠ API implemented.
+- object linked ≠ runtime working.
+- IPA built ≠ guest executable running.
+- renderer linked ≠ frame presented.
+- `BootGame()` returned success ≠ title playable.
+- PKG extracted ≠ application usable.
+- Playable requires rendering, input, stable execution and the title's core function.
