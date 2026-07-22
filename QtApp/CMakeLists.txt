@@ -8,15 +8,18 @@ set(CMAKE_AUTOMOC ON)
 set(CMAKE_AUTOUIC ON)
 set(CMAKE_AUTORCC ON)
 
+option(RPCS3_IOS_UNIFIED_UPSTREAM "Link the Qt iOS host directly to the upstream rpcs3_emu graph" OFF)
+
 find_package(Qt6 6.8 REQUIRED COMPONENTS Core Gui Widgets)
 qt_standard_project_setup()
 
+set(RPCS3_PORT_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/..")
 set(RPCS3_UI_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/Generated/ui")
 set(RPCS3_UI_FACTORY_HEADER "${CMAKE_CURRENT_SOURCE_DIR}/Generated/RPCS3QtUiFactory.h")
 set(RPCS3_UI_FACTORY_SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/Generated/RPCS3QtUiFactory.cpp")
 set(RPCS3_UI_LIST "${CMAKE_CURRENT_SOURCE_DIR}/Generated/RPCS3CompiledUiFiles.cmake")
-set(RPCS3_RENDERER_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/../Renderers")
-set(RPCS3_IOS_MOLTENVK_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/../BuildSupport/MoltenVK" CACHE PATH "Pinned MoltenVK package root")
+set(RPCS3_RENDERER_ROOT "${RPCS3_PORT_ROOT}/Renderers")
+set(RPCS3_IOS_MOLTENVK_ROOT "${RPCS3_PORT_ROOT}/BuildSupport/MoltenVK" CACHE PATH "Pinned MoltenVK package root")
 
 foreach(required_file IN ITEMS
     "${RPCS3_UI_ROOT}/main_window.ui"
@@ -24,29 +27,51 @@ foreach(required_file IN ITEMS
     "${RPCS3_UI_FACTORY_SOURCE}"
     "${RPCS3_UI_LIST}")
     if(NOT EXISTS "${required_file}")
-        message(FATAL_ERROR "Missing ${required_file}. Run scripts/build-qt-ios-app.sh after cloning the pinned RPCS3 source.")
+        message(FATAL_ERROR "Missing ${required_file}. Generate the pinned RPCS3 Qt forms before configuring the iOS host.")
     endif()
 endforeach()
 
 include("${RPCS3_UI_LIST}")
-include("${CMAKE_CURRENT_SOURCE_DIR}/../cmake/MoltenVKIOS.cmake")
+include("${RPCS3_PORT_ROOT}/cmake/MoltenVKIOS.cmake")
 file(GLOB_RECURSE RPCS3_UPSTREAM_UI_RESOURCE_FILES CONFIGURE_DEPENDS "${RPCS3_UI_ROOT}/*.ui")
 
-add_library(rpcs3_ios_core STATIC IMPORTED GLOBAL)
-set_target_properties(rpcs3_ios_core PROPERTIES
-    IMPORTED_LOCATION "${CMAKE_CURRENT_SOURCE_DIR}/../BuildSupport/librpcs3-ios-core.a"
-)
-
-set(RPCS3_RENDERER_SOURCES
-    "${RPCS3_RENDERER_ROOT}/RPCS3RendererBackend.h"
-    "${RPCS3_RENDERER_ROOT}/RPCS3RendererFactory.cpp"
-    "${RPCS3_RENDERER_ROOT}/Apple/RPCS3AppleSurface.h"
-    "${RPCS3_RENDERER_ROOT}/Apple/RPCS3AppleSurface.mm"
-    "${RPCS3_RENDERER_ROOT}/Metal/RPCS3MetalRenderer.h"
-    "${RPCS3_RENDERER_ROOT}/Metal/RPCS3MetalRenderer.mm"
-    "${RPCS3_RENDERER_ROOT}/Vulkan/RPCS3VulkanRenderer.h"
-    "${RPCS3_RENDERER_ROOT}/Vulkan/RPCS3VulkanRenderer.mm"
-)
+if(RPCS3_IOS_UNIFIED_UPSTREAM)
+    if(NOT TARGET rpcs3_ios_upstream_bridge OR NOT TARGET rpcs3_emu)
+        message(FATAL_ERROR "Unified Qt mode must be configured inside RPCS3's upstream CMake graph after rpcs3_ios_upstream_bridge is defined")
+    endif()
+    set(RPCS3_IOS_CORE_TARGET rpcs3_ios_upstream_bridge)
+    set(RPCS3_IOS_CORE_SOURCES
+        "${RPCS3_PORT_ROOT}/CoreBridge/RPCS3CoreBridgeUpstream.cpp"
+        "${RPCS3_PORT_ROOT}/CoreBridge/RPCS3UpstreamRuntimeHost.cpp"
+        "${RPCS3_PORT_ROOT}/Port/IOSPlatform.mm"
+        "${RPCS3_PORT_ROOT}/Port/IOSFilesystem.mm"
+    )
+    # AppleSurface and MetalRenderer are already compiled into the upstream
+    # bridge. The Qt self-test only adds its factory and Vulkan swapchain test.
+    set(RPCS3_RENDERER_SOURCES
+        "${RPCS3_RENDERER_ROOT}/RPCS3RendererBackend.h"
+        "${RPCS3_RENDERER_ROOT}/RPCS3RendererFactory.cpp"
+        "${RPCS3_RENDERER_ROOT}/Vulkan/RPCS3VulkanRenderer.h"
+        "${RPCS3_RENDERER_ROOT}/Vulkan/RPCS3VulkanRenderer.mm"
+    )
+else()
+    add_library(rpcs3_ios_core STATIC IMPORTED GLOBAL)
+    set_target_properties(rpcs3_ios_core PROPERTIES
+        IMPORTED_LOCATION "${RPCS3_PORT_ROOT}/BuildSupport/librpcs3-ios-core.a"
+    )
+    set(RPCS3_IOS_CORE_TARGET rpcs3_ios_core)
+    set(RPCS3_IOS_CORE_SOURCES)
+    set(RPCS3_RENDERER_SOURCES
+        "${RPCS3_RENDERER_ROOT}/RPCS3RendererBackend.h"
+        "${RPCS3_RENDERER_ROOT}/RPCS3RendererFactory.cpp"
+        "${RPCS3_RENDERER_ROOT}/Apple/RPCS3AppleSurface.h"
+        "${RPCS3_RENDERER_ROOT}/Apple/RPCS3AppleSurface.mm"
+        "${RPCS3_RENDERER_ROOT}/Metal/RPCS3MetalRenderer.h"
+        "${RPCS3_RENDERER_ROOT}/Metal/RPCS3MetalRenderer.mm"
+        "${RPCS3_RENDERER_ROOT}/Vulkan/RPCS3VulkanRenderer.h"
+        "${RPCS3_RENDERER_ROOT}/Vulkan/RPCS3VulkanRenderer.mm"
+    )
+endif()
 
 qt_add_executable(RPCS3QtIOS MANUAL_FINALIZATION
     main.cpp
@@ -58,18 +83,28 @@ qt_add_executable(RPCS3QtIOS MANUAL_FINALIZATION
     RPCS3RendererIntegration.h
     QtCompat.h
     QUiLoader
+    ${RPCS3_IOS_CORE_SOURCES}
     ${RPCS3_RENDERER_SOURCES}
     ${RPCS3_UI_FACTORY_HEADER}
     ${RPCS3_UI_FACTORY_SOURCE}
     ${RPCS3_COMPILED_UI_FILES}
 )
 
-set_source_files_properties(
-    "${RPCS3_RENDERER_ROOT}/Apple/RPCS3AppleSurface.mm"
-    "${RPCS3_RENDERER_ROOT}/Metal/RPCS3MetalRenderer.mm"
+set(RPCS3_ARC_SOURCES
     "${RPCS3_RENDERER_ROOT}/Vulkan/RPCS3VulkanRenderer.mm"
-    PROPERTIES COMPILE_OPTIONS "-fobjc-arc"
 )
+if(RPCS3_IOS_UNIFIED_UPSTREAM)
+    list(APPEND RPCS3_ARC_SOURCES
+        "${RPCS3_PORT_ROOT}/Port/IOSPlatform.mm"
+        "${RPCS3_PORT_ROOT}/Port/IOSFilesystem.mm"
+    )
+else()
+    list(APPEND RPCS3_ARC_SOURCES
+        "${RPCS3_RENDERER_ROOT}/Apple/RPCS3AppleSurface.mm"
+        "${RPCS3_RENDERER_ROOT}/Metal/RPCS3MetalRenderer.mm"
+    )
+endif()
+set_source_files_properties(${RPCS3_ARC_SOURCES} PROPERTIES COMPILE_OPTIONS "-fobjc-arc")
 
 set_target_properties(RPCS3QtIOS PROPERTIES
     AUTOUIC_SEARCH_PATHS "${RPCS3_UI_ROOT}"
@@ -86,18 +121,34 @@ qt_add_resources(RPCS3QtIOS "rpcs3_upstream_ui"
 target_include_directories(RPCS3QtIOS PRIVATE
     "${CMAKE_CURRENT_SOURCE_DIR}"
     "${CMAKE_CURRENT_SOURCE_DIR}/Generated"
-    "${CMAKE_CURRENT_SOURCE_DIR}/../CoreBridge"
+    "${RPCS3_PORT_ROOT}/CoreBridge"
+    "${RPCS3_PORT_ROOT}/Port"
     "${RPCS3_RENDERER_ROOT}"
+    "${RPCS3_RENDERER_ROOT}/Apple"
+    "${RPCS3_RENDERER_ROOT}/Metal"
+    "${RPCS3_RENDERER_ROOT}/Vulkan"
 )
+if(RPCS3_IOS_UNIFIED_UPSTREAM)
+    target_include_directories(RPCS3QtIOS PRIVATE
+        "${CMAKE_SOURCE_DIR}"
+        "${CMAKE_SOURCE_DIR}/rpcs3"
+        "${CMAKE_SOURCE_DIR}/Utilities"
+    )
+endif()
 
 target_compile_definitions(RPCS3QtIOS PRIVATE
     RPCS3_QT_IOS_BUILD=1
     RPCS3_QT_BUILD_MARKER="RPCS3 Qt iOS upstream main_window.ui"
+    $<$<BOOL:${RPCS3_IOS_UNIFIED_UPSTREAM}>:RPCS3_IOS_UNIFIED_UPSTREAM=1>
 )
 
 find_library(FOUNDATION_FRAMEWORK Foundation REQUIRED)
 find_library(SECURITY_FRAMEWORK Security REQUIRED)
 find_library(METAL_FRAMEWORK Metal REQUIRED)
+find_library(QUARTZCORE_FRAMEWORK QuartzCore REQUIRED)
+find_library(COREGRAPHICS_FRAMEWORK CoreGraphics REQUIRED)
+find_library(IOSURFACE_FRAMEWORK IOSurface REQUIRED)
+find_library(UIKIT_FRAMEWORK UIKit REQUIRED)
 find_library(AVFOUNDATION_FRAMEWORK AVFoundation REQUIRED)
 find_library(AUDIOTOOLBOX_FRAMEWORK AudioToolbox REQUIRED)
 find_library(UNIFORMTYPEIDENTIFIERS_FRAMEWORK UniformTypeIdentifiers REQUIRED)
@@ -106,10 +157,14 @@ target_link_libraries(RPCS3QtIOS PRIVATE
     Qt6::Core
     Qt6::Gui
     Qt6::Widgets
-    rpcs3_ios_core
+    ${RPCS3_IOS_CORE_TARGET}
     ${FOUNDATION_FRAMEWORK}
     ${SECURITY_FRAMEWORK}
     ${METAL_FRAMEWORK}
+    ${QUARTZCORE_FRAMEWORK}
+    ${COREGRAPHICS_FRAMEWORK}
+    ${IOSURFACE_FRAMEWORK}
+    ${UIKIT_FRAMEWORK}
     ${AVFOUNDATION_FRAMEWORK}
     ${AUDIOTOOLBOX_FRAMEWORK}
     ${UNIFORMTYPEIDENTIFIERS_FRAMEWORK}
