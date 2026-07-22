@@ -93,7 +93,10 @@ bool metal_renderer::initialize(const surface_config& config, std::string& error
             CGColorSpaceRelease(colorspace);
         m_impl->layer.framebufferOnly = YES;
         m_impl->layer.maximumDrawableCount = 3;
-        m_impl->layer.displaySyncEnabled = config.vsync;
+        // CAMetalLayer.displaySyncEnabled is explicitly unavailable on iOS.
+        // Presentation remains synchronized by Core Animation; retain the
+        // requested value for future platform-specific pacing support.
+        (void)config.vsync;
         m_impl->layer.allowsNextDrawableTimeout = YES;
 
         m_impl->submitted_draws = 0;
