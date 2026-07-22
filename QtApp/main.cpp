@@ -1,5 +1,6 @@
 #include "RPCS3QtMainWindow.h"
 #include "RPCS3RendererIntegration.h"
+#include "RPCS3RuntimeActionOverrides.h"
 #include "RPCS3CoreBridge.h"
 
 #include <QApplication>
@@ -27,6 +28,7 @@ int main(int argc, char* argv[])
 
     RPCS3QtMainWindow window;
     RPCS3InstallRendererIntegration(&window);
+    RPCS3InstallRuntimeActionOverrides(&window);
     window.showMaximized();
     application.processEvents();
 
