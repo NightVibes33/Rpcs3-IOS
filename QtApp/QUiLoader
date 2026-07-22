@@ -1,0 +1,38 @@
+#pragma once
+
+#include "Generated/RPCS3QtUiFactory.h"
+
+#include <QFile>
+#include <QFileInfo>
+#include <QIODevice>
+#include <QString>
+#include <QWidget>
+
+class QUiLoader
+{
+public:
+    QUiLoader() = default;
+
+    QWidget* load(QIODevice* device, QWidget* parentWidget = nullptr)
+    {
+        auto* file = dynamic_cast<QFile*>(device);
+        if (!file)
+        {
+            m_error = QStringLiteral("RPCS3 compiled UI loader requires a QFile source.");
+            return nullptr;
+        }
+        const QString fileName = QFileInfo(file->fileName()).fileName();
+        QWidget* widget = RPCS3CreateCompiledUi(fileName, parentWidget);
+        if (!widget)
+            m_error = QStringLiteral("The upstream form is not compile-compatible on iOS: ") + fileName;
+        return widget;
+    }
+
+    QString errorString() const
+    {
+        return m_error;
+    }
+
+private:
+    QString m_error;
+};
