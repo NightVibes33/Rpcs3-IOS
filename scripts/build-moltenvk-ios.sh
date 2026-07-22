@@ -13,9 +13,25 @@ mkdir -p "$LOG_DIR" "$PORT_ROOT/.deps" "$PORT_ROOT/BuildSupport"
 test -n "$REVISION"
 
 FRAMEWORK="$OUTPUT_ROOT/MoltenVK.xcframework"
-DEVICE_BINARY="$FRAMEWORK/ios-arm64/MoltenVK.framework/MoltenVK"
-if [[ -f "$DEVICE_BINARY" && -f "$OUTPUT_ROOT/revision.txt" ]] &&
+
+find_device_binary() {
+    local candidate
+    while IFS= read -r candidate; do
+        case "$candidate" in
+            *simulator*|*maccatalyst*) continue ;;
+        esac
+        if lipo -info "$candidate" 2>/dev/null | grep -q 'arm64'; then
+            printf '%s\n' "$candidate"
+            return 0
+        fi
+    done < <(find "$FRAMEWORK" -type f -path '*/MoltenVK.framework/MoltenVK' -print 2>/dev/null | sort)
+    return 1
+}
+
+DEVICE_BINARY="$(find_device_binary || true)"
+if [[ -n "$DEVICE_BINARY" && -f "$OUTPUT_ROOT/revision.txt" ]] &&
    [[ "$(tr -d '[:space:]' < "$OUTPUT_ROOT/revision.txt")" == "$REVISION" ]]; then
+    printf '%s\n' "${DEVICE_BINARY#"$OUTPUT_ROOT/"}" > "$OUTPUT_ROOT/device-binary-path.txt"
     echo "Using cached MoltenVK $REVISION from $OUTPUT_ROOT"
     exit 0
 fi
@@ -54,12 +70,13 @@ cp -R "$PACKAGE" "$FRAMEWORK"
 cp -R "$SOURCE_ROOT/MoltenVK/include" "$OUTPUT_ROOT/include"
 printf '%s\n' "$REVISION" > "$OUTPUT_ROOT/revision.txt"
 
-DEVICE_BINARY="$FRAMEWORK/ios-arm64/MoltenVK.framework/MoltenVK"
+DEVICE_BINARY="$(find_device_binary)"
 test -f "$DEVICE_BINARY"
+printf '%s\n' "${DEVICE_BINARY#"$OUTPUT_ROOT/"}" > "$OUTPUT_ROOT/device-binary-path.txt"
 test -f "$OUTPUT_ROOT/include/vulkan/vulkan.h"
 test -f "$OUTPUT_ROOT/include/MoltenVK/vk_mvk_moltenvk.h"
 file "$DEVICE_BINARY" | tee "$LOG_DIR/moltenvk-binary.txt"
 lipo -info "$DEVICE_BINARY" | tee "$LOG_DIR/moltenvk-architectures.txt"
 
 grep -q 'arm64' "$LOG_DIR/moltenvk-architectures.txt"
-echo "MoltenVK is ready at $OUTPUT_ROOT"
+echo "MoltenVK is ready at $OUTPUT_ROOT ($DEVICE_BINARY)"
