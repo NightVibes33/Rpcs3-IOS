@@ -11,9 +11,12 @@
 #include "util/sysinfo.hpp"
 
 #include <algorithm>
+#include <exception>
 #include <filesystem>
+#include <memory>
 #include <mutex>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace
@@ -53,11 +56,10 @@ bool reinitialize_after_firmware_mount()
     }
 }
 
-bool fail_after_mount(std::string message)
+void fail_after_mount(std::string message)
 {
     reinitialize_after_firmware_mount();
     set_firmware_failure(std::move(message));
-    return false;
 }
 } // namespace
 
@@ -65,6 +67,7 @@ extern "C" int rpcs3_ios_upstream_install_firmware(const char* pup_path)
 {
     std::lock_guard lock(g_firmware_mutex);
     g_firmware_version.clear();
+    bool flash_mounted = false;
 
     if (!pup_path || !*pup_path)
     {
@@ -178,13 +181,15 @@ extern "C" int rpcs3_ios_upstream_install_firmware(const char* pup_path)
             set_firmware_failure("RPCS3 could not mount the dev_flash destination for firmware installation.");
             return 0;
         }
+        flash_mounted = true;
 
         for (const std::string& update_filename : update_filenames)
         {
             std::unique_ptr<utils::serial> update_stream = update_files.get_file(update_filename);
             if (!update_stream)
             {
-                return fail_after_mount("RPCS3 could not read firmware package " + update_filename + ".") ? 1 : 0;
+                fail_after_mount("RPCS3 could not read firmware package " + update_filename + ".");
+                return 0;
             }
 
             if (update_stream->m_file_handler)
@@ -196,7 +201,8 @@ extern "C" int rpcs3_ios_upstream_install_firmware(const char* pup_path)
             fs::file encrypted_package = fs::make_stream(std::move(update_stream->data));
             if (!encrypted_package)
             {
-                return fail_after_mount("RPCS3 could not open nested firmware package " + update_filename + ".") ? 1 : 0;
+                fail_after_mount("RPCS3 could not open nested firmware package " + update_filename + ".");
+                return 0;
             }
 
             SCEDecrypter decrypter(encrypted_package);
@@ -204,28 +210,33 @@ extern "C" int rpcs3_ios_upstream_install_firmware(const char* pup_path)
                 !decrypter.LoadMetadata(SCEPKG_ERK, SCEPKG_RIV) ||
                 !decrypter.DecryptData())
             {
-                return fail_after_mount("RPCS3 failed to decrypt firmware package " + update_filename + ".") ? 1 : 0;
+                fail_after_mount("RPCS3 failed to decrypt firmware package " + update_filename + ".");
+                return 0;
             }
 
             std::vector<fs::file> decrypted_files = decrypter.MakeFile();
             if (decrypted_files.size() < 3 || !decrypted_files[2])
             {
-                return fail_after_mount("RPCS3 could not decompress firmware package " + update_filename + ".") ? 1 : 0;
+                fail_after_mount("RPCS3 could not decompress firmware package " + update_filename + ".");
+                return 0;
             }
 
             tar_object dev_flash_tar(decrypted_files[2]);
             if (!dev_flash_tar.extract())
             {
-                return fail_after_mount("RPCS3 could not extract firmware package " + update_filename + " into dev_flash.") ? 1 : 0;
+                fail_after_mount("RPCS3 could not extract firmware package " + update_filename + " into dev_flash.");
+                return 0;
             }
         }
 
         update_files_file.close();
         if (!reinitialize_after_firmware_mount())
         {
+            flash_mounted = false;
             set_firmware_failure("Firmware files were extracted, but RPCS3 failed to rebuild its VFS afterwards.");
             return 0;
         }
+        flash_mounted = false;
 
         if (!firmware_ready_unlocked())
         {
@@ -244,11 +255,15 @@ extern "C" int rpcs3_ios_upstream_install_firmware(const char* pup_path)
     }
     catch (const std::exception& error)
     {
+        if (flash_mounted)
+            reinitialize_after_firmware_mount();
         set_firmware_failure(std::string("RPCS3 firmware installation failed: ") + error.what());
         return 0;
     }
     catch (...)
     {
+        if (flash_mounted)
+            reinitialize_after_firmware_mount();
         set_firmware_failure("RPCS3 firmware installation failed with an unknown exception.");
         return 0;
     }
