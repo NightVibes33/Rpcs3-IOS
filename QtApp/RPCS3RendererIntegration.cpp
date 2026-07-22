@@ -7,6 +7,7 @@
 #include <QMenu>
 #include <QMenuBar>
 #include <QStatusBar>
+#include <QVariant>
 #include <QVBoxLayout>
 
 using rpcs3::ios::render::backend_kind;
