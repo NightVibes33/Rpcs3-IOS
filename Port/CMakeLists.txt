@@ -18,6 +18,7 @@ add_library(rpcs3_ios_core STATIC
     ${RPCS3_IOS_OBJCXX_SOURCES}
     ${RPCS3_IOS_UPSTREAM_SOURCES}
     "${RPCS3_IOS_PORT_ROOT}/Port/RPCS3CryptoCompat.cpp"
+    "${RPCS3_IOS_PORT_ROOT}/Port/RPCS3ELFProbe.cpp"
 )
 
 set_source_files_properties(${RPCS3_IOS_OBJCXX_SOURCES} PROPERTIES
@@ -30,6 +31,7 @@ target_compile_definitions(rpcs3_ios_core PUBLIC
     RPCS3_PLATFORM_MOBILE=1
     RPCS3_PLATFORM_DESKTOP=0
     RPCS3_IOS_WITH_UPSTREAM_CRYPTO=1
+    RPCS3_IOS_WITH_UPSTREAM_ELF_TYPES=1
 )
 target_include_directories(rpcs3_ios_core PUBLIC
     "${RPCS3_IOS_PORT_ROOT}/Port"
@@ -38,6 +40,7 @@ target_include_directories(rpcs3_ios_core PUBLIC
     "${CMAKE_SOURCE_DIR}/Utilities"
     "${CMAKE_SOURCE_DIR}/rpcs3"
     "${CMAKE_SOURCE_DIR}/rpcs3/Crypto"
+    "${CMAKE_SOURCE_DIR}/rpcs3/Loader"
 )
 
 set_target_properties(rpcs3_ios_core PROPERTIES
