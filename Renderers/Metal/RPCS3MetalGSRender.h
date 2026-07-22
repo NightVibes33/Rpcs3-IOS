@@ -28,9 +28,11 @@ private:
     void capture_rsx_draw_state();
     bool prepare_live_program_pipeline();
     bool prepare_live_geometry_packet();
+    bool bind_live_frame_resources();
 
     metal_renderer m_backend;
     bool m_backend_initialized = false;
+    bool m_frame_has_live_resources = false;
     u64 m_presented_frames = 0;
     u64 m_translated_draws = 0;
     u64 m_topology_rewrite_draws = 0;
@@ -40,6 +42,8 @@ private:
     u64 m_program_cache_misses = 0;
     u64 m_geometry_ready_draws = 0;
     u64 m_geometry_failures = 0;
+    u64 m_resource_bound_draws = 0;
+    u64 m_resource_binding_failures = 0;
     usz m_cached_vertex_program_hash = umax;
     usz m_cached_fragment_program_hash = umax;
     bool m_cached_program_pair_valid = false;
@@ -54,5 +58,6 @@ private:
     metal_rsx::geometry_packet m_geometry_packet{};
     std::string m_last_program_error;
     std::string m_last_geometry_error;
+    std::string m_last_binding_error;
 };
 } // namespace rpcs3::ios::render
