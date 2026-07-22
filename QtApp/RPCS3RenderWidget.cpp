@@ -1,5 +1,8 @@
 #include "RPCS3RenderWidget.h"
 
+#include "../CoreBridge/RPCS3CoreBridge.h"
+#include "../Renderers/Apple/RPCS3AppleSurface.h"
+
 #include <QHideEvent>
 #include <QResizeEvent>
 #include <QShowEvent>
@@ -12,8 +15,23 @@
 using rpcs3::ios::render::backend_kind;
 using rpcs3::ios::render::backend_status;
 using rpcs3::ios::render::create_renderer_backend;
+using rpcs3::ios::render::preferred_apple_surface_parent;
 using rpcs3::ios::render::renderer_backend_compiled;
 using rpcs3::ios::render::renderer_backend_name;
+using rpcs3::ios::render::set_preferred_apple_surface_parent;
+
+namespace
+{
+RPCS3IOSRendererBackend core_backend(backend_kind kind)
+{
+    return kind == backend_kind::metal ? RPCS3IOSRendererMetal : RPCS3IOSRendererVulkan;
+}
+
+backend_kind public_backend(RPCS3IOSRendererBackend kind)
+{
+    return kind == RPCS3IOSRendererMetal ? backend_kind::metal : backend_kind::vulkan;
+}
+}
 
 RPCS3RenderWidget::RPCS3RenderWidget(QWidget* parent)
     : QWidget(parent)
@@ -29,13 +47,17 @@ RPCS3RenderWidget::RPCS3RenderWidget(QWidget* parent)
     m_frameTimer.setInterval(16);
     connect(&m_frameTimer, &QTimer::timeout, this, &RPCS3RenderWidget::presentFrame);
 
+    m_kind = public_backend(rpcs3_ios_core_get_renderer());
     if (!renderer_backend_compiled(m_kind))
-        m_kind = backend_kind::metal;
+        m_kind = renderer_backend_compiled(backend_kind::vulkan) ? backend_kind::vulkan : backend_kind::metal;
 }
 
 RPCS3RenderWidget::~RPCS3RenderWidget()
 {
     stopRenderer();
+    const void* native_view = reinterpret_cast<void*>(static_cast<quintptr>(winId()));
+    if (preferred_apple_surface_parent() == native_view)
+        set_preferred_apple_surface_parent(nullptr);
 }
 
 backend_kind RPCS3RenderWidget::backendKind() const noexcept
@@ -52,19 +74,32 @@ bool RPCS3RenderWidget::setBackend(backend_kind kind)
         return false;
     }
 
+    if (!rpcs3_ios_core_set_renderer(core_backend(kind)))
+    {
+        const RPCS3IOSCoreDiagnostics diagnostics = rpcs3_ios_core_diagnostics();
+        m_lastError = diagnostics.message
+            ? QString::fromUtf8(diagnostics.message)
+            : tr("RPCS3 rejected the renderer change. Stop emulation before switching renderers.");
+        publishStatus();
+        return false;
+    }
+
     const bool was_running = m_backend && m_backend->status().initialized;
     stopRenderer();
     m_kind = kind;
     if (was_running || isVisible())
         return startRenderer();
 
-    publishStatus(tr("Selected"));
+    publishStatus(tr("Selected for next guest boot"));
     return true;
 }
 
 bool RPCS3RenderWidget::startRenderer()
 {
     stopRenderer();
+    const auto config = surfaceConfig();
+    set_preferred_apple_surface_parent(config.native_view);
+
     m_backend = create_renderer_backend(m_kind);
     if (!m_backend)
     {
@@ -74,7 +109,7 @@ bool RPCS3RenderWidget::startRenderer()
     }
 
     std::string error;
-    const bool initialized = m_backend->initialize(surfaceConfig(), error);
+    const bool initialized = m_backend->initialize(config, error);
     if (!initialized)
     {
         m_lastError = QString::fromStdString(error);
@@ -85,7 +120,7 @@ bool RPCS3RenderWidget::startRenderer()
     m_lastError.clear();
     m_elapsed.restart();
     m_frameTimer.start();
-    publishStatus(tr("Ready"));
+    publishStatus(tr("Ready; RPCS3 guest output will use this surface"));
     return true;
 }
 
@@ -114,6 +149,7 @@ QString RPCS3RenderWidget::statusText() const
 void RPCS3RenderWidget::showEvent(QShowEvent* event)
 {
     QWidget::showEvent(event);
+    set_preferred_apple_surface_parent(reinterpret_cast<void*>(static_cast<quintptr>(winId())));
     if (!m_backend || !m_backend->status().initialized)
         startRenderer();
 }
@@ -127,6 +163,7 @@ void RPCS3RenderWidget::hideEvent(QHideEvent* event)
 void RPCS3RenderWidget::resizeEvent(QResizeEvent* event)
 {
     QWidget::resizeEvent(event);
+    set_preferred_apple_surface_parent(reinterpret_cast<void*>(static_cast<quintptr>(winId())));
     if (!m_backend || !m_backend->status().initialized)
         return;
 
@@ -159,7 +196,7 @@ void RPCS3RenderWidget::presentFrame()
     }
 
     if (m_elapsed.elapsed() < 100)
-        publishStatus(tr("Presenting"));
+        publishStatus(tr("Presenting GPU self-test"));
 }
 
 rpcs3::ios::render::surface_config RPCS3RenderWidget::surfaceConfig() const
