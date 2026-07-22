@@ -10,6 +10,7 @@ QT_ROOT="${QT_ROOT:-$HOME/Qt}"
 QT_VERSION="${QT_VERSION:-6.11.1}"
 IOS_QT="$QT_ROOT/$QT_VERSION/ios"
 HOST_QT="$QT_ROOT/$QT_VERSION/macos"
+QT_CMAKE="$IOS_QT/bin/qt-cmake"
 FFMPEG_ROOT="${RPCS3_IOS_FFMPEG_ROOT:-$PORT_ROOT/BuildSupport/ffmpeg-ios}"
 MOLTENVK_ROOT="${RPCS3_IOS_MOLTENVK_ROOT:-$PORT_ROOT/BuildSupport/MoltenVK}"
 SPIRV_CROSS_ROOT="${RPCS3_IOS_SPIRV_CROSS_ROOT:-$PORT_ROOT/BuildSupport/SPIRV-Cross}"
@@ -29,7 +30,9 @@ test -n "$REVISION"
 test -f "$TOOLCHAIN"
 test -d "$IOS_QT"
 test -d "$HOST_QT"
+test -x "$QT_CMAKE"
 test -f "$IOS_QT/lib/cmake/Qt6/Qt6Config.cmake"
+test -f "$IOS_QT/lib/cmake/Qt6/qt.toolchain.cmake"
 
 rm -rf "$ROOT" "$BUILD"
 mkdir -p "$BUILD" "$LOG_DIR"
@@ -50,15 +53,13 @@ python3 "$PORT_ROOT/scripts/patch-upstream-ios-libusb-api.py" "$ROOT"
 python3 "$PORT_ROOT/scripts/patch-upstream-ios-cubeb.py" "$ROOT"
 python3 "$PORT_ROOT/scripts/patch-upstream-ios-emu-graph.py" "$ROOT"
 
-cmake \
+"$QT_CMAKE" \
   -S "$ROOT" \
   -B "$BUILD/tree" \
   -G Xcode \
-  -DCMAKE_TOOLCHAIN_FILE="$TOOLCHAIN" \
-  -DCMAKE_BUILD_TYPE=Release \
-  -DCMAKE_PREFIX_PATH="$IOS_QT" \
-  -DQt6_DIR="$IOS_QT/lib/cmake/Qt6" \
+  -DQT_CHAINLOAD_TOOLCHAIN_FILE="$TOOLCHAIN" \
   -DQT_HOST_PATH="$HOST_QT" \
+  -DCMAKE_BUILD_TYPE=Release \
   -DRPCS3_IOS_UPSTREAM_GRAPH=ON \
   -DRPCS3_IOS_BUILD_QT_HOST=ON \
   -DRPCS3_IOS_PORT_ROOT="$PORT_ROOT" \
@@ -110,7 +111,7 @@ cat > "$BUILD/summary.md" <<EOF
 - Upstream RPCS3: \`$REVISION\`
 - CPU lane: PPU/SPU interpreters
 - Vulkan lane: RPCS3 \`VKGSRender\` -> MoltenVK -> \`CAMetalLayer\`
-- Metal lane: native \`metal_gs_render\`, validated draw encoder, SPIR-V -> MSL translation, and cached Metal shader functions; live RSX vertex/texture binding remains in progress
+- Metal lane: native \`metal_gs_render\`, validated draw encoder, SPIR-V -> MSL translation, cached Metal shader functions, and cached render pipeline states; live RSX vertex/texture binding remains in progress
 - UI: real Qt Widgets \`main_window.ui\`
 - Core: real \`rpcs3_emu\`, \`Emu.System\`, boot/pause/resume/stop/VSH/PKG/PUP bridge
 EOF
