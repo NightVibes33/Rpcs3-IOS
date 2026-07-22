@@ -169,10 +169,13 @@ grep -q '@rpath/RPCS3UpstreamRuntime.framework/RPCS3UpstreamRuntime' "$BUILD/bin
 file "$EMBEDDED_RUNTIME" | tee "$BUILD/embedded-runtime-file.txt"
 lipo -info "$EMBEDDED_RUNTIME" | tee "$BUILD/embedded-runtime-architectures.txt"
 otool -L "$EMBEDDED_RUNTIME" | tee "$BUILD/embedded-runtime-linked-libraries.txt"
+grep -q 'AudioToolbox.framework' "$BUILD/embedded-runtime-linked-libraries.txt"
 
 strings "$BIN" > "$BUILD/binary-strings.txt"
+strings "$EMBEDDED_RUNTIME" > "$BUILD/embedded-runtime-strings.txt"
 grep -q 'RPCS3 Qt iOS upstream main_window.ui' "$BUILD/binary-strings.txt"
 grep -q 'rpcs3IOSPadButton_' "$BUILD/binary-strings.txt"
+grep -q 'Cubeb' "$BUILD/embedded-runtime-strings.txt"
 nm -gU "$BIN" > "$BUILD/binary-defined-symbols.txt"
 nm -g "$BIN" > "$BUILD/binary-all-symbols.txt"
 nm -gU "$EMBEDDED_RUNTIME" > "$BUILD/embedded-runtime-symbols.txt"
@@ -230,6 +233,7 @@ cat > "$BUILD/summary.md" <<EOF
 - Install Packages calls upstream \`package_reader::extract_data\`, refreshes \`dev_hdd0/game\`, and boots through \`Emulator::BootGame\`.
 - The app supplies a native Qt iOS \`UIView\`; the runtime owns its \`CAMetalLayer\` and presents through upstream \`VKGSRender\` over MoltenVK.
 - On-screen controls feed RPCS3's connected LDD/cellPad path at 60 Hz for D-pad, face, shoulder, Start, Select, and PS input.
+- Audio uses upstream Cubeb through iOS AudioUnit/AudioToolbox, with Null only as initialization fallback.
 EOF
 
 cat "$BUILD/summary.md"
