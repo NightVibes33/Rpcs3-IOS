@@ -15,14 +15,17 @@ set(RPCS3_UI_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/Generated/ui")
 set(RPCS3_UI_FACTORY_HEADER "${CMAKE_CURRENT_SOURCE_DIR}/Generated/RPCS3QtUiFactory.h")
 set(RPCS3_UI_FACTORY_SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/Generated/RPCS3QtUiFactory.cpp")
 set(RPCS3_UI_LIST "${CMAKE_CURRENT_SOURCE_DIR}/Generated/RPCS3CompiledUiFiles.cmake")
+set(RPCS3_UPSTREAM_RUNTIME_FRAMEWORK "${CMAKE_CURRENT_SOURCE_DIR}/../BuildSupport/RPCS3UpstreamRuntime.framework")
 
 foreach(required_file IN ITEMS
     "${RPCS3_UI_ROOT}/main_window.ui"
     "${RPCS3_UI_FACTORY_HEADER}"
     "${RPCS3_UI_FACTORY_SOURCE}"
-    "${RPCS3_UI_LIST}")
+    "${RPCS3_UI_LIST}"
+    "${RPCS3_UPSTREAM_RUNTIME_FRAMEWORK}/RPCS3UpstreamRuntime"
+    "${RPCS3_UPSTREAM_RUNTIME_FRAMEWORK}/Headers/RPCS3UpstreamRuntimeBridge.h")
     if(NOT EXISTS "${required_file}")
-        message(FATAL_ERROR "Missing ${required_file}. Run scripts/build-qt-ios-app.sh after cloning the pinned RPCS3 source.")
+        message(FATAL_ERROR "Missing ${required_file}. Run scripts/build-upstream-ios-runtime-framework.sh and scripts/build-qt-ios-app.sh first.")
     endif()
 endforeach()
 
@@ -32,6 +35,13 @@ file(GLOB_RECURSE RPCS3_UPSTREAM_UI_RESOURCE_FILES CONFIGURE_DEPENDS "${RPCS3_UI
 add_library(rpcs3_ios_core STATIC IMPORTED GLOBAL)
 set_target_properties(rpcs3_ios_core PROPERTIES
     IMPORTED_LOCATION "${CMAKE_CURRENT_SOURCE_DIR}/../BuildSupport/librpcs3-ios-core.a"
+)
+
+add_library(rpcs3_ios_upstream_runtime SHARED IMPORTED GLOBAL)
+set_target_properties(rpcs3_ios_upstream_runtime PROPERTIES
+    IMPORTED_LOCATION "${RPCS3_UPSTREAM_RUNTIME_FRAMEWORK}/RPCS3UpstreamRuntime"
+    FRAMEWORK TRUE
+    INTERFACE_INCLUDE_DIRECTORIES "${RPCS3_UPSTREAM_RUNTIME_FRAMEWORK}/Headers"
 )
 
 qt_add_executable(RPCS3QtIOS MANUAL_FINALIZATION
@@ -61,11 +71,13 @@ target_include_directories(RPCS3QtIOS PRIVATE
     "${CMAKE_CURRENT_SOURCE_DIR}"
     "${CMAKE_CURRENT_SOURCE_DIR}/Generated"
     "${CMAKE_CURRENT_SOURCE_DIR}/../CoreBridge"
+    "${RPCS3_UPSTREAM_RUNTIME_FRAMEWORK}/Headers"
 )
 
 target_compile_definitions(RPCS3QtIOS PRIVATE
     RPCS3_QT_IOS_BUILD=1
     RPCS3_QT_BUILD_MARKER="RPCS3 Qt iOS upstream main_window.ui"
+    RPCS3_IOS_REAL_UPSTREAM_RUNTIME=1
 )
 
 find_library(FOUNDATION_FRAMEWORK Foundation REQUIRED)
@@ -80,6 +92,7 @@ target_link_libraries(RPCS3QtIOS PRIVATE
     Qt6::Gui
     Qt6::Widgets
     rpcs3_ios_core
+    rpcs3_ios_upstream_runtime
     ${FOUNDATION_FRAMEWORK}
     ${SECURITY_FRAMEWORK}
     ${METAL_FRAMEWORK}
@@ -102,6 +115,7 @@ set_target_properties(RPCS3QtIOS PROPERTIES
     XCODE_ATTRIBUTE_CODE_SIGNING_ALLOWED "NO"
     XCODE_ATTRIBUTE_CODE_SIGNING_REQUIRED "NO"
     XCODE_ATTRIBUTE_ENABLE_BITCODE "NO"
+    XCODE_ATTRIBUTE_LD_RUNPATH_SEARCH_PATHS "@executable_path/Frameworks"
 )
 
 qt_finalize_executable(RPCS3QtIOS)
