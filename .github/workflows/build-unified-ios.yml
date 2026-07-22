@@ -129,7 +129,7 @@ jobs:
           bash scripts/build-unified-qt-ios-app.sh 2>&1 | tee "$CI_LOGS/unified-build-console.log"
           status=${PIPESTATUS[0]}
           echo "status=$status" >> "$GITHUB_OUTPUT"
-          exit 0
+          exit "$status"
 
       - name: Save FFmpeg cache
         if: always() && steps.ffmpeg-cache.outputs.cache-hit != 'true' && hashFiles('BuildSupport/ffmpeg-ios/.rpcs3-ios-ffmpeg-n7.1') != ''
