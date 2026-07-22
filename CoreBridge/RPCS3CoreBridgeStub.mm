@@ -20,8 +20,10 @@ namespace
 std::mutex g_mutex;
 bool g_platform_initialized = false;
 bool g_upstream_initialized = false;
+bool g_last_operation_firmware = false;
 RPCS3IOSCoreState g_state = RPCS3IOSCoreStateUnavailable;
 std::string g_data_path;
+std::string g_firmware_version;
 std::string g_last_boot_sha256;
 std::string g_last_installed_boot_path;
 std::string g_message = "RPCS3 iOS upstream runtime has not been initialized.";
@@ -49,6 +51,21 @@ RPCS3IOSCoreState map_upstream_state(RPCS3IOSUpstreamState state)
     default:
         return RPCS3IOSCoreStateUnavailable;
     }
+}
+
+const char* current_upstream_message()
+{
+    return g_last_operation_firmware
+        ? rpcs3_ios_upstream_firmware_last_message()
+        : rpcs3_ios_upstream_last_message();
+}
+
+bool path_is_installed_title(const char* path)
+{
+    if (!path)
+        return false;
+    const std::string value(path);
+    return value.find("/dev_hdd0/game/") != std::string::npos;
 }
 
 #ifdef RPCS3_IOS_WITH_UPSTREAM_CRYPTO
@@ -124,19 +141,33 @@ RPCS3IOSCoreDiagnostics rpcs3_ios_core_diagnostics(void)
 {
     thread_local std::string message_copy;
     thread_local std::string path_copy;
+    thread_local std::string firmware_copy;
     thread_local std::string hash_copy;
 
     std::lock_guard lock(g_mutex);
     if (g_upstream_initialized)
     {
-        g_state = map_upstream_state(rpcs3_ios_upstream_state());
-        const char* upstream_message = rpcs3_ios_upstream_last_message();
+        if (!(g_last_operation_firmware && g_state == RPCS3IOSCoreStateFailed))
+            g_state = map_upstream_state(rpcs3_ios_upstream_state());
+
+        const char* upstream_message = current_upstream_message();
         if (upstream_message && *upstream_message)
             g_message = upstream_message;
+
+        if (rpcs3_ios_upstream_firmware_ready())
+        {
+            const char* version = rpcs3_ios_upstream_firmware_version();
+            g_firmware_version = version ? version : "";
+        }
+        else
+        {
+            g_firmware_version.clear();
+        }
     }
 
     message_copy = g_message;
     path_copy = g_data_path;
+    firmware_copy = g_firmware_version;
     hash_copy = g_last_boot_sha256;
 
     RPCS3IOSCoreDiagnostics result = {};
@@ -153,9 +184,11 @@ RPCS3IOSCoreDiagnostics rpcs3_ios_core_diagnostics(void)
     result.spu_interpreter_available = g_upstream_initialized ? 1 : 0;
     result.jit_available = 0;
     result.renderer_available = g_upstream_initialized && rpcs3_ios_upstream_render_view_ready() ? 1 : 0;
+    result.firmware_ready = g_upstream_initialized && rpcs3_ios_upstream_firmware_ready() ? 1 : 0;
     result.upstream_revision = RPCS3_IOS_BUILD_UPSTREAM_REVISION;
     result.build_classification = RPCS3_IOS_BUILD_CLASSIFICATION;
     result.data_path = path_copy.empty() ? nullptr : path_copy.c_str();
+    result.firmware_version = firmware_copy.empty() ? nullptr : firmware_copy.c_str();
     result.last_boot_sha256 = hash_copy.empty() ? nullptr : hash_copy.c_str();
     result.message = message_copy.c_str();
     return result;
@@ -164,6 +197,7 @@ RPCS3IOSCoreDiagnostics rpcs3_ios_core_diagnostics(void)
 int rpcs3_ios_core_initialize(const char* data_path)
 {
     std::lock_guard lock(g_mutex);
+    g_last_operation_firmware = false;
     const rpcs3::ios::filesystem_layout layout = rpcs3::ios::prepare_filesystem_layout(data_path);
     if (!layout.ready)
     {
@@ -194,6 +228,7 @@ int rpcs3_ios_core_initialize(const char* data_path)
 
     g_platform_initialized = true;
     g_data_path = layout.root;
+    g_firmware_version.clear();
     g_last_boot_sha256.clear();
     g_last_installed_boot_path.clear();
 
@@ -219,6 +254,7 @@ int rpcs3_ios_core_initialize(const char* data_path)
 int rpcs3_ios_core_set_render_view(void* native_view)
 {
     std::lock_guard lock(g_mutex);
+    g_last_operation_firmware = false;
     if (!g_platform_initialized || !g_upstream_initialized)
     {
         set_failure("Initialize the real upstream RPCS3 runtime before attaching its iOS render view.");
@@ -249,6 +285,7 @@ int rpcs3_ios_core_set_render_view(void* native_view)
 void rpcs3_ios_core_clear_render_view(void)
 {
     std::lock_guard lock(g_mutex);
+    g_last_operation_firmware = false;
     if (!g_upstream_initialized)
         return;
 
@@ -256,14 +293,96 @@ void rpcs3_ios_core_clear_render_view(void)
     g_message = "The RPCS3 iOS render surface was detached.";
 }
 
+int rpcs3_ios_core_install_firmware(const char* pup_path)
+{
+    std::lock_guard lock(g_mutex);
+    g_last_operation_firmware = true;
+
+    if (!g_platform_initialized || !g_upstream_initialized)
+    {
+        set_failure("Initialize the real upstream RPCS3 runtime before installing firmware.");
+        return 0;
+    }
+    if (!pup_path || !*pup_path)
+    {
+        set_failure("No PS3UPDAT.PUP path was supplied.");
+        return 0;
+    }
+    if (!rpcs3::ios::path_is_within_app_container(pup_path))
+    {
+        set_failure("PS3UPDAT.PUP must be copied into the RPCS3 app container before installation.");
+        return 0;
+    }
+
+    std::error_code error;
+    if (!std::filesystem::is_regular_file(pup_path, error) || error)
+    {
+        set_failure("The selected PS3UPDAT.PUP is not a readable regular file.");
+        return 0;
+    }
+
+    if (!rpcs3_ios_upstream_install_firmware(pup_path))
+    {
+        const char* firmware_message = rpcs3_ios_upstream_firmware_last_message();
+        set_failure(firmware_message && *firmware_message
+            ? firmware_message
+            : "RPCS3's PUP/SCE/TAR firmware installer failed without a diagnostic message.");
+        return 0;
+    }
+
+    if (!rpcs3_ios_upstream_firmware_ready())
+    {
+        set_failure("RPCS3 returned success, but dev_flash/vsh/module/vsh.self is missing.");
+        return 0;
+    }
+
+    const char* version = rpcs3_ios_upstream_firmware_version();
+    g_firmware_version = version ? version : "";
+    const char* firmware_message = rpcs3_ios_upstream_firmware_last_message();
+    g_message = firmware_message && *firmware_message
+        ? firmware_message
+        : "RPCS3 installed and validated PS3 firmware.";
+    g_state = RPCS3IOSCoreStateReady;
+    return 1;
+}
+
+int rpcs3_ios_core_firmware_ready(void)
+{
+    std::lock_guard lock(g_mutex);
+    return g_upstream_initialized && rpcs3_ios_upstream_firmware_ready() ? 1 : 0;
+}
+
+const char* rpcs3_ios_core_firmware_version(void)
+{
+    thread_local std::string copy;
+    std::lock_guard lock(g_mutex);
+    if (g_upstream_initialized && rpcs3_ios_upstream_firmware_ready())
+    {
+        const char* version = rpcs3_ios_upstream_firmware_version();
+        g_firmware_version = version ? version : "";
+    }
+    else
+    {
+        g_firmware_version.clear();
+    }
+    copy = g_firmware_version;
+    return copy.c_str();
+}
+
 int rpcs3_ios_core_install_pkg(const char* pkg_path)
 {
     std::lock_guard lock(g_mutex);
+    g_last_operation_firmware = false;
     g_last_installed_boot_path.clear();
 
     if (!g_platform_initialized || !g_upstream_initialized)
     {
         set_failure("Initialize the real upstream RPCS3 runtime before installing a package.");
+        return 0;
+    }
+    if (!rpcs3_ios_upstream_firmware_ready())
+    {
+        set_failure("Install and validate official PS3 firmware before installing a PKG.");
         return 0;
     }
     if (!pkg_path || !*pkg_path)
@@ -316,6 +435,7 @@ const char* rpcs3_ios_core_last_installed_boot_path(void)
 int rpcs3_ios_core_boot_elf(const char* boot_path)
 {
     std::lock_guard lock(g_mutex);
+    g_last_operation_firmware = false;
     if (!g_platform_initialized || !g_upstream_initialized)
     {
         set_failure("Initialize the real upstream RPCS3 runtime before booting content.");
@@ -329,6 +449,11 @@ int rpcs3_ios_core_boot_elf(const char* boot_path)
     if (!boot_path || !*boot_path)
     {
         set_failure("No RPCS3 boot path was supplied.");
+        return 0;
+    }
+    if (path_is_installed_title(boot_path) && !rpcs3_ios_upstream_firmware_ready())
+    {
+        set_failure("Install and validate official PS3 firmware before booting an installed PKG title.");
         return 0;
     }
     if (!rpcs3::ios::path_is_within_app_container(boot_path))
@@ -381,6 +506,7 @@ int rpcs3_ios_core_boot_elf(const char* boot_path)
 void rpcs3_ios_core_stop(void)
 {
     std::lock_guard lock(g_mutex);
+    g_last_operation_firmware = false;
     if (!g_upstream_initialized)
         return;
 
