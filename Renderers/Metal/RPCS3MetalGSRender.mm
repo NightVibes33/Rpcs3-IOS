@@ -399,9 +399,6 @@ bool metal_gs_render::prepare_live_geometry_packet()
     parameters.fs_texture_base_index = 0;
     parameters.fs_stipple_pattern_offset = 0;
 
-    // Preserve RPCS3's exact vertex-pull descriptor encoding. Offsets are zero
-    // based because persistent and transient streams become separate Metal
-    // resources, matching the original Vulkan binding model.
     m_draw_processor.fill_vertex_layout_state(
         m_vertex_layout,
         current_vp_metadata,
@@ -451,18 +448,60 @@ bool metal_gs_render::prepare_live_geometry_packet()
     return true;
 }
 
+bool metal_gs_render::bind_live_frame_resources()
+{
+    if (!m_backend.frame_active())
+    {
+        std::string error;
+        if (!m_backend.begin_frame(0.0f, 0.0f, 0.0f, 1.0f, error))
+        {
+            ++m_resource_binding_failures;
+            m_last_binding_error = std::move(error);
+            return false;
+        }
+    }
+
+    std::string error;
+    if (!m_backend.bind_render_pipeline(m_active_pipeline, error))
+    {
+        ++m_resource_binding_failures;
+        m_last_binding_error = std::move(error);
+        return false;
+    }
+    if (!m_backend.upload_and_bind_vertex_resources(m_geometry_packet, m_vertex_bindings, error))
+    {
+        ++m_resource_binding_failures;
+        m_last_binding_error = std::move(error);
+        return false;
+    }
+
+    m_frame_has_live_resources = true;
+    ++m_resource_bound_draws;
+    m_last_binding_error.clear();
+    return true;
+}
+
 void metal_gs_render::flip(const rsx::display_flip_info_t& info)
 {
     if (initialize_backend())
     {
-        const double phase = static_cast<double>(m_presented_frames) / 90.0;
-        const float topology_signal = static_cast<float>((m_topology_rewrite_draws % 17) / 170.0);
-        const float red = static_cast<float>(0.05 + 0.05 * (std::sin(phase) + 1.0)) + topology_signal;
-        const float green = static_cast<float>(0.08 + 0.08 * (std::sin(phase + 2.1) + 1.0));
-        const float blue = static_cast<float>(0.18 + 0.12 * (std::sin(phase + 4.2) + 1.0));
         std::string error;
-        if (m_backend.present_test_frame(red, green, blue, 1.0f, error))
+        if (m_backend.frame_active())
+        {
+            if (m_backend.end_frame(error))
+            {
+                ++m_presented_frames;
+                m_frame_has_live_resources = false;
+            }
+            else
+            {
+                m_last_binding_error = std::move(error);
+            }
+        }
+        else if (m_backend.present_test_frame(0.0f, 0.0f, 0.0f, 1.0f, error))
+        {
             ++m_presented_frames;
+        }
     }
 
     GSRender::flip(info);
@@ -470,14 +509,16 @@ void metal_gs_render::flip(const rsx::display_flip_info_t& info)
 
 void metal_gs_render::end()
 {
-    // Resolve live RPCS3 programs, validate the translated Metal bindings, and
-    // convert the live draw's RSX vertex/index memory plus exact shader-visible
-    // environment records into host-side packet bytes. Metal submission remains
-    // disabled until transform constants and fragment resources are all bound.
+    // Resolve live RPCS3 programs, validate post-SPIRV-Cross Metal bindings,
+    // convert the live RSX vertex/index data, and bind those real resources into
+    // the frame encoder. Guest geometry submission remains disabled until the
+    // vertex constants and complete fragment resource set are connected.
     analyse_current_rsx_pipeline();
     capture_rsx_draw_state();
-    prepare_live_program_pipeline();
-    prepare_live_geometry_packet();
+    const bool program_ready = prepare_live_program_pipeline();
+    const bool geometry_ready = prepare_live_geometry_packet();
+    if (program_ready && geometry_ready)
+        bind_live_frame_resources();
     execute_nop_draw();
     rsx::thread::end();
 }
