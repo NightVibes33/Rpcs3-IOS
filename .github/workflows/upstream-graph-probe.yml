@@ -3,7 +3,7 @@ name: Probe Real RPCS3 iOS Graph
 on:
   workflow_dispatch:
   push:
-    branches: [main, rsx-renderer-integration]
+    branches: [metal-live-programs]
     paths:
       - "Port/**"
       - "CoreBridge/**"
@@ -12,6 +12,7 @@ on:
       - "scripts/**"
       - "UPSTREAM_RPCS3_REVISION"
       - "MOLTENVK_REVISION"
+      - "SPIRV_CROSS_REVISION"
       - ".github/workflows/upstream-graph-probe.yml"
 
 permissions:
@@ -34,6 +35,7 @@ jobs:
       FFMPEG_IOS_ROOT: "${{ github.workspace }}/BuildSupport/ffmpeg-ios"
       RPCS3_IOS_MOLTENVK_ROOT: "${{ github.workspace }}/BuildSupport/MoltenVK"
       MOLTENVK_ROOT: "${{ github.workspace }}/BuildSupport/MoltenVK"
+      RPCS3_IOS_SPIRV_CROSS_ROOT: "${{ github.workspace }}/BuildSupport/SPIRV-Cross"
     steps:
       - name: Checkout iOS port
         uses: actions/checkout@v4
@@ -50,7 +52,7 @@ jobs:
             -H "Accept: application/vnd.github+json" \
             -H "X-GitHub-Api-Version: 2022-11-28" \
             "https://api.github.com/repos/$GITHUB_REPOSITORY/statuses/$GITHUB_SHA" \
-            -d "{\"state\":\"pending\",\"context\":\"$STATUS_CONTEXT\",\"description\":\"Linking Emu.System with MoltenVK and native Metal\",\"target_url\":\"$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID\"}"
+            -d "{\"state\":\"pending\",\"context\":\"$STATUS_CONTEXT\",\"description\":\"Compiling live RSX programs with MoltenVK and native Metal\",\"target_url\":\"$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID\"}"
 
       - name: Select iOS 26 SDK
         shell: bash
@@ -88,6 +90,16 @@ jobs:
             .cache/MoltenVK
           key: moltenvk-${{ hashFiles('MOLTENVK_REVISION') }}-${{ runner.os }}-${{ runner.arch }}-iphoneos26-arm64-v2
 
+      - name: Restore SPIRV-Cross iOS cache
+        id: spirv-cross-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            BuildSupport/SPIRV-Cross
+            .cache/SPIRV-Cross-ios
+            .deps/SPIRV-Cross
+          key: spirv-cross-${{ hashFiles('SPIRV_CROSS_REVISION') }}-${{ runner.os }}-${{ runner.arch }}-iphoneos26-arm64-v1
+
       - name: Build real upstream RPCS3 Vulkan and Metal graph
         id: graph
         shell: bash
@@ -96,7 +108,7 @@ jobs:
           bash scripts/probe-upstream-ios-graph.sh
           status=$?
           echo "status=$status" >> "$GITHUB_OUTPUT"
-          exit 0
+          exit "$status"
 
       - name: Save FFmpeg iOS cache
         if: always() && steps.ffmpeg-cache.outputs.cache-hit != 'true' && hashFiles('BuildSupport/ffmpeg-ios/.rpcs3-ios-ffmpeg-n7.1') != ''
@@ -115,6 +127,16 @@ jobs:
             BuildSupport/MoltenVK
             .cache/MoltenVK
           key: moltenvk-${{ hashFiles('MOLTENVK_REVISION') }}-${{ runner.os }}-${{ runner.arch }}-iphoneos26-arm64-v2
+
+      - name: Save SPIRV-Cross iOS cache
+        if: always() && steps.spirv-cross-cache.outputs.cache-hit != 'true' && hashFiles('BuildSupport/SPIRV-Cross/lib/libspirv-cross-msl.a') != ''
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            BuildSupport/SPIRV-Cross
+            .cache/SPIRV-Cross-ios
+            .deps/SPIRV-Cross
+          key: spirv-cross-${{ hashFiles('SPIRV_CROSS_REVISION') }}-${{ runner.os }}-${{ runner.arch }}-iphoneos26-arm64-v1
 
       - name: Upload graph evidence
         if: always()
@@ -135,10 +157,10 @@ jobs:
           probe_status="${{ steps.graph.outputs.status }}"
           if [[ "$probe_status" == "0" ]]; then
             state="success"
-            description="Emu.System, MoltenVK, and Metal linked for arm64 iOS"
+            description="Live RSX program compiler linked with Vulkan and Metal"
           else
             state="failure"
-            description="Vulkan/Metal graph reached a documented iOS blocker"
+            description="Live RSX program compiler reached a documented graph blocker"
           fi
           curl --fail --silent --show-error --max-time 30 \
             -X POST \
