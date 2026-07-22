@@ -1,4 +1,5 @@
 #include "RPCS3UpstreamRuntimeBridge.h"
+#include "RPCS3IOSGSFrame.h"
 
 #include "Emu/System.h"
 #include "Emu/system_config.h"
@@ -121,7 +122,10 @@ void install_minimal_callbacks()
     callbacks.update_emu_settings = []() {};
     callbacks.save_emu_settings = []() {};
     callbacks.close_gs_frame = []() {};
-    callbacks.get_gs_frame = []() -> std::unique_ptr<GSFrameBase> { return {}; };
+    callbacks.get_gs_frame = []() -> std::unique_ptr<GSFrameBase>
+    {
+        return rpcs3::ios::make_gs_frame();
+    };
     callbacks.get_camera_handler = []() -> std::shared_ptr<camera_handler_base>
     {
         return std::make_shared<null_camera_handler>();
@@ -182,6 +186,33 @@ std::string resolve_data_root(const char* data_root)
     return "./rpcs3-ios-runtime";
 }
 } // namespace
+
+extern "C" int rpcs3_ios_upstream_set_render_view(void* native_view)
+{
+    std::lock_guard lock(g_runtime_mutex);
+    if (!rpcs3::ios::attach_render_view(native_view))
+    {
+        set_state(RPCS3IOSUpstreamStateFailed, "Unable to attach a CAMetalLayer to the Qt iOS render view.");
+        return 0;
+    }
+
+    if (!g_runtime_initialized)
+    {
+        g_last_message = "The native iOS CAMetalLayer render view is ready.";
+    }
+    return 1;
+}
+
+extern "C" void rpcs3_ios_upstream_clear_render_view(void)
+{
+    std::lock_guard lock(g_runtime_mutex);
+    rpcs3::ios::detach_render_view();
+}
+
+extern "C" int rpcs3_ios_upstream_render_view_ready(void)
+{
+    return rpcs3::ios::render_view_ready() ? 1 : 0;
+}
 
 extern "C" int rpcs3_ios_upstream_initialize(const char* data_root)
 {
