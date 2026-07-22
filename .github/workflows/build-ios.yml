@@ -44,6 +44,8 @@ jobs:
 
       - name: Publish pending build status
         shell: bash
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
           curl --fail --silent --show-error --max-time 30 \
@@ -53,18 +55,13 @@ jobs:
             -H "X-GitHub-Api-Version: 2022-11-28" \
             "https://api.github.com/repos/$GITHUB_REPOSITORY/statuses/$GITHUB_SHA" \
             -d "{\"state\":\"pending\",\"context\":\"$STATUS_CONTEXT\",\"description\":\"RPCS3 Qt iOS build is running\",\"target_url\":\"$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID\"}"
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Select an installed Xcode with iOS 26 SDK
         shell: bash
         run: |
           set -euo pipefail
           mkdir -p "$CI_LOGS"
-          echo "Current developer directory: $(xcode-select -p)"
-          xcodebuild -version || true
           CURRENT_SDK="$(xcrun --sdk iphoneos --show-sdk-version 2>/dev/null || true)"
-
           if [[ "$CURRENT_SDK" != 26.* ]]; then
             XCODE_PATH=""
             while IFS= read -r candidate; do
@@ -72,26 +69,16 @@ jobs:
               [[ -d "$developer" ]] || continue
               sdk="$(DEVELOPER_DIR="$developer" xcrun --sdk iphoneos --show-sdk-version 2>/dev/null || true)"
               echo "Candidate: $candidate (iphoneos $sdk)"
-              if [[ "$sdk" == 26.* ]]; then
-                XCODE_PATH="$candidate"
-              fi
+              if [[ "$sdk" == 26.* ]]; then XCODE_PATH="$candidate"; fi
             done < <(find -L /Applications -maxdepth 1 -name 'Xcode*.app' -print | sort)
-
-            if [[ -z "$XCODE_PATH" ]]; then
-              echo "No installed Xcode exposes an iOS 26 SDK."
-              find -L /Applications -maxdepth 1 -name 'Xcode*.app' -print | sort
-              exit 1
-            fi
-
-            echo "Selecting $XCODE_PATH"
+            [[ -n "$XCODE_PATH" ]] || { echo "No installed Xcode exposes an iOS 26 SDK."; exit 1; }
             sudo xcode-select -s "$XCODE_PATH/Contents/Developer"
           fi
-
           xcodebuild -version | tee "$CI_LOGS/xcode-version.txt"
           cmake --version | tee "$CI_LOGS/cmake-version.txt"
           SDK_VERSION="$(xcrun --sdk iphoneos --show-sdk-version)"
           echo "iphoneos SDK: $SDK_VERSION" | tee "$CI_LOGS/sdk-version.txt"
-          [[ "$SDK_VERSION" == 26.* ]] || { echo "Expected iOS 26 SDK, got $SDK_VERSION"; exit 1; }
+          [[ "$SDK_VERSION" == 26.* ]]
 
       - name: Restore Qt for iOS cache
         id: qt-cache
@@ -112,10 +99,7 @@ jobs:
           python -m pip install --upgrade pip aqtinstall
           IOS_ARCH="$(python -m aqt list-qt mac ios --arch "$QT_VERSION" | tr ' ' '\n' | sed '/^$/d' | head -n 1)"
           test -n "$IOS_ARCH"
-          echo "Installing base Qt $QT_VERSION for iOS architecture $IOS_ARCH with matching host tools"
-          python -m aqt install-qt mac ios "$QT_VERSION" "$IOS_ARCH" \
-            --autodesktop \
-            -O "$QT_ROOT"
+          python -m aqt install-qt mac ios "$QT_VERSION" "$IOS_ARCH" --autodesktop -O "$QT_ROOT"
 
       - name: Verify Qt toolchains
         shell: bash
@@ -128,7 +112,6 @@ jobs:
           test -x "$UIC"
           "$QT_ROOT/$QT_VERSION/ios/bin/qt-cmake" --version | tee "$CI_LOGS/qt-cmake-version.txt"
           "$UIC" -v 2>&1 | tee "$CI_LOGS/qt-uic-version.txt"
-          find "$QT_ROOT/$QT_VERSION/ios" -maxdepth 3 -name 'Qt6Widgets*' -print | tee "$CI_LOGS/qt-widgets-files.txt"
 
       - name: Save Qt for iOS cache
         if: steps.qt-cache.outputs.cache-hit != 'true'
@@ -142,7 +125,7 @@ jobs:
         uses: actions/cache/restore@v4
         with:
           path: ${{ env.MOLTENVK_ROOT }}
-          key: moltenvk-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('MOLTENVK_REVISION') }}-ios-v1
+          key: moltenvk-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('MOLTENVK_REVISION') }}-ios-v2
 
       - name: Build pinned MoltenVK for iOS
         if: steps.moltenvk-cache.outputs.cache-hit != 'true'
@@ -155,7 +138,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          MVK_BIN="$MOLTENVK_ROOT/MoltenVK.xcframework/ios-arm64/MoltenVK.framework/MoltenVK"
+          test -f "$MOLTENVK_ROOT/device-binary-path.txt"
+          MVK_BIN="$MOLTENVK_ROOT/$(tr -d '\r\n' < "$MOLTENVK_ROOT/device-binary-path.txt")"
           test -f "$MVK_BIN"
           test -f "$MOLTENVK_ROOT/include/vulkan/vulkan.h"
           test -f "$MOLTENVK_ROOT/include/MoltenVK/vk_mvk_moltenvk.h"
@@ -182,7 +166,7 @@ jobs:
           set -o pipefail
           bash scripts/build-qt-ios-app.sh 2>&1 | tee "$CI_LOGS/qt-app-build-console.log"
 
-      - name: Validate real Qt main window and device bundle
+      - name: Validate real Qt main window and both renderers
         id: bundle
         shell: bash
         run: |
@@ -190,23 +174,12 @@ jobs:
           APP="$(cat "$QT_APP_BUILD/app-path.txt")"
           BIN="$APP/RPCS3-iOS"
           CORE_ARCHIVE="$GITHUB_WORKSPACE/BuildSupport/librpcs3-ios-core.a"
-          MOLTENVK_BINARY="$MOLTENVK_ROOT/MoltenVK.xcframework/ios-arm64/MoltenVK.framework/MoltenVK"
+          MVK_BIN="$MOLTENVK_ROOT/$(tr -d '\r\n' < "$MOLTENVK_ROOT/device-binary-path.txt")"
           UI_SOURCE="$GITHUB_WORKSPACE/QtApp/Generated/ui/main_window.ui"
           UI_HEADER="$(find "$QT_APP_BUILD" -type f -name ui_main_window.h -print | head -n 1)"
           UI_FACTORY="$GITHUB_WORKSPACE/QtApp/Generated/RPCS3QtUiFactory.cpp"
-          CORE_SYMBOLS="$RUNNER_TEMP/rpcs3-core-symbols.txt"
-          BIN_FILE="$RUNNER_TEMP/rpcs3-qt-file.txt"
-          BIN_STRINGS="$RUNNER_TEMP/rpcs3-qt-strings.txt"
-          BIN_SYMBOLS="$RUNNER_TEMP/rpcs3-qt-symbols.txt"
-
-          test -d "$APP"
-          test -f "$BIN"
-          test -f "$CORE_ARCHIVE"
-          test -f "$MOLTENVK_BINARY"
-          test -f "$UI_SOURCE"
-          test -f "$UI_HEADER"
-          test -f "$UI_FACTORY"
-
+          test -d "$APP" && test -f "$BIN" && test -f "$CORE_ARCHIVE" && test -f "$MVK_BIN"
+          test -f "$UI_SOURCE" && test -f "$UI_HEADER" && test -f "$UI_FACTORY"
           grep -q '<class>main_window</class>' "$UI_SOURCE"
           grep -q 'name="menuFile"' "$UI_SOURCE"
           grep -q 'name="bootVSHAct"' "$UI_SOURCE"
@@ -214,31 +187,23 @@ jobs:
           grep -q 'bootGameAct' "$UI_HEADER"
           grep -q 'menuConfiguration' "$UI_HEADER"
           grep -q 'main_window.ui' "$UI_FACTORY"
-
-          file "$CORE_ARCHIVE"
-          lipo -info "$CORE_ARCHIVE"
-          xcrun ar -t "$CORE_ARCHIVE"
-          nm -gU "$CORE_ARCHIVE" > "$CORE_SYMBOLS"
-          grep -q '_rpcs3_ios_core_initialize' "$CORE_SYMBOLS"
-          grep -q '_rpcs3_ios_core_boot_elf' "$CORE_SYMBOLS"
-
-          file "$BIN" > "$BIN_FILE"
-          cat "$BIN_FILE"
-          lipo -info "$BIN"
-          xcrun vtool -show-build "$BIN" || true
-          grep -q 'arm64' "$BIN_FILE"
-          strings "$BIN" > "$BIN_STRINGS"
-          grep -q 'RPCS3 Qt iOS upstream main_window.ui' "$BIN_STRINGS"
-          grep -q 'Vulkan (MoltenVK)' "$BIN_STRINGS"
-          grep -q 'Run GPU Self-Test' "$BIN_STRINGS"
-          grep -q 'Native Metal submitted and presented a frame' "$BIN_STRINGS"
-          grep -q 'MoltenVK submitted and presented a Vulkan frame through Metal' "$BIN_STRINGS"
-          nm -gU "$BIN" > "$BIN_SYMBOLS"
-          grep -q '_rpcs3_ios_core_initialize' "$BIN_SYMBOLS"
-          grep -q '_rpcs3_ios_core_boot_elf' "$BIN_SYMBOLS"
-          grep -q '_vkCreateInstance' "$BIN_SYMBOLS"
-          grep -q '_MTLCreateSystemDefaultDevice' "$BIN_SYMBOLS"
-          [[ "$APP" == *Release* ]] || { echo "Refusing non-Release product path: $APP"; exit 1; }
+          nm -gU "$CORE_ARCHIVE" > "$RUNNER_TEMP/rpcs3-core-symbols.txt"
+          grep -q '_rpcs3_ios_core_initialize' "$RUNNER_TEMP/rpcs3-core-symbols.txt"
+          grep -q '_rpcs3_ios_core_boot_elf' "$RUNNER_TEMP/rpcs3-core-symbols.txt"
+          file "$BIN" > "$RUNNER_TEMP/rpcs3-qt-file.txt"
+          grep -q 'arm64' "$RUNNER_TEMP/rpcs3-qt-file.txt"
+          strings "$BIN" > "$RUNNER_TEMP/rpcs3-qt-strings.txt"
+          grep -q 'RPCS3 Qt iOS upstream main_window.ui' "$RUNNER_TEMP/rpcs3-qt-strings.txt"
+          grep -q 'Vulkan (MoltenVK)' "$RUNNER_TEMP/rpcs3-qt-strings.txt"
+          grep -q 'Run GPU Self-Test' "$RUNNER_TEMP/rpcs3-qt-strings.txt"
+          grep -q 'Native Metal submitted and presented a frame' "$RUNNER_TEMP/rpcs3-qt-strings.txt"
+          grep -q 'MoltenVK submitted and presented a Vulkan frame through Metal' "$RUNNER_TEMP/rpcs3-qt-strings.txt"
+          nm -gU "$BIN" > "$RUNNER_TEMP/rpcs3-qt-symbols.txt"
+          grep -q '_rpcs3_ios_core_initialize' "$RUNNER_TEMP/rpcs3-qt-symbols.txt"
+          grep -q '_rpcs3_ios_core_boot_elf' "$RUNNER_TEMP/rpcs3-qt-symbols.txt"
+          grep -q '_vkCreateInstance' "$RUNNER_TEMP/rpcs3-qt-symbols.txt"
+          grep -q '_MTLCreateSystemDefaultDevice' "$RUNNER_TEMP/rpcs3-qt-symbols.txt"
+          [[ "$APP" == *Release* ]]
           echo "app=$APP" >> "$GITHUB_OUTPUT"
 
       - name: Package unsigned Qt IPA
@@ -284,12 +249,15 @@ jobs:
             cmake-ios-build/**
             cmake-ios-build.tar.gz
             BuildSupport/MoltenVK/revision.txt
+            BuildSupport/MoltenVK/device-binary-path.txt
           if-no-files-found: warn
           retention-days: 30
 
       - name: Publish final build status
         if: always()
         shell: bash
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
           case "${{ job.status }}" in
@@ -304,5 +272,3 @@ jobs:
             -H "X-GitHub-Api-Version: 2022-11-28" \
             "https://api.github.com/repos/$GITHUB_REPOSITORY/statuses/$GITHUB_SHA" \
             -d "{\"state\":\"$state\",\"context\":\"$STATUS_CONTEXT\",\"description\":\"$description\",\"target_url\":\"$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID\"}"
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
