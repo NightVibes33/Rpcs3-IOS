@@ -4,6 +4,7 @@
 #include "RPCS3ELFProbe.h"
 #include "RPCS3SELFProbe.h"
 #include "RPCS3SELFLoadPlan.h"
+#include "RPCS3SELFExtractor.h"
 
 #ifdef RPCS3_IOS_WITH_UPSTREAM_CRYPTO
 #include "sha256.h"
@@ -167,7 +168,7 @@ int rpcs3_ios_core_initialize(const char *data_path)
     g_last_boot_sha256.clear();
     g_state = RPCS3IOSCoreStateUnavailable;
     g_message = capabilities.metal_available
-        ? "Sandbox storage, Metal, upstream SHA-256, ELF probing, and SELF load planning are ready. PPU/SPU execution is not linked yet."
+        ? "Sandbox storage, Metal, upstream SHA-256, ELF probing, and plain SELF reconstruction are ready. PPU/SPU execution is not linked yet."
         : "Sandbox storage and upstream loader primitives are ready, but no Metal device is available.";
     return 1;
 }
@@ -248,8 +249,37 @@ int rpcs3_ios_core_boot_elf(const char *elf_path)
                 set_failure(plan.description);
                 return 0;
             }
+
+            const std::string artifact_name = g_last_boot_sha256.empty()
+                ? "plain-self.elf"
+                : "self-" + g_last_boot_sha256.substr(0, 16) + ".elf";
+            const std::filesystem::path output =
+                std::filesystem::path(g_data_path) / "cache" / "self" / artifact_name;
+            const rpcs3::ios::self_extraction_result extraction =
+                rpcs3::ios::extract_plain_self_to_elf(elf_path, output.string().c_str());
+            if (!extraction.success)
+            {
+                set_failure(extraction.description);
+                return 0;
+            }
+            if (!rpcs3::ios::path_is_within_app_container(extraction.output_path.c_str()))
+            {
+                set_failure("Reconstructed ELF escaped the RPCS3 app container");
+                return 0;
+            }
+
+            const rpcs3::ios::elf_probe_result extracted_probe =
+                rpcs3::ios::probe_ps3_elf(extraction.output_path.c_str());
+            if (!extracted_probe.valid || !extracted_probe.ps3_compatible)
+            {
+                std::filesystem::remove(extraction.output_path, filesystem_error);
+                set_failure("Reconstructed SELF payload failed ELF validation: " + extracted_probe.description);
+                return 0;
+            }
+
             g_state = RPCS3IOSCoreStateReady;
-            g_message = probe.description + "; " + plan.description + "; ready for bounded ELF reconstruction.";
+            g_message = probe.description + "; " + extraction.description + "; " +
+                extracted_probe.description + "; cached and ready for the future PPU loader stage.";
             return 1;
         }
 
