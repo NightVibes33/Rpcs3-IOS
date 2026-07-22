@@ -35,10 +35,8 @@ bool use_native_metal()
 
 void configure_interpreter_lane()
 {
-    g_cfg.core.ppu_decoder.set(ppu_decoder_type::interpreter);
-    g_cfg.core.spu_decoder.set(spu_decoder_type::interpreter_precise);
-    // RPCS3 has no upstream Metal enum. Native Metal is selected in the host
-    // callback while Vulkan continues through the upstream VKGSRender path.
+    g_cfg.core.ppu_decoder.set(ppu_decoder_type::_static);
+    g_cfg.core.spu_decoder.set(spu_decoder_type::_static);
     g_cfg.video.renderer.set(use_native_metal() ? video_renderer::null : video_renderer::vulkan);
     g_cfg.audio.renderer.set(audio_renderer::null);
     g_cfg.io.keyboard.set(keyboard_handler::null);
