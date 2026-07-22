@@ -5,6 +5,7 @@
 #import <UIKit/UIKit.h>
 
 #include <algorithm>
+#include <mutex>
 
 namespace rpcs3::ios::render
 {
@@ -19,6 +20,9 @@ namespace
     return CAMetalLayer.class;
 }
 @end
+
+std::mutex g_parent_mutex;
+__weak UIView* g_preferred_parent = nil;
 
 UIView* active_root_view()
 {
@@ -44,20 +48,33 @@ UIView* active_root_view()
     return nullptr;
 }
 
+UIView* view_from_native_handle(void* native_view)
+{
+    if (!native_view)
+        return nil;
+    id candidate = (__bridge id)native_view;
+    if ([candidate isKindOfClass:UIView.class])
+        return static_cast<UIView*>(candidate);
+    if ([candidate respondsToSelector:@selector(view)])
+    {
+        id view = [candidate valueForKey:@"view"];
+        if ([view isKindOfClass:UIView.class])
+            return static_cast<UIView*>(view);
+    }
+    return nil;
+}
+
 UIView* resolve_parent_view(void* native_parent_view)
 {
-    if (native_parent_view)
+    if (UIView* explicit_parent = view_from_native_handle(native_parent_view))
+        return explicit_parent;
+
     {
-        id candidate = (__bridge id)native_parent_view;
-        if ([candidate isKindOfClass:UIView.class])
-            return static_cast<UIView*>(candidate);
-        if ([candidate respondsToSelector:@selector(view)])
-        {
-            id view = [candidate valueForKey:@"view"];
-            if ([view isKindOfClass:UIView.class])
-                return static_cast<UIView*>(view);
-        }
+        std::lock_guard lock(g_parent_mutex);
+        if (g_preferred_parent)
+            return g_preferred_parent;
     }
+
     return active_root_view();
 }
 
@@ -75,6 +92,24 @@ struct apple_surface
     __strong RPCS3MetalSurfaceView* view = nullptr;
     __strong CAMetalLayer* layer = nullptr;
 };
+
+void set_preferred_apple_surface_parent(void* native_view) noexcept
+{
+    @autoreleasepool
+    {
+        std::lock_guard lock(g_parent_mutex);
+        g_preferred_parent = view_from_native_handle(native_view);
+    }
+}
+
+void* preferred_apple_surface_parent() noexcept
+{
+    @autoreleasepool
+    {
+        std::lock_guard lock(g_parent_mutex);
+        return g_preferred_parent ? (__bridge void*)g_preferred_parent : nullptr;
+    }
+}
 
 apple_surface* create_apple_metal_surface(void* native_parent_view,
                                           std::uint32_t pixel_width,
@@ -107,7 +142,6 @@ apple_surface* create_apple_metal_surface(void* native_parent_view,
         result->layer.opaque = YES;
 
         [parent addSubview:result->view];
-        [parent sendSubviewToBack:result->view];
         error.clear();
         return result;
     }
