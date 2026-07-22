@@ -13,8 +13,14 @@ typedef enum RPCS3IOSUpstreamState {
     RPCS3IOSUpstreamStateFailed = 5
 } RPCS3IOSUpstreamState;
 
-// Initializes the real upstream Emulator singleton using interpreter PPU/SPU,
-// Null RSX, Null audio, and the supplied sandbox data root.
+// Attaches a runtime-owned CAMetalLayer to the native iOS UIView represented by
+// a Qt QWidget::winId(). The view must remain alive while emulation is active.
+int rpcs3_ios_upstream_set_render_view(void* native_view);
+void rpcs3_ios_upstream_clear_render_view(void);
+int rpcs3_ios_upstream_render_view_ready(void);
+
+// Initializes the real upstream Emulator singleton using static PPU/SPU
+// interpreters and the supplied sandbox data root.
 int rpcs3_ios_upstream_initialize(const char* data_root);
 
 // Installs a PS3 PKG through upstream package_reader::extract_data(). Returns 1
