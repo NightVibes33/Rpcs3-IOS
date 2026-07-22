@@ -37,6 +37,7 @@ command -v xcrun >/dev/null
 
 test -f "$REVISION_FILE"
 test -f "$PORT_ROOT/scripts/build-moltenvk-ios.sh"
+test -f "$PORT_ROOT/CoreBridge/RPCS3UpstreamFirmwareInstaller.cpp"
 UPSTREAM_REVISION="$(tr -d '[:space:]' < "$REVISION_FILE")"
 test -n "$UPSTREAM_REVISION"
 
@@ -113,15 +114,22 @@ lipo -info "$OUTPUT/RPCS3UpstreamRuntime" | tee "$BUILD/framework-architectures.
 otool -L "$OUTPUT/RPCS3UpstreamRuntime" | tee "$BUILD/framework-linked-libraries.txt"
 nm -gU "$OUTPUT/RPCS3UpstreamRuntime" > "$BUILD/framework-symbols.txt"
 
-grep -q '_rpcs3_ios_upstream_set_render_view' "$BUILD/framework-symbols.txt"
-grep -q '_rpcs3_ios_upstream_render_view_ready' "$BUILD/framework-symbols.txt"
-grep -q '_rpcs3_ios_upstream_initialize' "$BUILD/framework-symbols.txt"
-grep -q '_rpcs3_ios_upstream_install_pkg' "$BUILD/framework-symbols.txt"
-grep -q '_rpcs3_ios_upstream_last_installed_boot_path' "$BUILD/framework-symbols.txt"
-grep -q '_rpcs3_ios_upstream_boot_game' "$BUILD/framework-symbols.txt"
-grep -q '_rpcs3_ios_upstream_pause' "$BUILD/framework-symbols.txt"
-grep -q '_rpcs3_ios_upstream_resume' "$BUILD/framework-symbols.txt"
-grep -q '_rpcs3_ios_upstream_stop' "$BUILD/framework-symbols.txt"
+for symbol in \
+  _rpcs3_ios_upstream_set_render_view \
+  _rpcs3_ios_upstream_render_view_ready \
+  _rpcs3_ios_upstream_initialize \
+  _rpcs3_ios_upstream_install_firmware \
+  _rpcs3_ios_upstream_firmware_ready \
+  _rpcs3_ios_upstream_firmware_version \
+  _rpcs3_ios_upstream_firmware_last_message \
+  _rpcs3_ios_upstream_install_pkg \
+  _rpcs3_ios_upstream_last_installed_boot_path \
+  _rpcs3_ios_upstream_boot_game \
+  _rpcs3_ios_upstream_pause \
+  _rpcs3_ios_upstream_resume \
+  _rpcs3_ios_upstream_stop; do
+  grep -q "$symbol" "$BUILD/framework-symbols.txt"
+done
 grep -q '_vkCreateInstance' "$BUILD/framework-symbols.txt"
 grep -q '_vkCreateMetalSurfaceEXT' "$BUILD/framework-symbols.txt"
 
@@ -137,8 +145,9 @@ cat > "$BUILD/summary.md" <<EOF
 - Renderer lane: upstream Vulkan through pinned MoltenVK, with Null fallback
 - Native surface: Qt iOS \`UIView\` hosting a runtime-owned \`CAMetalLayer\`
 - MoltenVK: \`$(cat "$MOLTENVK_ROOT/version.txt")\`
-- Exported installer: upstream \`package_reader::extract_data\`
-- Exported lifecycle: render surface, initialize, install PKG, BootGame, pause, resume, stop, state
+- Firmware installer: upstream PUP validation, SCE decryption, and nested TAR extraction into \`dev_flash\`
+- Package installer: upstream \`package_reader::extract_data\`
+- Exported lifecycle: render surface, initialize, install firmware, install PKG, BootGame, pause, resume, stop, state
 - Data root: host-selected RPCS3 sandbox through RPCS3_CONFIG_DIR
 EOF
 
