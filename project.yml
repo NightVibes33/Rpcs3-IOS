@@ -20,6 +20,10 @@ targets:
     platform: iOS
     sources:
       - path: App
+        excludes:
+          - Generated/RPCS3QtUIModel.json
+      - path: App/Generated/RPCS3QtUIModel.json
+        buildPhase: resources
     info:
       path: App/Info.plist
     entitlements:
