@@ -85,6 +85,8 @@ python3 "$TIMEOUT_RUNNER" 3600 cmake \
   -DWITH_LLVM=OFF \
   -DBUILD_LLVM=OFF \
   -DBUILD_LLVM_SUBMODULE=OFF \
+  -DUSE_VULKAN=OFF \
+  -DUSE_OPENGL=OFF \
   -DUSE_SYSTEM_CURL=OFF \
   -DUSE_FAUDIO=OFF \
   -DUSE_PRECOMPILED_HEADERS=OFF \
@@ -153,6 +155,7 @@ fi
   echo "- Complete UI model: \`$BUILD/rpcs3-qt-ui-model.json\`"
   echo "- FFmpeg target: \`arm64-apple-ios${DEPLOYMENT_TARGET:-26.0}\`"
   echo "- FFmpeg install: \`$FFMPEG_ROOT\`"
+  echo "- Renderer lane: \`Null RSX (Vulkan/OpenGL disabled for interpreter execution proof)\`"
   echo "- Configure exit status: \`$configure_status\`"
   echo "- rpcs3_emu build exit status: \`$build_status\`"
   echo "- Phase 1 evidence exit status: \`$phase1_status\`"
@@ -163,6 +166,7 @@ fi
   echo "- LLVM is intentionally disabled so interpreter-based PPU/SPU paths compile before entitlement-dependent JIT work."
   echo "- The desktop executable is excluded from this core graph; the shipped host is the separate Qt Widgets iOS application generated from RPCS3's upstream Qt UI."
   echo "- Pinned FFmpeg is built as real arm64-iOS static libraries and linked into the upstream graph."
+  echo "- Vulkan and OpenGL are intentionally disabled in this phase; rendering is added after interpreter guest execution is proven."
   echo "- This probe compiles the real upstream rpcs3_emu target and separately proves whether System.cpp entered the build."
   echo "- Compilation is not treated as physical-device Emu.System initialization or guest execution."
   if [[ $configure_status -ne 0 ]]; then
