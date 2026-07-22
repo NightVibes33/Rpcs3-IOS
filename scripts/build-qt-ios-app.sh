@@ -28,7 +28,8 @@ for required in \
   "$HOST_QT" \
   "$ROOT/rpcs3/rpcs3qt/main_window.ui" \
   "$PORT_ROOT/scripts/generate-qt-ui-factory.py" \
-  "$PORT_ROOT/scripts/build-upstream-ios-runtime-framework.sh"; do
+  "$PORT_ROOT/scripts/build-upstream-ios-runtime-framework.sh" \
+  "$PORT_ROOT/QtApp/RPCS3IOSTouchControls.cpp"; do
   test -e "$required"
 done
 
@@ -87,7 +88,7 @@ output = Path(sys.argv[2])
 root = ET.parse(source).getroot()
 class_name = root.findtext("class")
 actions = [node.attrib.get("name", "") for node in root.findall(".//action")]
-menus = [node.attrib.get("name", "") for node in root.findall(".//widget[@class='QMenu']")]
+menus = [node.attrib.get("name", "") for node in root.findall(".//widget[@class='QMenu')]
 required_actions = {"bootGameAct", "bootIsoAct", "bootVSHAct", "bootInstallPupAct", "bootInstallPkgAct", "confCPUAct", "sysStopAct"}
 missing = sorted(required_actions - set(actions))
 if class_name != "main_window":
@@ -171,6 +172,7 @@ otool -L "$EMBEDDED_RUNTIME" | tee "$BUILD/embedded-runtime-linked-libraries.txt
 
 strings "$BIN" > "$BUILD/binary-strings.txt"
 grep -q 'RPCS3 Qt iOS upstream main_window.ui' "$BUILD/binary-strings.txt"
+grep -q 'rpcs3IOSPadButton_' "$BUILD/binary-strings.txt"
 nm -gU "$BIN" > "$BUILD/binary-defined-symbols.txt"
 nm -g "$BIN" > "$BUILD/binary-all-symbols.txt"
 nm -gU "$EMBEDDED_RUNTIME" > "$BUILD/embedded-runtime-symbols.txt"
@@ -185,7 +187,8 @@ for symbol in \
   _rpcs3_ios_core_firmware_version \
   _rpcs3_ios_core_install_pkg \
   _rpcs3_ios_core_last_installed_boot_path \
-  _rpcs3_ios_core_boot_elf; do
+  _rpcs3_ios_core_boot_elf \
+  _rpcs3_ios_core_set_pad_state; do
   grep -q "$symbol" "$BUILD/binary-defined-symbols.txt"
 done
 
@@ -199,6 +202,7 @@ for symbol in \
   _rpcs3_ios_upstream_firmware_last_message \
   _rpcs3_ios_upstream_install_pkg \
   _rpcs3_ios_upstream_boot_game \
+  _rpcs3_ios_upstream_set_pad_state \
   _rpcs3_ios_upstream_stop; do
   grep -q "$symbol" "$BUILD/binary-all-symbols.txt"
   grep -q "$symbol" "$BUILD/embedded-runtime-symbols.txt"
@@ -225,6 +229,7 @@ cat > "$BUILD/summary.md" <<EOF
 - PKG installation and installed-title boot remain disabled until firmware readiness is proven.
 - Install Packages calls upstream \`package_reader::extract_data\`, refreshes \`dev_hdd0/game\`, and boots through \`Emulator::BootGame\`.
 - The app supplies a native Qt iOS \`UIView\`; the runtime owns its \`CAMetalLayer\` and presents through upstream \`VKGSRender\` over MoltenVK.
+- On-screen controls feed RPCS3's connected LDD/cellPad path at 60 Hz for D-pad, face, shoulder, Start, Select, and PS input.
 EOF
 
 cat "$BUILD/summary.md"
