@@ -27,6 +27,9 @@ jobs:
     timeout-minutes: 240
     env:
       STATUS_CONTEXT: "RPCS3 real upstream graph"
+      DEPLOYMENT_TARGET: "26.0"
+      RPCS3_IOS_FFMPEG_ROOT: "${{ github.workspace }}/BuildSupport/ffmpeg-ios"
+      FFMPEG_IOS_ROOT: "${{ github.workspace }}/BuildSupport/ffmpeg-ios"
     steps:
       - name: Checkout iOS port
         uses: actions/checkout@v4
@@ -63,6 +66,15 @@ jobs:
           xcodebuild -version
           xcrun --sdk iphoneos --show-sdk-version
 
+      - name: Restore FFmpeg iOS cache
+        id: ffmpeg-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            BuildSupport/ffmpeg-ios
+            .cache/ffmpeg-n7.1
+          key: ffmpeg-n7.1-${{ runner.os }}-${{ runner.arch }}-iphoneos26-arm64-v1
+
       - name: Build real upstream RPCS3 graph
         id: graph
         shell: bash
@@ -72,6 +84,15 @@ jobs:
           status=$?
           echo "status=$status" >> "$GITHUB_OUTPUT"
           exit 0
+
+      - name: Save FFmpeg iOS cache
+        if: always() && steps.ffmpeg-cache.outputs.cache-hit != 'true' && hashFiles('BuildSupport/ffmpeg-ios/.rpcs3-ios-ffmpeg-n7.1') != ''
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            BuildSupport/ffmpeg-ios
+            .cache/ffmpeg-n7.1
+          key: ffmpeg-n7.1-${{ runner.os }}-${{ runner.arch }}-iphoneos26-arm64-v1
 
       - name: Upload graph evidence
         if: always()
