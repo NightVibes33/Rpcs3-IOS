@@ -30,6 +30,20 @@ void set_message(std::string message)
     g_message = std::move(message);
 }
 
+RPCS3IOSRendererBackend public_renderer(rpcs3::ios::upstream::renderer_backend renderer)
+{
+    return renderer == rpcs3::ios::upstream::renderer_backend::metal
+        ? RPCS3IOSRendererMetal
+        : RPCS3IOSRendererVulkan;
+}
+
+rpcs3::ios::upstream::renderer_backend upstream_renderer(RPCS3IOSRendererBackend renderer)
+{
+    return renderer == RPCS3IOSRendererMetal
+        ? rpcs3::ios::upstream::renderer_backend::metal
+        : rpcs3::ios::upstream::renderer_backend::vulkan;
+}
+
 RPCS3IOSCoreState current_state()
 {
     if (!g_platform_initialized || !g_runtime_linked)
@@ -85,6 +99,7 @@ RPCS3IOSCoreDiagnostics rpcs3_ios_core_diagnostics(void)
     result.renderer_available = g_renderer ? 1 : 0;
     result.upstream_runtime_linked = g_runtime_linked ? 1 : 0;
     result.host_callbacks_initialized = g_callbacks_initialized ? 1 : 0;
+    result.selected_renderer = public_renderer(rpcs3::ios::upstream::selected_renderer());
     result.upstream_revision = "v0.0.40";
     result.build_classification = g_runtime_linked
         ? "upstream-execution-interpreter"
@@ -127,6 +142,27 @@ int rpcs3_ios_core_initialize(const char* data_path)
     g_renderer = host.renderer;
     set_message(host.message);
     return host.initialized && host.callbacks_initialized;
+}
+
+int rpcs3_ios_core_set_renderer(RPCS3IOSRendererBackend renderer)
+{
+    std::lock_guard lock(g_mutex);
+    if (renderer != RPCS3IOSRendererVulkan && renderer != RPCS3IOSRendererMetal)
+    {
+        set_message("Unknown RPCS3 iOS renderer selection.");
+        return 0;
+    }
+
+    std::string message;
+    const bool selected = rpcs3::ios::upstream::select_renderer(upstream_renderer(renderer), message);
+    set_message(std::move(message));
+    return selected;
+}
+
+RPCS3IOSRendererBackend rpcs3_ios_core_get_renderer(void)
+{
+    std::lock_guard lock(g_mutex);
+    return public_renderer(rpcs3::ios::upstream::selected_renderer());
 }
 
 int rpcs3_ios_core_boot_path(const char* path)
