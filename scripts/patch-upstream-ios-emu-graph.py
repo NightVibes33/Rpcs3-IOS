@@ -73,13 +73,14 @@ def add_runtime_bridge_targets(upstream_root: Path) -> None:
     port_root = Path(__file__).resolve().parent.parent
     bridge_source = port_root / "CoreBridge/RPCS3UpstreamRuntimeBridge.cpp"
     probe_source = port_root / "CoreBridge/RPCS3UpstreamRuntimeLinkProbe.cpp"
+    qt_app_root = port_root / "QtApp"
     renderer_sources = [
         port_root / "Renderers/Apple/RPCS3AppleSurface.mm",
         port_root / "Renderers/Apple/RPCS3IOSGSFrame.mm",
         port_root / "Renderers/Metal/RPCS3MetalRenderer.mm",
         port_root / "Renderers/Metal/RPCS3MetalGSRender.mm",
     ]
-    for source in [bridge_source, probe_source, *renderer_sources]:
+    for source in [bridge_source, probe_source, qt_app_root / "CMakeLists.txt", *renderer_sources]:
         if not source.is_file():
             raise SystemExit(f"Missing upstream runtime/renderer source: {source}")
 
@@ -136,6 +137,15 @@ if(RPCS3_IOS_UPSTREAM_GRAPH)
         XCODE_ATTRIBUTE_CODE_SIGNING_ALLOWED "NO"
         XCODE_ATTRIBUTE_CODE_SIGNING_REQUIRED "NO"
     )
+
+    option(RPCS3_IOS_BUILD_QT_HOST "Build the real RPCS3 Qt Widgets iOS host in this upstream graph" OFF)
+    if(RPCS3_IOS_BUILD_QT_HOST)
+        set(RPCS3_IOS_UNIFIED_UPSTREAM ON CACHE BOOL "" FORCE)
+        add_subdirectory(
+            "{qt_app_root.as_posix()}"
+            "${{CMAKE_BINARY_DIR}}/rpcs3-ios-qt-host"
+        )
+    endif()
 endif()
 '''
     cmake.write_text(text, encoding="utf-8")
@@ -187,7 +197,7 @@ def main() -> int:
 
     print(
         "Patched upstream emulator graph, Emu.Init bridge, UIKit GS frame, "
-        f"MoltenVK, native Metal, and iOS runtime dependencies: {args.upstream_root}"
+        f"MoltenVK, native Metal, unified Qt host, and iOS runtime dependencies: {args.upstream_root}"
     )
     return 0
 
