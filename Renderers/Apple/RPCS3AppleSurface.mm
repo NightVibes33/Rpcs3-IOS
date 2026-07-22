@@ -30,7 +30,7 @@ UIView* active_root_view()
     {
         if (![scene isKindOfClass:UIWindowScene.class])
             continue;
-        UIWindowScene* window_scene = static_cast<UIWindowScene*>(scene);
+        UIWindowScene* window_scene = (UIWindowScene*)scene;
         if (window_scene.activationState != UISceneActivationStateForegroundActive &&
             window_scene.activationState != UISceneActivationStateForegroundInactive)
             continue;
@@ -45,7 +45,7 @@ UIView* active_root_view()
                 return window.rootViewController.view;
         }
     }
-    return nullptr;
+    return nil;
 }
 
 UIView* view_from_native_handle(void* native_view)
@@ -54,12 +54,12 @@ UIView* view_from_native_handle(void* native_view)
         return nil;
     id candidate = (__bridge id)native_view;
     if ([candidate isKindOfClass:UIView.class])
-        return static_cast<UIView*>(candidate);
+        return (UIView*)candidate;
     if ([candidate respondsToSelector:@selector(view)])
     {
         id view = [candidate valueForKey:@"view"];
         if ([view isKindOfClass:UIView.class])
-            return static_cast<UIView*>(view);
+            return (UIView*)view;
     }
     return nil;
 }
@@ -88,9 +88,9 @@ CGSize point_size(std::uint32_t pixel_width, std::uint32_t pixel_height, float s
 
 struct apple_surface
 {
-    __strong UIView* parent = nullptr;
-    __strong RPCS3MetalSurfaceView* view = nullptr;
-    __strong CAMetalLayer* layer = nullptr;
+    __strong UIView* parent = nil;
+    __strong RPCS3MetalSurfaceView* view = nil;
+    __strong CAMetalLayer* layer = nil;
 };
 
 void set_preferred_apple_surface_parent(void* native_view) noexcept
@@ -134,7 +134,7 @@ apple_surface* create_apple_metal_surface(void* native_parent_view,
         result->view.userInteractionEnabled = NO;
         result->view.opaque = YES;
         result->view.backgroundColor = UIColor.blackColor;
-        result->layer = static_cast<CAMetalLayer*>(result->view.layer);
+        result->layer = (CAMetalLayer*)result->view.layer;
         result->layer.contentsScale = std::max<CGFloat>(content_scale, 1.0);
         result->layer.drawableSize = CGSizeMake(std::max<std::uint32_t>(pixel_width, 1),
                                                 std::max<std::uint32_t>(pixel_height, 1));
@@ -181,9 +181,9 @@ void destroy_apple_surface(apple_surface* surface) noexcept
     @autoreleasepool
     {
         [surface->view removeFromSuperview];
-        surface->layer = nullptr;
-        surface->view = nullptr;
-        surface->parent = nullptr;
+        surface->layer = nil;
+        surface->view = nil;
+        surface->parent = nil;
     }
     delete surface;
 }
