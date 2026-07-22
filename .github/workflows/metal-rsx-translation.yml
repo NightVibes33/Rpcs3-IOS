@@ -5,6 +5,8 @@ on:
   push:
     branches: [metal-rsx-translation]
     paths:
+      - "Renderers/Metal/RPCS3MetalDrawSubmission.*"
+      - "Renderers/Metal/RPCS3MetalRenderer.*"
       - "Renderers/Metal/RPCS3MetalRSXFormats.*"
       - "Renderers/Metal/RPCS3MetalPrimitiveExpander.*"
       - "Renderers/Metal/RPCS3MetalPipelineState.*"
@@ -66,29 +68,40 @@ jobs:
           xcrun --sdk iphoneos clang++ "${COMMON[@]}" \
             -c Renderers/Metal/RPCS3MetalPipelineState.mm \
             -o build-metal-rsx/RPCS3MetalPipelineState.o
-          xcrun --sdk iphoneos clang++ \
-            -std=c++20 \
-            -arch arm64 \
-            -miphoneos-version-min=26.0 \
-            -isysroot "$SDK" \
-            -Wall -Wextra -Werror \
+          xcrun --sdk iphoneos clang++ "${COMMON[@]}" \
+            -c Renderers/Metal/RPCS3MetalRenderer.mm \
+            -o build-metal-rsx/RPCS3MetalRenderer.o
+
+          CPP_COMMON=(
+            -std=c++20
+            -arch arm64
+            -miphoneos-version-min=26.0
+            -isysroot "$SDK"
+            -Wall -Wextra -Werror
+          )
+          xcrun --sdk iphoneos clang++ "${CPP_COMMON[@]}" \
+            -c Renderers/Metal/RPCS3MetalDrawSubmission.cpp \
+            -o build-metal-rsx/RPCS3MetalDrawSubmission.o
+          xcrun --sdk iphoneos clang++ "${CPP_COMMON[@]}" \
             -c Renderers/Metal/RPCS3MetalPrimitiveExpander.cpp \
             -o build-metal-rsx/RPCS3MetalPrimitiveExpander.o
           file build-metal-rsx/*.o
           for object in build-metal-rsx/*.o; do lipo -info "$object"; done
 
-      - name: Run primitive expansion tests on host
+      - name: Run primitive and draw submission tests on host
         shell: bash
         run: |
           set -euo pipefail
-          cat > build-metal-rsx/primitive-tests.cpp <<'CPP'
+          cat > build-metal-rsx/translation-tests.cpp <<'CPP'
+          #include "Renderers/Metal/RPCS3MetalDrawSubmission.h"
           #include "Renderers/Metal/RPCS3MetalPrimitiveExpander.h"
+          #include <array>
           #include <cassert>
           #include <cstdint>
+          #include <string>
           #include <vector>
 
-          using rpcs3::ios::render::metal_rsx::expand_primitive_indices;
-          using rpcs3::ios::render::metal_rsx::make_and_expand_sequential_indices;
+          using namespace rpcs3::ios::render::metal_rsx;
 
           int main()
           {
@@ -98,14 +111,34 @@ jobs:
               assert((make_and_expand_sequential_indices(9, 6) == std::vector<std::uint32_t>{0, 1, 2, 2, 1, 3, 2, 3, 4, 4, 3, 5}));
               assert((make_and_expand_sequential_indices(10, 5) == std::vector<std::uint32_t>{0, 1, 2, 0, 2, 3, 0, 3, 4}));
               assert(expand_primitive_indices(5, std::vector<std::uint32_t>{4, 5, 6}) == std::vector<std::uint32_t>({4, 5, 6}));
+
+              std::array<std::uint8_t, 48> vertices{};
+              std::array<std::uint16_t, 3> indices{0, 1, 2};
+              int pipeline_token = 1;
+              std::string error;
+
+              draw_submission draw;
+              assert(!validate_draw_submission(draw, error));
+              draw.render_pipeline_state = &pipeline_token;
+              draw.vertex_buffer = {vertices.data(), vertices.size()};
+              draw.vertex_count = 3;
+              assert(validate_draw_submission(draw, error));
+
+              draw.indices = index_format::uint16;
+              draw.index_count = 3;
+              draw.index_buffer = {indices.data(), sizeof(std::uint16_t)};
+              assert(!validate_draw_submission(draw, error));
+              draw.index_buffer = {indices.data(), sizeof(indices)};
+              assert(validate_draw_submission(draw, error));
               return 0;
           }
           CPP
           clang++ -std=c++20 -Wall -Wextra -Werror -I. \
+            Renderers/Metal/RPCS3MetalDrawSubmission.cpp \
             Renderers/Metal/RPCS3MetalPrimitiveExpander.cpp \
-            build-metal-rsx/primitive-tests.cpp \
-            -o build-metal-rsx/primitive-tests
-          build-metal-rsx/primitive-tests
+            build-metal-rsx/translation-tests.cpp \
+            -o build-metal-rsx/translation-tests
+          build-metal-rsx/translation-tests
 
       - name: Upload compile evidence
         uses: actions/upload-artifact@v4
