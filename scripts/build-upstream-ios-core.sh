@@ -6,20 +6,33 @@ BUILD="${BUILD:-cmake-ios-build}"
 PRODUCT_DIR="${PRODUCT_DIR:-BuildSupport}"
 PORT_ROOT="$(pwd)"
 TOOLCHAIN="$PORT_ROOT/cmake/toolchains/ios-arm64.cmake"
+REVISION_FILE="$PORT_ROOT/UPSTREAM_RPCS3_REVISION"
 
 command -v cmake >/dev/null
 command -v xcrun >/dev/null
+command -v git >/dev/null
+
+test -f "$REVISION_FILE"
+UPSTREAM_REVISION="$(tr -d '[:space:]' < "$REVISION_FILE")"
+test -n "$UPSTREAM_REVISION"
 
 if [[ ! -d "$ROOT/.git" ]]; then
-  git clone --filter=blob:none --depth 1 https://github.com/RPCS3/rpcs3.git "$ROOT"
+  git clone --filter=blob:none --no-checkout https://github.com/RPCS3/rpcs3.git "$ROOT"
 fi
 
-python3 scripts/apply-upstream-ios-overlay.py "$ROOT"
+git -C "$ROOT" fetch --depth 1 origin "refs/tags/$UPSTREAM_REVISION:refs/tags/$UPSTREAM_REVISION"
+git -C "$ROOT" checkout --detach --force "$UPSTREAM_REVISION"
+git -C "$ROOT" submodule sync --recursive
+git -C "$ROOT" submodule update --init --recursive --depth 1
+
+python3 scripts/apply-upstream-ios-overlay.py "$ROOT" --mode bootstrap
 rm -rf "$BUILD"
 mkdir -p "$BUILD/logs" "$PRODUCT_DIR"
 
 UPSTREAM_SHA="$(git -C "$ROOT" rev-parse HEAD)"
 SDK_VERSION="$(xcrun --sdk iphoneos --show-sdk-version)"
+printf '%s\n' "$UPSTREAM_SHA" > "$BUILD/upstream-revision.txt"
+git -C "$ROOT" submodule status --recursive > "$BUILD/upstream-submodules.txt"
 
 cmake \
   -S "$ROOT" \
@@ -54,17 +67,15 @@ grep -q 'extract_plain_self_to_elf' "$BUILD/archive-symbols.txt"
 grep -q 'sha256' "$BUILD/archive-members.txt"
 
 cat > "$BUILD/summary.md" <<EOF
-# RPCS3 iOS upstream core archive
+# RPCS3 iOS pinned upstream core archive
 
-- Upstream commit: \`$UPSTREAM_SHA\`
+- Requested upstream revision: \`$UPSTREAM_REVISION\`
+- Resolved upstream commit: \`$UPSTREAM_SHA\`
 - iPhoneOS SDK: \`$SDK_VERSION\`
 - Target: \`arm64-apple-ios26.0\`
 - Product: \`$OUTPUT\`
-- Included upstream unit: \`rpcs3/Crypto/sha256.cpp\`
-- Upstream loader types consumed: \`rpcs3/Loader/ELF.h\`
-- SELF layout mirrored from upstream: \`SceHeader\`, \`ext_hdr\`, and \`segment_ext_header\` in \`rpcs3/Crypto/unself.h\`
-- Plain, uncompressed SELF segments are reconstructed into a bounded app-cache ELF and revalidated as a PS3 PPU executable.
-- PPU/SPU execution, compressed segments, and encrypted SELF key handling remain intentionally disabled.
+- Checkout includes initialized upstream submodules.
+- The bootstrap archive remains the shipping lane while the separate upstream-graph probe identifies blockers in RPCS3's real build graph.
 EOF
 
 tar -czf "$BUILD.tar.gz" "$BUILD"
