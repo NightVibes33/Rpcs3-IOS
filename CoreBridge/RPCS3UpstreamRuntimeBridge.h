@@ -40,6 +40,15 @@ const char* rpcs3_ios_upstream_last_installed_boot_path(void);
 // game_boot_result::no_errors is zero.
 int rpcs3_ios_upstream_boot_game(const char* path);
 
+// Injects a complete virtual DualShock-compatible state through RPCS3's LDD pad
+// path. Button bits are defined by RPCS3IOSCorePadButton in the public core API.
+int rpcs3_ios_upstream_set_pad_state(
+    unsigned int buttons,
+    unsigned char left_x,
+    unsigned char left_y,
+    unsigned char right_x,
+    unsigned char right_y);
+
 int rpcs3_ios_upstream_pause(void);
 int rpcs3_ios_upstream_resume(void);
 int rpcs3_ios_upstream_stop(void);
