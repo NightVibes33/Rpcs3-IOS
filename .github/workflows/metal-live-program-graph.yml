@@ -6,6 +6,7 @@ on:
     branches: [metal-resource-reflection]
     paths:
       - "Renderers/Metal/**"
+      - "scripts/build-moltenvk-ios.sh"
       - "scripts/probe-upstream-ios-graph.sh"
       - "scripts/patch-upstream-ios-vulkan.py"
       - "scripts/patch-upstream-ios-emu-graph.py"
@@ -18,7 +19,7 @@ permissions:
 
 concurrency:
   group: metal-live-program-graph-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   graph:
@@ -80,7 +81,7 @@ jobs:
             BuildSupport/SPIRV-Cross
             .cache/SPIRV-Cross-ios
             .deps/SPIRV-Cross
-          key: live-metal-graph-${{ hashFiles('MOLTENVK_REVISION', 'SPIRV_CROSS_REVISION') }}-${{ runner.os }}-${{ runner.arch }}-ios26-v1
+          key: live-metal-graph-${{ hashFiles('MOLTENVK_REVISION', 'SPIRV_CROSS_REVISION') }}-${{ runner.os }}-${{ runner.arch }}-ios26-v2
           restore-keys: |
             live-metal-graph-
 
