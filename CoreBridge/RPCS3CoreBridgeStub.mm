@@ -7,6 +7,7 @@
 #include <fstream>
 #include <mutex>
 #include <string>
+#include <utility>
 
 namespace
 {
