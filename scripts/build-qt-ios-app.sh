@@ -88,7 +88,7 @@ output = Path(sys.argv[2])
 root = ET.parse(source).getroot()
 class_name = root.findtext("class")
 actions = [node.attrib.get("name", "") for node in root.findall(".//action")]
-menus = [node.attrib.get("name", "") for node in root.findall(".//widget[@class='QMenu')]
+menus = [node.attrib.get("name", "") for node in root.findall(".//widget[@class='QMenu']")]
 required_actions = {"bootGameAct", "bootIsoAct", "bootVSHAct", "bootInstallPupAct", "bootInstallPkgAct", "confCPUAct", "sysStopAct"}
 missing = sorted(required_actions - set(actions))
 if class_name != "main_window":
