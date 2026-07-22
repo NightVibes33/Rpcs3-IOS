@@ -21,13 +21,17 @@ def resolve_device_binary(moltenvk_root: Path) -> Path:
             return candidate.resolve()
 
     xcframework = moltenvk_root / "MoltenVK.xcframework"
-    for candidate in sorted(xcframework.rglob("MoltenVK.framework/MoltenVK")):
+    candidates = [
+        *xcframework.rglob("MoltenVK.framework/MoltenVK"),
+        *xcframework.rglob("libMoltenVK.a"),
+    ]
+    for candidate in sorted(set(candidates)):
         lowered = candidate.as_posix().lower()
         if "simulator" in lowered or "maccatalyst" in lowered:
             continue
         if any(part.startswith("ios-") for part in candidate.parts) and candidate.is_file():
             return candidate.resolve()
-    raise SystemExit(f"No iOS device MoltenVK framework binary was found under {xcframework}")
+    raise SystemExit(f"No iOS device MoltenVK framework or static archive was found under {xcframework}")
 
 
 def patch_dependency_graph(upstream_root: Path, moltenvk_root: Path) -> None:
