@@ -1,0 +1,124 @@
+name: Build iOS 26 Unsigned IPA
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - "App/**"
+      - "project.yml"
+      - "scripts/**"
+      - ".github/workflows/build-ios.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ios26-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Real-device arm64 IPA
+    runs-on: macos-26
+    timeout-minutes: 45
+
+    env:
+      DEPLOYMENT_TARGET: "26.0"
+      DERIVED_DATA: "${{ github.workspace }}/DerivedData"
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Select newest installed Xcode 26
+        shell: bash
+        run: |
+          set -euo pipefail
+          mapfile -t candidates < <(find /Applications -maxdepth 1 -type d -name 'Xcode_26*.app' -print | sort -V)
+          if [[ ${#candidates[@]} -eq 0 ]]; then
+            echo "No Xcode 26 installation exists on the macos-26 image."
+            find /Applications -maxdepth 1 -type d -name 'Xcode*.app' -print | sort
+            exit 1
+          fi
+          XCODE_PATH="${candidates[-1]}"
+          echo "Selecting $XCODE_PATH"
+          sudo xcode-select -s "$XCODE_PATH/Contents/Developer"
+          xcodebuild -version
+          SDK_VERSION="$(xcrun --sdk iphoneos --show-sdk-version)"
+          echo "iphoneos SDK: $SDK_VERSION"
+          [[ "$SDK_VERSION" == 26.* ]] || { echo "Expected an iOS 26 SDK."; exit 1; }
+
+      - name: Install XcodeGen
+        shell: bash
+        run: |
+          set -euo pipefail
+          brew install xcodegen
+          xcodegen --version
+
+      - name: Generate Xcode project
+        run: xcodegen generate --spec project.yml
+
+      - name: Build unsigned physical-device app
+        shell: bash
+        run: |
+          set -euo pipefail
+          xcodebuild \
+            -project RPCS3-iOS.xcodeproj \
+            -scheme RPCS3-iOS \
+            -configuration Release \
+            -sdk iphoneos \
+            -destination 'generic/platform=iOS' \
+            -derivedDataPath "$DERIVED_DATA" \
+            IPHONEOS_DEPLOYMENT_TARGET="$DEPLOYMENT_TARGET" \
+            ARCHS=arm64 \
+            ONLY_ACTIVE_ARCH=YES \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY='' \
+            clean build
+
+      - name: Validate device bundle
+        id: bundle
+        shell: bash
+        run: |
+          set -euo pipefail
+          APP="$DERIVED_DATA/Build/Products/Release-iphoneos/RPCS3-iOS.app"
+          BIN="$APP/RPCS3-iOS"
+          test -d "$APP"
+          test -f "$BIN"
+          file "$BIN"
+          lipo -info "$BIN"
+          file "$BIN" | grep -q 'arm64'
+          if otool -l "$BIN" | grep -q 'PLATFORM_IOSSIMULATOR'; then
+            echo "Refusing to package a simulator binary."
+            exit 1
+          fi
+          if ! otool -l "$BIN" | grep -q 'PLATFORM_IOS'; then
+            echo "Mach-O does not report the physical iOS platform."
+            exit 1
+          fi
+          echo "app=$APP" >> "$GITHUB_OUTPUT"
+
+      - name: Package unsigned IPA
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf Payload output
+          mkdir -p Payload output
+          cp -R "${{ steps.bundle.outputs.app }}" Payload/RPCS3-iOS.app
+          rm -rf Payload/RPCS3-iOS.app/_CodeSignature
+          rm -f Payload/RPCS3-iOS.app/embedded.mobileprovision
+          IPA="output/RPCS3-iOS-iOS26-${GITHUB_SHA::7}-unsigned.ipa"
+          /usr/bin/ditto -c -k --sequesterRsrc --keepParent Payload "$IPA"
+          shasum -a 256 "$IPA" > "$IPA.sha256"
+          unzip -l "$IPA"
+          ls -lh output
+
+      - name: Upload unsigned IPA
+        uses: actions/upload-artifact@v4
+        with:
+          name: RPCS3-iOS-iOS26-unsigned
+          path: output/*
+          if-no-files-found: error
+          retention-days: 30
