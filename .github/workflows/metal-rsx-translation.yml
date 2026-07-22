@@ -1,0 +1,71 @@
+name: Validate Native Metal RSX Translation
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [metal-rsx-translation]
+    paths:
+      - "Renderers/Metal/RPCS3MetalRSXFormats.*"
+      - "scripts/patch-upstream-ios-vulkan.py"
+      - ".github/workflows/metal-rsx-translation.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: metal-rsx-translation-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  compile:
+    name: Compile RSX mappings with iOS Metal
+    runs-on: macos-26
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Select iOS 26 SDK
+        shell: bash
+        run: |
+          set -euo pipefail
+          sdk="$(xcrun --sdk iphoneos --show-sdk-version 2>/dev/null || true)"
+          if [[ "$sdk" != 26.* ]]; then
+            while IFS= read -r app; do
+              developer="$app/Contents/Developer"
+              candidate="$(DEVELOPER_DIR="$developer" xcrun --sdk iphoneos --show-sdk-version 2>/dev/null || true)"
+              if [[ "$candidate" == 26.* ]]; then
+                sudo xcode-select -s "$developer"
+                break
+              fi
+            done < <(find -L /Applications -maxdepth 1 -name 'Xcode*.app' -print | sort)
+          fi
+          xcodebuild -version
+          xcrun --sdk iphoneos --show-sdk-version
+
+      - name: Compile Objective-C++ translation layer
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p build-metal-rsx
+          SDK="$(xcrun --sdk iphoneos --show-sdk-path)"
+          xcrun --sdk iphoneos clang++ \
+            -std=c++20 \
+            -fobjc-arc \
+            -arch arm64 \
+            -miphoneos-version-min=26.0 \
+            -isysroot "$SDK" \
+            -fmodules \
+            -Wall -Wextra -Werror \
+            -c Renderers/Metal/RPCS3MetalRSXFormats.mm \
+            -o build-metal-rsx/RPCS3MetalRSXFormats.o
+          file build-metal-rsx/RPCS3MetalRSXFormats.o
+          lipo -info build-metal-rsx/RPCS3MetalRSXFormats.o
+
+      - name: Upload compile evidence
+        uses: actions/upload-artifact@v4
+        with:
+          name: RPCS3-Metal-RSX-format-translation
+          path: build-metal-rsx/**
+          if-no-files-found: error
+          retention-days: 30
