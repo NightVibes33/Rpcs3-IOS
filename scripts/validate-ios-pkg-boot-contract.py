@@ -1,12 +1,11 @@
 #!/usr/bin/env python3
-"""Validate that the iOS app keeps the PKG install-to-visible-boot call chain."""
+"""Validate the iOS PKG install, visible boot, and touch-input contract."""
 
 from __future__ import annotations
 
 import argparse
 import json
 from pathlib import Path
-import sys
 
 
 REQUIRED_FRAGMENTS = {
@@ -23,6 +22,24 @@ REQUIRED_FRAGMENTS = {
         "rpcs3_ios_upstream_last_installed_boot_path()",
         "rpcs3_ios_upstream_render_view_ready()",
         "rpcs3_ios_upstream_boot_game(boot_path)",
+    ],
+    "CoreBridge/RPCS3IOSPadBridge.cpp": [
+        "owner->AddLddPad()",
+        "target->ldd_data",
+        "CELL_PAD_BTN_OFFSET_DIGITAL1",
+        "CELL_PAD_BTN_OFFSET_ANALOG_LEFT_X",
+        "CELL_PAD_CTRL_CROSS",
+    ],
+    "CoreBridge/RPCS3CorePadBridge.cpp": [
+        "rpcs3_ios_core_set_pad_state",
+        "rpcs3_ios_upstream_set_pad_state",
+    ],
+    "Port/CMakeLists.txt": [
+        "CoreBridge/RPCS3CorePadBridge.cpp",
+    ],
+    "scripts/patch-upstream-ios-emu-graph.py": [
+        "CoreBridge/RPCS3IOSPadBridge.cpp",
+        '"{pad_source.as_posix()}"',
     ],
     "QtApp/main.cpp": [
         "rpcs3_ios_core_install_pkg(stagedPath.toUtf8().constData())",
@@ -44,11 +61,28 @@ REQUIRED_FRAGMENTS = {
         "rpcs3_ios_core_boot_elf",
         "Title started through RPCS3 Vulkan over MoltenVK",
     ],
+    "QtApp/RPCS3IOSTouchControls.cpp": [
+        "RPCS3IOSCorePadUp",
+        "RPCS3IOSCorePadCross",
+        "RPCS3IOSCorePadStart",
+        "rpcs3_ios_core_set_pad_state",
+        "pump->setInterval(16)",
+    ],
+    "QtApp/CMakeLists.txt": [
+        "RPCS3IOSGameLaunchGuard.cpp",
+        "RPCS3IOSTouchControls.cpp",
+    ],
+    "scripts/build-upstream-ios-runtime-framework.sh": [
+        "RPCS3IOSPadBridge.cpp",
+        "_rpcs3_ios_upstream_set_pad_state",
+    ],
     "scripts/build-qt-ios-app.sh": [
         "rpcs3_ios_core_install_pkg",
         "rpcs3_ios_core_boot_elf",
+        "rpcs3_ios_core_set_pad_state",
         "rpcs3_ios_upstream_install_pkg",
         "rpcs3_ios_upstream_boot_game",
+        "rpcs3_ios_upstream_set_pad_state",
     ],
 }
 
@@ -76,9 +110,11 @@ def main() -> int:
         passed[relative] = found
 
     runtime = (args.repo / "CoreBridge/RPCS3UpstreamRuntimeBridge.cpp").read_text(encoding="utf-8")
+    pad_bridge = (args.repo / "CoreBridge/RPCS3IOSPadBridge.cpp").read_text(encoding="utf-8")
+    touch_controls = (args.repo / "QtApp/RPCS3IOSTouchControls.cpp").read_text(encoding="utf-8")
     evidence = {
         "result": "fail" if failures else "pass",
-        "contract": "PKG selection -> sandbox staging -> upstream package_reader -> returned EBOOT -> visible CAMetalLayer -> Emulator::BootGame",
+        "contract": "PKG selection -> sandbox staging -> upstream package_reader -> returned EBOOT -> visible CAMetalLayer -> Emulator::BootGame -> touch overlay -> LDD/cellPad",
         "validated_files": passed,
         "failures": failures,
         "runner_proves": [
@@ -86,19 +122,21 @@ def main() -> int:
             "the installed EBOOT path is returned by the upstream package installer",
             "the Qt app refreshes and displays installed dev_hdd0/game entries",
             "both immediate install-and-boot and later game-list activation attach the render surface before BootGame",
-            "the final iOS build scripts require the install and boot symbols",
+            "the touch overlay continuously forwards PS3 button state into a connected RPCS3 LDD/cellPad device",
+            "the final iOS build scripts require the install, boot, render, and pad symbols",
         ],
         "physical_device_required_to_prove": [
             "actual Vulkan/MoltenVK frame presentation",
             "sustained PPU/SPU execution",
-            "touch or controller input",
+            "touch hit-testing and in-app response on iPhone/iPad",
             "audio output",
             "PKGi networking",
             "full user playability",
         ],
         "current_runtime_observations": {
             "null_audio_backend_present": "NullAudioBackend" in runtime,
-            "dedicated_ios_pad_handler_present": "IOSPadHandler" in runtime,
+            "ldd_cellpad_bridge_present": "AddLddPad" in pad_bridge and "ldd_data" in pad_bridge,
+            "onscreen_touch_overlay_present": "rpcs3_ios_core_set_pad_state" in touch_controls,
         },
     }
 
