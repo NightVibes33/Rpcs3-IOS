@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
   push:
     branches: [unified-proof-d5e33ce]
-    paths:
+    paths: &unified_paths
       - "QtApp/**"
       - "CoreBridge/**"
       - "Renderers/**"
@@ -14,6 +14,9 @@ on:
       - "UPSTREAM_RPCS3_REVISION"
       - "MOLTENVK_REVISION"
       - ".github/workflows/build-unified-ios.yml"
+  pull_request:
+    branches: [unified-proof-d5e33ce]
+    paths: *unified_paths
 
 permissions:
   contents: read
