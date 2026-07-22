@@ -65,25 +65,53 @@ python3 "$TIMEOUT_RUNNER" 3600 cmake \
   -DUSE_FAUDIO=OFF \
   -DUSE_PRECOMPILED_HEADERS=OFF \
   2>&1 | tee "$LOG_DIR/configure.log"
-status=${PIPESTATUS[0]}
+configure_status=${PIPESTATUS[0]}
 set -e
-phase "CMake configure exit status=$status"
+phase "CMake configure exit status=$configure_status"
+
+build_status=125
+if [[ $configure_status -eq 0 ]]; then
+  phase "Compile the real upstream rpcs3_emu target for arm64 iOS"
+  set +e
+  python3 "$TIMEOUT_RUNNER" 7200 cmake --build "$BUILD/tree" \
+    --target rpcs3_emu \
+    --config Release \
+    --parallel 3 \
+    2>&1 | tee "$LOG_DIR/build-rpcs3-emu.log"
+  build_status=${PIPESTATUS[0]}
+  set -e
+  phase "rpcs3_emu build exit status=$build_status"
+else
+  phase "Skipping rpcs3_emu compile because configure failed"
+fi
+
+status=$configure_status
+if [[ $configure_status -eq 0 ]]; then
+  status=$build_status
+fi
 
 {
   echo "# RPCS3 iOS real upstream graph probe"
   echo
   echo "- Requested revision: \`$UPSTREAM_REVISION\`"
   echo "- Resolved commit: \`$(cat "$BUILD/upstream-revision.txt")\`"
-  echo "- Configure exit status: \`$status\`"
-  echo "- LLVM is intentionally disabled for this graph stage so the interpreter-based PPU/SPU path can configure before an iOS-safe JIT backend is introduced."
+  echo "- Configure exit status: \`$configure_status\`"
+  echo "- rpcs3_emu build exit status: \`$build_status\`"
+  echo "- LLVM is intentionally disabled for this graph stage so the interpreter-based PPU/SPU path can compile before an iOS-safe JIT backend is introduced."
   echo "- Desktop Qt/rpcs3qt are excluded; UIKit remains the host UI while upstream rpcs3/Emu and Emu.System stay in the graph."
   echo "- Curl is built from RPCS3's pinned submodule for arm64 iOS instead of locating incompatible host libraries."
-  echo "- This probe enters RPCS3's real dependency/emulator graph without the bootstrap early return."
-  if [[ $status -ne 0 ]]; then
-    echo "- The tail below is the next concrete porting blocker:"
+  echo "- This probe now compiles the real upstream rpcs3_emu target instead of treating successful CMake generation as completion."
+  if [[ $configure_status -ne 0 ]]; then
+    echo "- Configure tail:"
     echo
     echo '```text'
     tail -n 100 "$LOG_DIR/configure.log"
+    echo '```'
+  elif [[ $build_status -ne 0 ]]; then
+    echo "- The build tail below is the next concrete runtime porting blocker:"
+    echo
+    echo '```text'
+    tail -n 140 "$LOG_DIR/build-rpcs3-emu.log"
     echo '```'
   fi
 } > "$BUILD/summary.md"
