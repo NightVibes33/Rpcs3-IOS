@@ -4,8 +4,12 @@ int main()
 {
     // This executable is cross-linked for arm64 iOS but is not executed in CI.
     // Referencing every lifecycle entry forces the linker to resolve the real
-    // Emulator singleton, PKG installer, BootGame, pause/resume/stop,
-    // interpreter code, and all transitive runtime dependencies.
+    // Emulator singleton, CAMetalLayer GSFrame, PKG installer, BootGame,
+    // pause/resume/stop, interpreter code, and all transitive dependencies.
+    (void)rpcs3_ios_upstream_set_render_view(nullptr);
+    (void)rpcs3_ios_upstream_render_view_ready();
+    rpcs3_ios_upstream_clear_render_view();
+
     if (!rpcs3_ios_upstream_runtime_link_probe(nullptr))
     {
         return 1;
