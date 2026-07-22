@@ -20,6 +20,7 @@ struct metal_renderer::implementation
     __strong id<MTLRenderCommandEncoder> current_encoder = nil;
     metal_rsx::shader_library_cache shader_cache;
     metal_rsx::render_pipeline_cache pipeline_cache;
+    metal_rsx::vertex_resource_set vertex_resources;
     backend_status status;
     std::uint32_t width = 1;
     std::uint32_t height = 1;
@@ -290,6 +291,38 @@ bool metal_renderer::begin_frame(float red,
     }
 }
 
+bool metal_renderer::upload_and_bind_vertex_resources(
+    const metal_rsx::geometry_packet& packet,
+    const metal_rsx::vertex_resource_bindings& bindings,
+    std::string& error)
+{
+    if (!frame_active() || !m_impl->device || !m_impl->current_encoder)
+    {
+        error = "Metal vertex resource binding requires an active frame encoder.";
+        return false;
+    }
+
+    if (!m_impl->vertex_resources.upload_and_bind(
+            (__bridge void*)m_impl->device,
+            (__bridge void*)m_impl->current_encoder,
+            packet,
+            bindings,
+            error))
+    {
+        m_impl->status.message = error;
+        return false;
+    }
+
+    m_impl->status.message = "Uploaded and bound RPCS3 vertex streams and exact shader environment records.";
+    error.clear();
+    return true;
+}
+
+std::size_t metal_renderer::uploaded_vertex_resource_bytes() const noexcept
+{
+    return m_impl ? m_impl->vertex_resources.uploaded_byte_count() : 0;
+}
+
 bool metal_renderer::submit_draw(const metal_rsx::draw_submission& submission,
                                  std::string& error)
 {
@@ -421,6 +454,7 @@ void metal_renderer::shutdown() noexcept
         m_impl->current_command_buffer = nil;
         m_impl->current_drawable = nil;
 
+        m_impl->vertex_resources.clear();
         m_impl->pipeline_cache.clear();
         m_impl->shader_cache.clear();
         m_impl->layer.device = nil;
