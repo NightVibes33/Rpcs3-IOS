@@ -6,6 +6,7 @@ on:
     branches: [metal-geometry-staging]
     paths:
       - "Renderers/Metal/**"
+      - "scripts/build-moltenvk-ios.sh"
       - "scripts/probe-upstream-ios-graph.sh"
       - "scripts/patch-upstream-ios-vulkan.py"
       - "SPIRV_CROSS_REVISION"
@@ -17,7 +18,7 @@ permissions:
 
 concurrency:
   group: metal-geometry-staging-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   graph:
@@ -79,7 +80,7 @@ jobs:
             BuildSupport/SPIRV-Cross
             .cache/SPIRV-Cross-ios
             .deps/SPIRV-Cross
-          key: geometry-staging-${{ hashFiles('MOLTENVK_REVISION', 'SPIRV_CROSS_REVISION') }}-${{ runner.os }}-${{ runner.arch }}-ios26-v1
+          key: geometry-staging-${{ hashFiles('MOLTENVK_REVISION', 'SPIRV_CROSS_REVISION') }}-${{ runner.os }}-${{ runner.arch }}-ios26-v2
           restore-keys: |
             geometry-staging-
 
