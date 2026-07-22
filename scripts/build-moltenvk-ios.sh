@@ -32,6 +32,8 @@ DEVICE_BINARY="$(find_device_binary || true)"
 if [[ -n "$DEVICE_BINARY" && -f "$OUTPUT_ROOT/revision.txt" ]] &&
    [[ "$(tr -d '[:space:]' < "$OUTPUT_ROOT/revision.txt")" == "$REVISION" ]] &&
    [[ -f "$OUTPUT_ROOT/include/vulkan/vulkan.h" ]] &&
+   [[ -f "$OUTPUT_ROOT/include/vk_video/vulkan_video_codec_h264std.h" ]] &&
+   [[ -f "$OUTPUT_ROOT/include/vk_video/vulkan_video_codec_h265std.h" ]] &&
    [[ -f "$OUTPUT_ROOT/include/MoltenVK/vk_mvk_moltenvk.h" ]]; then
     printf '%s\n' "${DEVICE_BINARY#"$OUTPUT_ROOT/"}" > "$OUTPUT_ROOT/device-binary-path.txt"
     echo "Using cached MoltenVK $REVISION from $OUTPUT_ROOT"
@@ -67,14 +69,19 @@ if [[ ! -d "$PACKAGE" ]]; then
 fi
 test -d "$PACKAGE"
 
-VULKAN_HEADERS="$SOURCE_ROOT/External/Vulkan-Headers/include/vulkan"
+VULKAN_INCLUDE_ROOT="$SOURCE_ROOT/External/Vulkan-Headers/include"
+VULKAN_HEADERS="$VULKAN_INCLUDE_ROOT/vulkan"
+VULKAN_VIDEO_HEADERS="$VULKAN_INCLUDE_ROOT/vk_video"
 MOLTENVK_API="$SOURCE_ROOT/MoltenVK/MoltenVK/API"
 test -f "$VULKAN_HEADERS/vulkan.h"
+test -f "$VULKAN_VIDEO_HEADERS/vulkan_video_codec_h264std.h"
+test -f "$VULKAN_VIDEO_HEADERS/vulkan_video_codec_h265std.h"
 test -f "$MOLTENVK_API/vk_mvk_moltenvk.h"
 
 mkdir -p "$OUTPUT_ROOT/include/MoltenVK"
 cp -R "$PACKAGE" "$FRAMEWORK"
 cp -R "$VULKAN_HEADERS" "$OUTPUT_ROOT/include/vulkan"
+cp -R "$VULKAN_VIDEO_HEADERS" "$OUTPUT_ROOT/include/vk_video"
 find "$MOLTENVK_API" -maxdepth 1 -type f -name '*.h' -exec cp {} "$OUTPUT_ROOT/include/MoltenVK/" \;
 printf '%s\n' "$REVISION" > "$OUTPUT_ROOT/revision.txt"
 
@@ -82,9 +89,12 @@ DEVICE_BINARY="$(find_device_binary)"
 test -f "$DEVICE_BINARY"
 printf '%s\n' "${DEVICE_BINARY#"$OUTPUT_ROOT/"}" > "$OUTPUT_ROOT/device-binary-path.txt"
 test -f "$OUTPUT_ROOT/include/vulkan/vulkan.h"
+test -f "$OUTPUT_ROOT/include/vk_video/vulkan_video_codec_h264std.h"
+test -f "$OUTPUT_ROOT/include/vk_video/vulkan_video_codec_h265std.h"
 test -f "$OUTPUT_ROOT/include/MoltenVK/vk_mvk_moltenvk.h"
 
 find "$FRAMEWORK" -maxdepth 4 -print | sort > "$LOG_DIR/moltenvk-package-layout.txt"
+find "$OUTPUT_ROOT/include/vk_video" -maxdepth 1 -type f -print | sort > "$LOG_DIR/moltenvk-vulkan-video-headers.txt"
 file "$DEVICE_BINARY" | tee "$LOG_DIR/moltenvk-binary.txt"
 lipo -info "$DEVICE_BINARY" | tee "$LOG_DIR/moltenvk-architectures.txt"
 grep -q 'arm64' "$LOG_DIR/moltenvk-architectures.txt"
