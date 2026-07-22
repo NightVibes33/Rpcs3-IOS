@@ -95,7 +95,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ${{ env.QT_ROOT }}
-          key: qt-${{ runner.os }}-${{ runner.arch }}-ios-${{ env.QT_VERSION }}-base-v2
+          key: qt-${{ runner.os }}-${{ runner.arch }}-ios-${{ env.QT_VERSION }}-base-v3
 
       - name: Install Qt for iOS and host tools
         if: steps.qt-cache.outputs.cache-hit != 'true'
@@ -103,11 +103,14 @@ jobs:
         run: |
           set -euo pipefail
           exec > >(tee "$CI_LOGS/qt-install.log") 2>&1
-          python3 -m pip install --user --upgrade aqtinstall
-          IOS_ARCH="$(python3 -m aqt list-qt mac ios --arch "$QT_VERSION" | tr ' ' '\n' | sed '/^$/d' | head -n 1)"
+          AQT_VENV="$RUNNER_TEMP/aqt-venv"
+          python3 -m venv "$AQT_VENV"
+          source "$AQT_VENV/bin/activate"
+          python -m pip install --upgrade pip aqtinstall
+          IOS_ARCH="$(python -m aqt list-qt mac ios --arch "$QT_VERSION" | tr ' ' '\n' | sed '/^$/d' | head -n 1)"
           test -n "$IOS_ARCH"
           echo "Installing base Qt $QT_VERSION for iOS architecture $IOS_ARCH with matching host tools"
-          python3 -m aqt install-qt mac ios "$QT_VERSION" "$IOS_ARCH" \
+          python -m aqt install-qt mac ios "$QT_VERSION" "$IOS_ARCH" \
             --autodesktop \
             -O "$QT_ROOT"
 
