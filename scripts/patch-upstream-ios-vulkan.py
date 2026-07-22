@@ -151,6 +151,7 @@ def add_port_renderer_sources(upstream_root: Path, port_root: Path, spirv_cross_
         renderers / "Metal/RPCS3MetalGeometryPacket.cpp",
         renderers / "Metal/RPCS3MetalPrimitiveExpander.cpp",
         renderers / "Metal/RPCS3MetalProgramCompiler.cpp",
+        renderers / "Metal/RPCS3MetalResourceBindings.cpp",
         renderers / "Metal/RPCS3MetalShaderTranslator.cpp",
     ]
     headers = [
@@ -165,6 +166,7 @@ def add_port_renderer_sources(upstream_root: Path, port_root: Path, spirv_cross_
         renderers / "Metal/RPCS3MetalRenderPipelineCache.h",
         renderers / "Metal/RPCS3MetalPrimitiveExpander.h",
         renderers / "Metal/RPCS3MetalProgramCompiler.h",
+        renderers / "Metal/RPCS3MetalResourceBindings.h",
         renderers / "Metal/RPCS3MetalShaderTranslator.h",
         renderers / "Metal/RPCS3MetalShaderLibrary.h",
         renderers / "Metal/RPCS3MetalGSRender.h",
@@ -212,6 +214,7 @@ if(RPCS3_IOS_UPSTREAM_GRAPH)
         RPCS3_IOS_METAL_RENDER_PIPELINE_CACHE=1
         RPCS3_IOS_METAL_LIVE_PROGRAM_COMPILER=1
         RPCS3_IOS_METAL_LIVE_GEOMETRY_PACKET=1
+        RPCS3_IOS_METAL_RESOURCE_REFLECTION=1
     )
     target_link_libraries(rpcs3_emu PUBLIC
 {spirv_library_lines}
