@@ -2,9 +2,11 @@
 
 #include "Emu/System.h"
 #include "Emu/system_config.h"
+#include "Crypto/unpkg.h"
 
 #include <atomic>
 #include <cstdlib>
+#include <deque>
 #include <exception>
 #include <filesystem>
 #include <mutex>
@@ -16,6 +18,7 @@ std::mutex g_runtime_mutex;
 std::atomic<RPCS3IOSUpstreamState> g_runtime_state{RPCS3IOSUpstreamStateUninitialized};
 bool g_runtime_initialized = false;
 std::string g_runtime_data_root;
+std::string g_last_installed_boot_path;
 std::string g_last_message = "The upstream RPCS3 runtime is not initialized.";
 int g_last_boot_result = static_cast<int>(game_boot_result::nothing_to_boot);
 
@@ -182,6 +185,7 @@ extern "C" int rpcs3_ios_upstream_initialize(const char* data_root)
 
         g_runtime_initialized = true;
         g_last_boot_result = static_cast<int>(game_boot_result::nothing_to_boot);
+        g_last_installed_boot_path.clear();
         set_state(RPCS3IOSUpstreamStateReady, "Real upstream Emu.Init completed in interpreter/Null-RSX mode.");
         return 1;
     }
@@ -195,6 +199,92 @@ extern "C" int rpcs3_ios_upstream_initialize(const char* data_root)
         set_state(RPCS3IOSUpstreamStateFailed, "Upstream Emu.Init failed with an unknown exception.");
         return 0;
     }
+}
+
+extern "C" int rpcs3_ios_upstream_install_pkg(const char* pkg_path)
+{
+    std::lock_guard lock(g_runtime_mutex);
+    g_last_installed_boot_path.clear();
+
+    if (!g_runtime_initialized)
+    {
+        set_state(RPCS3IOSUpstreamStateFailed, "Initialize the upstream runtime before installing a PKG.");
+        return 0;
+    }
+    if (!pkg_path || !*pkg_path)
+    {
+        set_state(RPCS3IOSUpstreamStateFailed, "No PKG path was supplied.");
+        return 0;
+    }
+
+    std::error_code filesystem_error;
+    if (!std::filesystem::is_regular_file(pkg_path, filesystem_error) || filesystem_error)
+    {
+        set_state(RPCS3IOSUpstreamStateFailed, "The selected PKG path is not a readable file.");
+        return 0;
+    }
+
+    try
+    {
+        if (!Emu.IsStopped())
+        {
+            Emu.Kill(false);
+        }
+
+        std::deque<package_reader> readers;
+        readers.emplace_back(std::string(pkg_path));
+        if (!readers.front().is_valid())
+        {
+            set_state(RPCS3IOSUpstreamStateFailed, "RPCS3 rejected the selected PKG header or metadata.");
+            return 0;
+        }
+
+        std::deque<std::string> bootable_paths;
+        const package_install_result result = package_reader::extract_data(readers, bootable_paths);
+        if (result.error != package_install_result::error_type::no_error ||
+            readers.front().get_result() != package_reader::result::success)
+        {
+            set_state(RPCS3IOSUpstreamStateFailed, "RPCS3 package_reader failed before completing the PKG installation.");
+            return 0;
+        }
+
+        for (const std::string& bootable_path : bootable_paths)
+        {
+            if (!bootable_path.empty())
+            {
+                g_last_installed_boot_path = bootable_path;
+                break;
+            }
+        }
+
+        if (g_last_installed_boot_path.empty())
+        {
+            set_state(RPCS3IOSUpstreamStateReady, "RPCS3 installed the PKG successfully; the package did not expose a directly bootable path.");
+        }
+        else
+        {
+            set_state(RPCS3IOSUpstreamStateReady, "RPCS3 installed the PKG successfully and returned its bootable path.");
+        }
+        return 1;
+    }
+    catch (const std::exception& error)
+    {
+        set_state(RPCS3IOSUpstreamStateFailed, std::string("Upstream PKG installation failed: ") + error.what());
+        return 0;
+    }
+    catch (...)
+    {
+        set_state(RPCS3IOSUpstreamStateFailed, "Upstream PKG installation failed with an unknown exception.");
+        return 0;
+    }
+}
+
+extern "C" const char* rpcs3_ios_upstream_last_installed_boot_path(void)
+{
+    thread_local std::string copy;
+    std::lock_guard lock(g_runtime_mutex);
+    copy = g_last_installed_boot_path;
+    return copy.c_str();
 }
 
 extern "C" int rpcs3_ios_upstream_boot_game(const char* path)
