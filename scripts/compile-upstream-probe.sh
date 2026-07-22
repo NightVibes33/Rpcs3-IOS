@@ -16,6 +16,7 @@ fi
 SDKROOT="$(xcrun --sdk iphoneos --show-sdk-path)"
 CLANG="$(xcrun --sdk iphoneos --find clang)"
 CLANGXX="$(xcrun --sdk iphoneos --find clang++)"
+LIBTOOL="$(xcrun --sdk iphoneos --find libtool)"
 TARGET="arm64-apple-ios26.0"
 UPSTREAM_SHA="$(git -C "$ROOT" rev-parse HEAD)"
 
@@ -36,6 +37,7 @@ COMMON=(
   -DRPCS3_PLATFORM_DESKTOP=0
   -include "$PWD/Port/IOSPlatform.h"
   -I"$PWD/Port"
+  -I"$PWD/CoreBridge"
   -I"$ROOT"
   -I"$ROOT/Utilities"
   -I"$ROOT/rpcs3"
@@ -62,7 +64,21 @@ EOF
   -o "$OUT/objects/ios-platform.o" \
   >"$OUT/logs/ios-platform.log" 2>&1
 
-read_manifest() {
+"$CLANGXX" "${COMMON[@]}" -fobjc-arc -c Port/IOSFilesystem.mm \
+  -o "$OUT/objects/ios-filesystem.o" \
+  >"$OUT/logs/ios-filesystem.log" 2>&1
+
+"$CLANGXX" "${COMMON[@]}" -fobjc-arc -c CoreBridge/RPCS3CoreBridgeStub.mm \
+  -o "$OUT/objects/core-bridge.o" \
+  >"$OUT/logs/core-bridge.log" 2>&1
+
+"$LIBTOOL" -static -o "$OUT/librpcs3-ios-core.a" \
+  "$OUT/objects/ios-platform.o" \
+  "$OUT/objects/ios-filesystem.o" \
+  "$OUT/objects/core-bridge.o" \
+  >"$OUT/logs/archive.log" 2>&1
+
+manifest_entries() {
   while IFS= read -r line; do
     [[ -z "$line" || "$line" == \#* ]] && continue
     printf '%s\0' "$line"
@@ -72,7 +88,7 @@ read_manifest() {
 : > "$OUT/results.tsv"
 while IFS= read -r -d '' relative; do
   source="$ROOT/$relative"
-  name="$(printf '%s' "$relative" | tr '/.' '__')"
+  name="$(echo "$relative" | tr '/.' '__')"
   log="$OUT/logs/$name.log"
   object="$OUT/objects/$name.o"
 
@@ -91,17 +107,19 @@ while IFS= read -r -d '' relative; do
   else
     printf 'fail\t%s\n' "$relative" >> "$OUT/results.tsv"
   fi
-done < <(read_manifest)
+done < <(manifest_entries)
 
 python3 - "$OUT" <<'PY'
 from pathlib import Path
 import re
 import sys
+
 out = Path(sys.argv[1])
 rows = []
 for line in (out / "results.tsv").read_text().splitlines():
     status, path = line.split("\t", 1)
     rows.append((status, path))
+
 passed = sum(s == "pass" for s, _ in rows)
 failed = sum(s == "fail" for s, _ in rows)
 missing = sum(s == "missing" for s, _ in rows)
@@ -111,14 +129,16 @@ summary = [
     f"- Passed: {passed}",
     f"- Failed: {failed}",
     f"- Missing: {missing}",
-    "- Platform adapter: compiled",
+    "- iOS platform adapter: compiled",
+    "- Sandbox filesystem adapter: compiled",
+    "- Core bridge static archive: created",
     "",
     "| Status | Translation unit | First diagnostic |",
     "|---|---|---|",
 ]
 for status, path in rows:
-    name = path.translate(str.maketrans({'/': '_', '.': '_'}))
-    log = out / "logs" / f"{name}.log"
+    log_name = path.translate(str.maketrans("/.", "__")) + ".log"
+    log = out / "logs" / log_name
     diagnostic = ""
     if log.exists():
         for text in log.read_text(errors="replace").splitlines():
@@ -131,5 +151,8 @@ PY
 
 test -f "$OUT/objects/toolchain-probe.o"
 test -f "$OUT/objects/ios-platform.o"
+test -f "$OUT/objects/ios-filesystem.o"
+test -f "$OUT/objects/core-bridge.o"
+test -f "$OUT/librpcs3-ios-core.a"
 tar -czf "$OUT.tar.gz" "$OUT"
 cat "$OUT/summary.md"
