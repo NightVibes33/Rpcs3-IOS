@@ -4,6 +4,7 @@
 
 #include <memory>
 #include <string>
+#include <vector>
 
 namespace rpcs3::ios::render::metal_rsx
 {
@@ -11,6 +12,7 @@ struct compiled_shader
 {
     void* library = nullptr;
     void* function = nullptr;
+    std::vector<shader_resource_binding> resources;
 };
 
 class shader_library_cache final
