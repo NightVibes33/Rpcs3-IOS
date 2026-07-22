@@ -2,6 +2,7 @@
 #include "IOSFilesystem.h"
 #include "IOSPlatform.h"
 #include "RPCS3ELFProbe.h"
+#include "RPCS3SELFProbe.h"
 
 #ifdef RPCS3_IOS_WITH_UPSTREAM_CRYPTO
 #include "sha256.h"
@@ -165,7 +166,7 @@ int rpcs3_ios_core_initialize(const char *data_path)
     g_last_boot_sha256.clear();
     g_state = RPCS3IOSCoreStateUnavailable;
     g_message = capabilities.metal_available
-        ? "Sandbox storage, Metal, upstream SHA-256, and RPCS3 ELF types are ready. PPU/SPU execution is not linked yet."
+        ? "Sandbox storage, Metal, upstream SHA-256, ELF types, and SELF probing are ready. PPU/SPU execution is not linked yet."
         : "Sandbox storage and upstream loader primitives are ready, but no Metal device is available.";
     return 1;
 }
@@ -175,12 +176,12 @@ int rpcs3_ios_core_boot_elf(const char *elf_path)
     std::lock_guard lock(g_mutex);
     if (!g_platform_initialized)
     {
-        set_failure("Initialize the iOS platform before loading an ELF");
+        set_failure("Initialize the iOS platform before loading a boot file");
         return 0;
     }
     if (!elf_path || !*elf_path)
     {
-        set_failure("No ELF path was supplied");
+        set_failure("No boot-file path was supplied");
         return 0;
     }
     if (!rpcs3::ios::path_is_within_app_container(elf_path))
@@ -196,32 +197,55 @@ int rpcs3_ios_core_boot_elf(const char *elf_path)
         return 0;
     }
 
-    const rpcs3::ios::elf_probe_result probe = rpcs3::ios::probe_ps3_elf(elf_path);
-    if (!probe.valid)
+    std::ifstream stream(elf_path, std::ios::binary);
+    std::array<unsigned char, 4> magic{};
+    stream.read(reinterpret_cast<char*>(magic.data()), static_cast<std::streamsize>(magic.size()));
+    if (stream.gcount() != static_cast<std::streamsize>(magic.size()))
     {
-        set_failure(probe.description);
-        return 0;
-    }
-    if (!probe.ps3_compatible)
-    {
-        set_failure(probe.description);
+        set_failure("Boot input is too small to identify");
         return 0;
     }
 
-    std::ifstream stream(elf_path, std::ios::binary);
 #ifdef RPCS3_IOS_WITH_UPSTREAM_CRYPTO
     if (!sha256_file(stream, g_last_boot_sha256))
     {
-        set_failure("Unable to calculate the boot ELF SHA-256");
+        set_failure("Unable to calculate the boot-file SHA-256");
         return 0;
     }
 #else
     g_last_boot_sha256.clear();
 #endif
 
-    g_state = RPCS3IOSCoreStateReady;
-    g_message = probe.description + "; validated and ready for the future PPU loader stage.";
-    return 1;
+    if (magic[0] == 0x7f && magic[1] == 'E' && magic[2] == 'L' && magic[3] == 'F')
+    {
+        const rpcs3::ios::elf_probe_result probe = rpcs3::ios::probe_ps3_elf(elf_path);
+        if (!probe.valid || !probe.ps3_compatible)
+        {
+            set_failure(probe.description);
+            return 0;
+        }
+
+        g_state = RPCS3IOSCoreStateReady;
+        g_message = probe.description + "; validated and ready for the future PPU loader stage.";
+        return 1;
+    }
+
+    if (magic[0] == 'S' && magic[1] == 'C' && magic[2] == 'E' && magic[3] == 0)
+    {
+        const rpcs3::ios::self_probe_result probe = rpcs3::ios::probe_ps3_self(elf_path);
+        if (!probe.structurally_valid)
+        {
+            set_failure(probe.description);
+            return 0;
+        }
+
+        g_state = RPCS3IOSCoreStateUnavailable;
+        g_message = probe.description + "; SELF decryption and segment extraction are the next loader stage.";
+        return 0;
+    }
+
+    set_failure("Boot input is neither a PS3 ELF nor an SCE/SELF container");
+    return 0;
 }
 
 void rpcs3_ios_core_stop(void)
