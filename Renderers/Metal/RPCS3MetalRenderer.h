@@ -40,6 +40,9 @@ public:
                      float blue,
                      float alpha,
                      std::string& error);
+    bool bind_render_pipeline(
+        const metal_rsx::compiled_render_pipeline& pipeline,
+        std::string& error);
     bool upload_and_bind_vertex_resources(
         const metal_rsx::geometry_packet& packet,
         const metal_rsx::vertex_resource_bindings& bindings,
