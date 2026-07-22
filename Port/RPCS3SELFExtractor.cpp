@@ -8,7 +8,6 @@
 #include <fstream>
 #include <limits>
 #include <sstream>
-#include <vector>
 
 namespace rpcs3::ios
 {
@@ -109,9 +108,9 @@ self_extraction_result extract_plain_self_to_elf(
             output_size = end;
     }
 
-    // Keep reconstruction bounded to a practical iOS cache artifact.
     constexpr std::uint64_t maximum_output_size = 4ull * 1024ull * 1024ull * 1024ull;
-    if (output_size == 0 || output_size > maximum_output_size)
+    if (output_size == 0 || output_size > maximum_output_size ||
+        output_size > static_cast<std::uint64_t>(std::numeric_limits<std::streamoff>::max()))
     {
         result.description = "Reconstructed ELF size is outside the supported bound";
         return result;
@@ -137,7 +136,16 @@ self_extraction_result extract_plain_self_to_elf(
         return result;
     }
 
-    // Copy the embedded ELF64 header and program-header table from the SELF header.
+    // Establish the bounded sparse output before copying data, so no segment byte is overwritten.
+    output.seekp(static_cast<std::streamoff>(output_size - 1), std::ios::beg);
+    const char zero = 0;
+    output.write(&zero, 1);
+    if (!output)
+    {
+        result.description = "Unable to size the reconstructed ELF";
+        return result;
+    }
+
     std::array<unsigned char, 0x50> ext{};
     if (!read_exact(input, 0x20, ext.data(), ext.size()))
     {
@@ -172,12 +180,6 @@ self_extraction_result extract_plain_self_to_elf(
         }
     }
 
-    if (output_size != 0)
-    {
-        output.seekp(static_cast<std::streamoff>(output_size - 1), std::ios::beg);
-        const char zero = 0;
-        output.write(&zero, 1);
-    }
     output.flush();
     output.close();
     if (!output)
