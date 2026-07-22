@@ -157,9 +157,10 @@ def patch_ios_runtime_dependencies(upstream_root: Path) -> None:
     ).resolve()
     runtime_patch = port_root / "scripts/patch-upstream-ios-runtime-blockers.py"
     objcxx_patch = port_root / "scripts/patch-upstream-ios-objcxx.py"
+    metal_shader_patch = port_root / "scripts/patch-upstream-ios-metal-shader-frontend.py"
     vulkan_patch = port_root / "scripts/patch-upstream-ios-vulkan.py"
 
-    for required in (runtime_patch, objcxx_patch, vulkan_patch):
+    for required in (runtime_patch, objcxx_patch, metal_shader_patch, vulkan_patch):
         if not required.is_file():
             raise SystemExit(f"Missing upstream patch: {required}")
 
@@ -170,6 +171,11 @@ def patch_ios_runtime_dependencies(upstream_root: Path) -> None:
     )
     subprocess.run(
         [sys.executable, str(objcxx_patch), str(upstream_root)],
+        check=True,
+        env=os.environ.copy(),
+    )
+    subprocess.run(
+        [sys.executable, str(metal_shader_patch), str(upstream_root)],
         check=True,
         env=os.environ.copy(),
     )
@@ -193,7 +199,8 @@ def main() -> int:
 
     print(
         "Patched upstream emulator graph, Emu.Init bridge, UIKit GS frame, "
-        f"MoltenVK, native Metal, unified Qt host, and iOS runtime dependencies: {args.upstream_root}"
+        "MoltenVK, native Metal shader frontend, unified Qt host, and iOS "
+        f"runtime dependencies: {args.upstream_root}"
     )
     return 0
 
