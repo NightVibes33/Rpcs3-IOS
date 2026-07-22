@@ -62,7 +62,7 @@ EOF
   -o "$OUT/objects/ios-platform.o" \
   >"$OUT/logs/ios-platform.log" 2>&1
 
-mapfile_compat() {
+read_manifest() {
   while IFS= read -r line; do
     [[ -z "$line" || "$line" == \#* ]] && continue
     printf '%s\0' "$line"
@@ -72,7 +72,7 @@ mapfile_compat() {
 : > "$OUT/results.tsv"
 while IFS= read -r -d '' relative; do
   source="$ROOT/$relative"
-  name="$(echo "$relative" | tr '/.' '__')"
+  name="$(printf '%s' "$relative" | tr '/.' '__')"
   log="$OUT/logs/$name.log"
   object="$OUT/objects/$name.o"
 
@@ -91,7 +91,7 @@ while IFS= read -r -d '' relative; do
   else
     printf 'fail\t%s\n' "$relative" >> "$OUT/results.tsv"
   fi
-done < <(mapfile_compat)
+done < <(read_manifest)
 
 python3 - "$OUT" <<'PY'
 from pathlib import Path
@@ -117,13 +117,13 @@ summary = [
     "|---|---|---|",
 ]
 for status, path in rows:
-    log = out / "logs" / path.replace('/', '__').replace('.', '__')
-    log = log.with_suffix('.log')
+    name = path.translate(str.maketrans({'/': '_', '.': '_'}))
+    log = out / "logs" / f"{name}.log"
     diagnostic = ""
     if log.exists():
         for text in log.read_text(errors="replace").splitlines():
             if " error:" in text or "fatal error:" in text:
-                diagnostic = re.sub(r"\|", "\\|", text.strip())[:180]
+                diagnostic = re.sub(r"\|", r"\\|", text.strip())[:180]
                 break
     summary.append(f"| {status} | `{path}` | {diagnostic} |")
 (out / "summary.md").write_text("\n".join(summary) + "\n")
