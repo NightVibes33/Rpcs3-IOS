@@ -13,11 +13,35 @@ enum class shader_stage : std::uint8_t
     fragment,
 };
 
+enum class shader_resource_kind : std::uint8_t
+{
+    uniform_buffer,
+    storage_buffer,
+    sampled_image,
+    separate_image,
+    separate_sampler,
+    storage_image,
+    subpass_input,
+    push_constant,
+};
+
+struct shader_resource_binding
+{
+    shader_resource_kind kind = shader_resource_kind::uniform_buffer;
+    std::uint32_t spirv_id = 0;
+    std::uint32_t descriptor_set = 0;
+    std::uint32_t descriptor_binding = 0;
+    std::uint32_t metal_index = UINT32_MAX;
+    std::uint32_t metal_secondary_index = UINT32_MAX;
+    std::string name;
+};
+
 struct translated_shader
 {
     shader_stage stage = shader_stage::vertex;
     std::string source;
     std::string entry_point;
+    std::vector<shader_resource_binding> resources;
 };
 
 /*
