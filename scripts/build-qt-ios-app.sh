@@ -21,13 +21,16 @@ command -v python3 >/dev/null
 command -v xcrun >/dev/null
 command -v otool >/dev/null
 
-test -f "$CORE_ARCHIVE"
-test -d "$ROOT/.git"
-test -x "$QT_CMAKE"
-test -d "$HOST_QT"
-test -f "$ROOT/rpcs3/rpcs3qt/main_window.ui"
-test -f "$PORT_ROOT/scripts/generate-qt-ui-factory.py"
-test -f "$PORT_ROOT/scripts/build-upstream-ios-runtime-framework.sh"
+for required in \
+  "$CORE_ARCHIVE" \
+  "$ROOT/.git" \
+  "$QT_CMAKE" \
+  "$HOST_QT" \
+  "$ROOT/rpcs3/rpcs3qt/main_window.ui" \
+  "$PORT_ROOT/scripts/generate-qt-ui-factory.py" \
+  "$PORT_ROOT/scripts/build-upstream-ios-runtime-framework.sh"; do
+  test -e "$required"
+done
 
 if [[ ! -f "$RUNTIME_FRAMEWORK/RPCS3UpstreamRuntime" || \
       ! -f "$RUNTIME_FRAMEWORK/Headers/RPCS3UpstreamRuntimeBridge.h" ]]; then
@@ -143,7 +146,8 @@ test -f "$BIN"
 mkdir -p "$APP/Frameworks"
 rm -rf "$APP/Frameworks/RPCS3UpstreamRuntime.framework"
 /usr/bin/ditto "$RUNTIME_FRAMEWORK" "$APP/Frameworks/RPCS3UpstreamRuntime.framework"
-test -f "$APP/Frameworks/RPCS3UpstreamRuntime.framework/RPCS3UpstreamRuntime"
+EMBEDDED_RUNTIME="$APP/Frameworks/RPCS3UpstreamRuntime.framework/RPCS3UpstreamRuntime"
+test -f "$EMBEDDED_RUNTIME"
 
 GENERATED_HEADER="$(find "$BUILD" -type f -name 'ui_main_window.h' -print | head -n 1)"
 test -n "$GENERATED_HEADER"
@@ -159,21 +163,40 @@ xcrun vtool -show-build "$BIN" | tee "$BUILD/binary-build-version.txt" || true
 otool -L "$BIN" | tee "$BUILD/binary-linked-libraries.txt"
 grep -q '@rpath/RPCS3UpstreamRuntime.framework/RPCS3UpstreamRuntime' "$BUILD/binary-linked-libraries.txt"
 
-file "$APP/Frameworks/RPCS3UpstreamRuntime.framework/RPCS3UpstreamRuntime" | tee "$BUILD/embedded-runtime-file.txt"
-lipo -info "$APP/Frameworks/RPCS3UpstreamRuntime.framework/RPCS3UpstreamRuntime" | tee "$BUILD/embedded-runtime-architectures.txt"
+file "$EMBEDDED_RUNTIME" | tee "$BUILD/embedded-runtime-file.txt"
+lipo -info "$EMBEDDED_RUNTIME" | tee "$BUILD/embedded-runtime-architectures.txt"
+otool -L "$EMBEDDED_RUNTIME" | tee "$BUILD/embedded-runtime-linked-libraries.txt"
 
 strings "$BIN" > "$BUILD/binary-strings.txt"
 grep -q 'RPCS3 Qt iOS upstream main_window.ui' "$BUILD/binary-strings.txt"
-nm -gU "$BIN" > "$BUILD/binary-symbols.txt"
-cat "$BUILD/binary-symbols.txt"
-grep -q '_rpcs3_ios_core_initialize' "$BUILD/binary-symbols.txt"
-grep -q '_rpcs3_ios_core_install_pkg' "$BUILD/binary-symbols.txt"
-grep -q '_rpcs3_ios_core_last_installed_boot_path' "$BUILD/binary-symbols.txt"
-grep -q '_rpcs3_ios_core_boot_elf' "$BUILD/binary-symbols.txt"
-grep -q '_rpcs3_ios_upstream_initialize' "$BUILD/binary-symbols.txt"
-grep -q '_rpcs3_ios_upstream_install_pkg' "$BUILD/binary-symbols.txt"
-grep -q '_rpcs3_ios_upstream_boot_game' "$BUILD/binary-symbols.txt"
-grep -q '_rpcs3_ios_upstream_stop' "$BUILD/binary-symbols.txt"
+nm -gU "$BIN" > "$BUILD/binary-defined-symbols.txt"
+nm -g "$BIN" > "$BUILD/binary-all-symbols.txt"
+nm -gU "$EMBEDDED_RUNTIME" > "$BUILD/embedded-runtime-symbols.txt"
+cat "$BUILD/binary-defined-symbols.txt"
+
+for symbol in \
+  _rpcs3_ios_core_initialize \
+  _rpcs3_ios_core_set_render_view \
+  _rpcs3_ios_core_clear_render_view \
+  _rpcs3_ios_core_install_pkg \
+  _rpcs3_ios_core_last_installed_boot_path \
+  _rpcs3_ios_core_boot_elf; do
+  grep -q "$symbol" "$BUILD/binary-defined-symbols.txt"
+done
+
+for symbol in \
+  _rpcs3_ios_upstream_initialize \
+  _rpcs3_ios_upstream_set_render_view \
+  _rpcs3_ios_upstream_render_view_ready \
+  _rpcs3_ios_upstream_install_pkg \
+  _rpcs3_ios_upstream_boot_game \
+  _rpcs3_ios_upstream_stop; do
+  grep -q "$symbol" "$BUILD/binary-all-symbols.txt"
+  grep -q "$symbol" "$BUILD/embedded-runtime-symbols.txt"
+done
+
+grep -q '_vkCreateInstance' "$BUILD/embedded-runtime-symbols.txt"
+grep -q '_vkCreateMetalSurfaceEXT' "$BUILD/embedded-runtime-symbols.txt"
 
 COMPILED_FORM_COUNT="$(grep -c 'QStringLiteral(.*\.ui")' "$GENERATED/RPCS3QtUiFactory.cpp" || true)"
 printf '%s\n' "$APP" > "$BUILD/app-path.txt"
@@ -191,7 +214,7 @@ cat > "$BUILD/summary.md" <<EOF
 - Upstream UI manifest: \`$BUILD/upstream-ui-manifest.json\`
 - The shipped root window is a real \`QMainWindow\` with RPCS3's real \`QMenuBar\`, \`QMenu\`, and \`QAction\` objects.
 - The Install Packages action calls upstream \`package_reader::extract_data\`, refreshes the shared \`dev_hdd0/game\` list, and auto-boots the returned installed path through \`Emulator::BootGame\`.
-- The embedded runtime remains interpreter/Null-RSX until the Metal renderer is connected.
+- The app supplies a native Qt iOS \`UIView\`; the runtime owns its \`CAMetalLayer\` and presents through upstream \`VKGSRender\` over MoltenVK.
 EOF
 
 cat "$BUILD/summary.md"
