@@ -118,12 +118,14 @@ def add_port_renderer_sources(upstream_root: Path, port_root: Path) -> None:
         renderers / "Metal/RPCS3MetalGSRender.mm",
     ]
     cpp_sources = [
+        renderers / "Metal/RPCS3MetalDrawSubmission.cpp",
         renderers / "Metal/RPCS3MetalPrimitiveExpander.cpp",
     ]
     headers = [
         renderers / "RPCS3RendererBackend.h",
         renderers / "Apple/RPCS3AppleSurface.h",
         renderers / "Apple/RPCS3IOSGSFrame.h",
+        renderers / "Metal/RPCS3MetalDrawSubmission.h",
         renderers / "Metal/RPCS3MetalRenderer.h",
         renderers / "Metal/RPCS3MetalRSXFormats.h",
         renderers / "Metal/RPCS3MetalPipelineState.h",
@@ -163,6 +165,7 @@ if(RPCS3_IOS_UPSTREAM_GRAPH)
         RPCS3_IOS_HAS_NATIVE_METAL=1
         RPCS3_IOS_METAL_RSX_FORMAT_TRANSLATION=1
         RPCS3_IOS_METAL_RSX_PIPELINE_TRANSLATION=1
+        RPCS3_IOS_METAL_RSX_DRAW_SUBMISSION=1
     )
     target_link_libraries(rpcs3_emu PUBLIC
         "-framework UIKit"
