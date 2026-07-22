@@ -88,7 +88,7 @@ root = ET.parse(source).getroot()
 class_name = root.findtext("class")
 actions = [node.attrib.get("name", "") for node in root.findall(".//action")]
 menus = [node.attrib.get("name", "") for node in root.findall(".//widget[@class='QMenu']")]
-required_actions = {"bootGameAct", "bootIsoAct", "bootVSHAct", "confCPUAct", "sysStopAct"}
+required_actions = {"bootGameAct", "bootIsoAct", "bootVSHAct", "bootInstallPupAct", "bootInstallPkgAct", "confCPUAct", "sysStopAct"}
 missing = sorted(required_actions - set(actions))
 if class_name != "main_window":
     raise SystemExit(f"Unexpected upstream UI class: {class_name}")
@@ -154,6 +154,8 @@ test -n "$GENERATED_HEADER"
 grep -q 'class Ui_main_window' "$GENERATED_HEADER"
 grep -q 'bootGameAct' "$GENERATED_HEADER"
 grep -q 'bootVSHAct' "$GENERATED_HEADER"
+grep -q 'bootInstallPupAct' "$GENERATED_HEADER"
+grep -q 'bootInstallPkgAct' "$GENERATED_HEADER"
 grep -q 'menuFile' "$GENERATED_HEADER"
 grep -q 'menuConfiguration' "$GENERATED_HEADER"
 
@@ -178,6 +180,9 @@ for symbol in \
   _rpcs3_ios_core_initialize \
   _rpcs3_ios_core_set_render_view \
   _rpcs3_ios_core_clear_render_view \
+  _rpcs3_ios_core_install_firmware \
+  _rpcs3_ios_core_firmware_ready \
+  _rpcs3_ios_core_firmware_version \
   _rpcs3_ios_core_install_pkg \
   _rpcs3_ios_core_last_installed_boot_path \
   _rpcs3_ios_core_boot_elf; do
@@ -188,6 +193,10 @@ for symbol in \
   _rpcs3_ios_upstream_initialize \
   _rpcs3_ios_upstream_set_render_view \
   _rpcs3_ios_upstream_render_view_ready \
+  _rpcs3_ios_upstream_install_firmware \
+  _rpcs3_ios_upstream_firmware_ready \
+  _rpcs3_ios_upstream_firmware_version \
+  _rpcs3_ios_upstream_firmware_last_message \
   _rpcs3_ios_upstream_install_pkg \
   _rpcs3_ios_upstream_boot_game \
   _rpcs3_ios_upstream_stop; do
@@ -212,8 +221,9 @@ cat > "$BUILD/summary.md" <<EOF
 - App bundle: \`$APP\`
 - Embedded runtime: \`Frameworks/RPCS3UpstreamRuntime.framework\`
 - Upstream UI manifest: \`$BUILD/upstream-ui-manifest.json\`
-- The shipped root window is a real \`QMainWindow\` with RPCS3's real \`QMenuBar\`, \`QMenu\`, and \`QAction\` objects.
-- The Install Packages action calls upstream \`package_reader::extract_data\`, refreshes the shared \`dev_hdd0/game\` list, and auto-boots the returned installed path through \`Emulator::BootGame\`.
+- Firmware action calls RPCS3's PUP validation, SCE decryption, and TAR extraction and validates \`dev_flash/vsh/module/vsh.self\`.
+- PKG installation and installed-title boot remain disabled until firmware readiness is proven.
+- Install Packages calls upstream \`package_reader::extract_data\`, refreshes \`dev_hdd0/game\`, and boots through \`Emulator::BootGame\`.
 - The app supplies a native Qt iOS \`UIView\`; the runtime owns its \`CAMetalLayer\` and presents through upstream \`VKGSRender\` over MoltenVK.
 EOF
 
