@@ -114,7 +114,6 @@ bool shader_library_cache::get_or_compile(const translated_shader& shader,
         }
 
         MTLCompileOptions* options = [MTLCompileOptions new];
-        options.fastMathEnabled = YES;
 
         NSError* compile_error = nil;
         id<MTLLibrary> library = [m_impl->device newLibraryWithSource:source
