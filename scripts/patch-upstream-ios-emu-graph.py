@@ -74,7 +74,9 @@ def add_runtime_bridge_targets(upstream_root: Path) -> None:
     bridge_source = port_root / "CoreBridge/RPCS3UpstreamRuntimeBridge.cpp"
     bridge_header = port_root / "CoreBridge/RPCS3UpstreamRuntimeBridge.h"
     probe_source = port_root / "CoreBridge/RPCS3UpstreamRuntimeLinkProbe.cpp"
-    for source in (bridge_source, bridge_header, probe_source):
+    gs_frame_header = port_root / "Port/iOS/RPCS3IOSGSFrame.h"
+    gs_frame_source = port_root / "Port/iOS/RPCS3IOSGSFrame.mm"
+    for source in (bridge_source, bridge_header, probe_source, gs_frame_header, gs_frame_source):
         if not source.is_file():
             raise SystemExit(f"Missing upstream runtime bridge source: {source}")
 
@@ -88,11 +90,14 @@ def add_runtime_bridge_targets(upstream_root: Path) -> None:
 
 {marker}
 if(RPCS3_IOS_UPSTREAM_GRAPH)
+    enable_language(OBJCXX)
+
     add_library(rpcs3_ios_upstream_bridge STATIC
         "{bridge_source.as_posix()}"
     )
     target_include_directories(rpcs3_ios_upstream_bridge PUBLIC
         "{(port_root / 'CoreBridge').as_posix()}"
+        "{(port_root / 'Port/iOS').as_posix()}"
         "${{CMAKE_SOURCE_DIR}}"
         "${{CMAKE_SOURCE_DIR}}/rpcs3"
     )
@@ -107,14 +112,26 @@ if(RPCS3_IOS_UPSTREAM_GRAPH)
     # avoiding a manually maintained duplicate link list in the host project.
     add_library(rpcs3_ios_upstream_runtime SHARED
         "{bridge_source.as_posix()}"
+        "{gs_frame_source.as_posix()}"
+    )
+    set_source_files_properties("{gs_frame_source.as_posix()}" PROPERTIES
+        COMPILE_OPTIONS "-fobjc-arc"
     )
     target_include_directories(rpcs3_ios_upstream_runtime PUBLIC
         "{(port_root / 'CoreBridge').as_posix()}"
+        "{(port_root / 'Port/iOS').as_posix()}"
         "${{CMAKE_SOURCE_DIR}}"
         "${{CMAKE_SOURCE_DIR}}/rpcs3"
     )
     target_compile_definitions(rpcs3_ios_upstream_runtime PRIVATE RPCS3_IOS=1)
-    target_link_libraries(rpcs3_ios_upstream_runtime PRIVATE rpcs3_emu)
+    target_link_libraries(rpcs3_ios_upstream_runtime PRIVATE
+        rpcs3_emu
+        "-framework UIKit"
+        "-framework QuartzCore"
+        "-framework Metal"
+        "-framework CoreGraphics"
+        "-framework IOSurface"
+    )
     set_target_properties(rpcs3_ios_upstream_runtime PROPERTIES
         OUTPUT_NAME "RPCS3UpstreamRuntime"
         FRAMEWORK TRUE
@@ -171,7 +188,7 @@ def main() -> int:
     patch_ios_runtime_dependencies(args.upstream_root)
     add_runtime_bridge_targets(args.upstream_root)
 
-    print(f"Patched upstream emulator graph, shared iOS runtime framework, and Emu.BootGame link probe: {args.upstream_root}")
+    print(f"Patched upstream emulator graph, CAMetalLayer GSFrame, shared runtime framework, and Emu.BootGame link probe: {args.upstream_root}")
     return 0
 
 
