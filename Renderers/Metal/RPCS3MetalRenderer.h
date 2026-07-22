@@ -1,6 +1,7 @@
 #pragma once
 
 #include "../RPCS3RendererBackend.h"
+#include "RPCS3MetalDrawSubmission.h"
 
 #include <memory>
 
@@ -18,6 +19,17 @@ public:
                 std::uint32_t pixel_height,
                 float content_scale,
                 std::string& error) override;
+
+    bool begin_frame(float red,
+                     float green,
+                     float blue,
+                     float alpha,
+                     std::string& error);
+    bool submit_draw(const metal_rsx::draw_submission& submission,
+                     std::string& error);
+    bool end_frame(std::string& error);
+    [[nodiscard]] bool frame_active() const noexcept;
+
     bool present_test_frame(float red,
                             float green,
                             float blue,

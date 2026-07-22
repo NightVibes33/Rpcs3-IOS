@@ -1,0 +1,249 @@
+name: Validate Native Metal RSX Translation
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [metal-rsx-translation]
+    paths:
+      - "Renderers/Metal/RPCS3MetalDrawSubmission.*"
+      - "Renderers/Metal/RPCS3MetalRenderer.*"
+      - "Renderers/Metal/RPCS3MetalRSXFormats.*"
+      - "Renderers/Metal/RPCS3MetalPrimitiveExpander.*"
+      - "Renderers/Metal/RPCS3MetalPipelineState.*"
+      - "Renderers/Metal/RPCS3MetalShader*"
+      - "SPIRV_CROSS_REVISION"
+      - "scripts/build-spirv-cross-ios.sh"
+      - "scripts/patch-upstream-ios-vulkan.py"
+      - ".github/workflows/metal-rsx-translation.yml"
+
+permissions:
+  contents: read
+  statuses: write
+
+concurrency:
+  group: metal-rsx-translation-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  compile:
+    name: Compile and test RSX Metal translation
+    runs-on: macos-26
+    timeout-minutes: 45
+    env:
+      STATUS_CONTEXT: "RPCS3 native Metal RSX translation"
+      DEPLOYMENT_TARGET: "26.0"
+      RPCS3_IOS_SPIRV_CROSS_ROOT: "${{ github.workspace }}/BuildSupport/SPIRV-Cross"
+      CI_LOGS: "${{ github.workspace }}/ci-logs"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Publish pending status
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          curl --fail --silent --show-error --max-time 30 \
+            -X POST \
+            -H "Authorization: Bearer $GITHUB_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "https://api.github.com/repos/$GITHUB_REPOSITORY/statuses/$GITHUB_SHA" \
+            -d "{\"state\":\"pending\",\"context\":\"$STATUS_CONTEXT\",\"description\":\"Compiling native Metal draws, SPIR-V translation, and MSL functions\",\"target_url\":\"$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID\"}"
+
+      - name: Select iOS 26 SDK
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$CI_LOGS"
+          sdk="$(xcrun --sdk iphoneos --show-sdk-version 2>/dev/null || true)"
+          if [[ "$sdk" != 26.* ]]; then
+            while IFS= read -r app; do
+              developer="$app/Contents/Developer"
+              candidate="$(DEVELOPER_DIR="$developer" xcrun --sdk iphoneos --show-sdk-version 2>/dev/null || true)"
+              if [[ "$candidate" == 26.* ]]; then
+                sudo xcode-select -s "$developer"
+                break
+              fi
+            done < <(find -L /Applications -maxdepth 1 -name 'Xcode*.app' -print | sort)
+          fi
+          xcodebuild -version
+          xcrun --sdk iphoneos --show-sdk-version
+
+      - name: Restore SPIRV-Cross iOS cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            BuildSupport/SPIRV-Cross
+            .cache/SPIRV-Cross-ios
+            .deps/SPIRV-Cross
+          key: spirv-cross-${{ hashFiles('SPIRV_CROSS_REVISION') }}-${{ runner.os }}-${{ runner.arch }}-iphoneos26-arm64-v1
+
+      - name: Build pinned SPIRV-Cross for arm64 iOS
+        id: spirv-cross
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash scripts/build-spirv-cross-ios.sh
+
+      - name: Compile Objective-C++ translation layer for arm64 iOS
+        id: compile-ios
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p build-metal-rsx
+          SDK="$(xcrun --sdk iphoneos --show-sdk-path)"
+          COMMON=(
+            -std=c++20
+            -fobjc-arc
+            -arch arm64
+            -miphoneos-version-min=26.0
+            -isysroot "$SDK"
+            -fmodules
+            -Wall -Wextra -Werror
+          )
+          xcrun --sdk iphoneos clang++ "${COMMON[@]}" \
+            -c Renderers/Metal/RPCS3MetalRSXFormats.mm \
+            -o build-metal-rsx/RPCS3MetalRSXFormats.o
+          xcrun --sdk iphoneos clang++ "${COMMON[@]}" \
+            -c Renderers/Metal/RPCS3MetalPipelineState.mm \
+            -o build-metal-rsx/RPCS3MetalPipelineState.o
+
+          set +e
+          xcrun --sdk iphoneos clang++ "${COMMON[@]}" \
+            -c Renderers/Metal/RPCS3MetalRenderer.mm \
+            -o build-metal-rsx/RPCS3MetalRenderer.o \
+            2>&1 | tee build-metal-rsx/RPCS3MetalRenderer-compile.log
+          renderer_status=${PIPESTATUS[0]}
+          set -e
+          if [[ "$renderer_status" -ne 0 ]]; then
+            exit "$renderer_status"
+          fi
+
+          set +e
+          xcrun --sdk iphoneos clang++ "${COMMON[@]}" \
+            -c Renderers/Metal/RPCS3MetalShaderLibrary.mm \
+            -o build-metal-rsx/RPCS3MetalShaderLibrary.o \
+            2>&1 | tee build-metal-rsx/RPCS3MetalShaderLibrary-compile.log
+          library_status=${PIPESTATUS[0]}
+          set -e
+          if [[ "$library_status" -ne 0 ]]; then
+            exit "$library_status"
+          fi
+
+          CPP_COMMON=(
+            -std=c++20
+            -arch arm64
+            -miphoneos-version-min=26.0
+            -isysroot "$SDK"
+            -Wall -Wextra -Werror
+          )
+          xcrun --sdk iphoneos clang++ "${CPP_COMMON[@]}" \
+            -c Renderers/Metal/RPCS3MetalDrawSubmission.cpp \
+            -o build-metal-rsx/RPCS3MetalDrawSubmission.o
+          xcrun --sdk iphoneos clang++ "${CPP_COMMON[@]}" \
+            -c Renderers/Metal/RPCS3MetalPrimitiveExpander.cpp \
+            -o build-metal-rsx/RPCS3MetalPrimitiveExpander.o
+
+          set +e
+          xcrun --sdk iphoneos clang++ "${CPP_COMMON[@]}" \
+            -I "$RPCS3_IOS_SPIRV_CROSS_ROOT/include/spirv_cross" \
+            -c Renderers/Metal/RPCS3MetalShaderTranslator.cpp \
+            -o build-metal-rsx/RPCS3MetalShaderTranslator.o \
+            2>&1 | tee build-metal-rsx/RPCS3MetalShaderTranslator-compile.log
+          shader_status=${PIPESTATUS[0]}
+          set -e
+          if [[ "$shader_status" -ne 0 ]]; then
+            exit "$shader_status"
+          fi
+
+          file build-metal-rsx/*.o
+          for object in build-metal-rsx/*.o; do lipo -info "$object"; done
+
+      - name: Run primitive and draw submission tests on host
+        id: host-tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat > build-metal-rsx/translation-tests.cpp <<'CPP'
+          #include "Renderers/Metal/RPCS3MetalDrawSubmission.h"
+          #include "Renderers/Metal/RPCS3MetalPrimitiveExpander.h"
+          #include <array>
+          #include <cassert>
+          #include <cstdint>
+          #include <string>
+          #include <vector>
+
+          using namespace rpcs3::ios::render::metal_rsx;
+
+          int main()
+          {
+              assert((make_and_expand_sequential_indices(3, 4) == std::vector<std::uint32_t>{0, 1, 2, 3, 0}));
+              assert((make_and_expand_sequential_indices(7, 4) == std::vector<std::uint32_t>{0, 1, 2, 0, 2, 3}));
+              assert((make_and_expand_sequential_indices(8, 4) == std::vector<std::uint32_t>{0, 1, 2, 0, 2, 3}));
+              assert((make_and_expand_sequential_indices(9, 6) == std::vector<std::uint32_t>{0, 1, 2, 2, 1, 3, 2, 3, 4, 4, 3, 5}));
+              assert((make_and_expand_sequential_indices(10, 5) == std::vector<std::uint32_t>{0, 1, 2, 0, 2, 3, 0, 3, 4}));
+              assert(expand_primitive_indices(5, std::vector<std::uint32_t>{4, 5, 6}) == std::vector<std::uint32_t>({4, 5, 6}));
+
+              std::array<std::uint8_t, 48> vertices{};
+              std::array<std::uint16_t, 3> indices{0, 1, 2};
+              int pipeline_token = 1;
+              std::string error;
+
+              draw_submission draw;
+              assert(!validate_draw_submission(draw, error));
+              draw.render_pipeline_state = &pipeline_token;
+              draw.vertex_buffer = {vertices.data(), vertices.size()};
+              draw.vertex_count = 3;
+              assert(validate_draw_submission(draw, error));
+
+              draw.indices = index_format::uint16;
+              draw.index_count = 3;
+              draw.index_buffer = {indices.data(), sizeof(std::uint16_t)};
+              assert(!validate_draw_submission(draw, error));
+              draw.index_buffer = {indices.data(), sizeof(indices)};
+              assert(validate_draw_submission(draw, error));
+              return 0;
+          }
+          CPP
+          clang++ -std=c++20 -Wall -Wextra -Werror -I. \
+            Renderers/Metal/RPCS3MetalDrawSubmission.cpp \
+            Renderers/Metal/RPCS3MetalPrimitiveExpander.cpp \
+            build-metal-rsx/translation-tests.cpp \
+            -o build-metal-rsx/translation-tests
+          build-metal-rsx/translation-tests
+
+      - name: Upload compile evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: RPCS3-Metal-RSX-translation
+          path: |
+            build-metal-rsx/**
+            ci-logs/spirv-cross-*.log
+            ci-logs/spirv-cross-architectures.txt
+          if-no-files-found: warn
+          retention-days: 30
+
+      - name: Publish final status
+        if: always()
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [[ "${{ steps.spirv-cross.outcome }}" == "success" && "${{ steps.compile-ios.outcome }}" == "success" && "${{ steps.host-tests.outcome }}" == "success" ]]; then
+            state="success"
+            description="Native Metal draws, SPIR-V translation, and MSL functions compiled"
+          else
+            state="failure"
+            description="Native Metal RSX translation reached a compiler or test blocker"
+          fi
+          curl --fail --silent --show-error --max-time 30 \
+            -X POST \
+            -H "Authorization: Bearer $GITHUB_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "https://api.github.com/repos/$GITHUB_REPOSITORY/statuses/$GITHUB_SHA" \
+            -d "{\"state\":\"$state\",\"context\":\"$STATUS_CONTEXT\",\"description\":\"$description\",\"target_url\":\"$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID\"}"
