@@ -1,5 +1,6 @@
 #import "RPCS3UpstreamMenuModel.h"
 #import "RPCS3UpstreamUIController.h"
+#import "RPCS3UpstreamActionRouter.h"
 
 static NSString *S(id value) { return [value isKindOfClass:NSString.class] ? value : @""; }
 static NSArray *A(id value) { return [value isKindOfClass:NSArray.class] ? value : @[]; }
@@ -14,13 +15,58 @@ static NSDictionary *FindNode(NSDictionary *node, NSString *className, NSString 
     return nil;
 }
 
+static UIViewController *TopController(void) {
+    UIWindow *window = nil;
+    for (UIScene *scene in UIApplication.sharedApplication.connectedScenes) {
+        if (![scene isKindOfClass:UIWindowScene.class] || scene.activationState == UISceneActivationStateUnattached) continue;
+        for (UIWindow *candidate in ((UIWindowScene *)scene).windows) {
+            if (candidate.isKeyWindow) { window = candidate; break; }
+            if (!window && !candidate.hidden) window = candidate;
+        }
+        if (window.isKeyWindow) break;
+    }
+    UIViewController *controller = window.rootViewController;
+    BOOL advanced = YES;
+    while (controller && advanced) {
+        advanced = NO;
+        if (controller.presentedViewController) { controller = controller.presentedViewController; advanced = YES; continue; }
+        if ([controller isKindOfClass:UINavigationController.class]) {
+            UIViewController *visible = ((UINavigationController *)controller).visibleViewController;
+            if (visible) { controller = visible; advanced = YES; continue; }
+        }
+        if ([controller isKindOfClass:UITabBarController.class]) {
+            UIViewController *selected = ((UITabBarController *)controller).selectedViewController;
+            if (selected) { controller = selected; advanced = YES; continue; }
+        }
+        if ([controller isKindOfClass:UISplitViewController.class]) {
+            UIViewController *last = ((UISplitViewController *)controller).viewControllers.lastObject;
+            if (last) { controller = last; advanced = YES; continue; }
+        }
+    }
+    return controller;
+}
+
+static RPCS3UpstreamActionRouter *RouterForCurrentController(RPCS3UpstreamMenuActionHandler fallback) {
+    static __weak UIViewController *routerOwner;
+    static RPCS3UpstreamActionRouter *router;
+    UIViewController *owner = TopController();
+    if (!router || routerOwner != owner) {
+        routerOwner = owner;
+        router = [[RPCS3UpstreamActionRouter alloc] initWithOwner:owner reloadHandler:^{
+            if (fallback) fallback(@"refreshGameListAct");
+        }];
+    }
+    return router;
+}
+
 static UIAction *Action(NSString *identifier, NSDictionary *titles, RPCS3UpstreamMenuActionHandler handler) {
     NSDictionary *record = D(titles[identifier]);
     NSString *title = S(record[@"title"]);
     if (!title.length) title = identifier;
     UIAction *action = [UIAction actionWithTitle:title image:nil identifier:identifier handler:^(__kindof UIAction *sender) {
         (void)sender;
-        if (handler) handler(identifier);
+        [[RouterForCurrentController(handler) class] description];
+        [RouterForCurrentController(handler) handleActionIdentifier:identifier];
     }];
     if ([S(record[@"enabled"]) isEqualToString:@"false"]) action.attributes |= UIMenuElementAttributesDisabled;
     if ([S(record[@"checkable"]) isEqualToString:@"true"] && [S(record[@"checked"]) isEqualToString:@"true"]) action.state = UIMenuElementStateOn;
@@ -49,9 +95,7 @@ static UIMenu *MenuFromNode(NSDictionary *node, NSDictionary *titles, RPCS3Upstr
     }
     flush();
 
-    if (!result.count) {
-        for (NSDictionary *submenu in submenus.allValues) [result addObject:MenuFromNode(submenu, titles, handler)];
-    }
+    if (!result.count) for (NSDictionary *submenu in submenus.allValues) [result addObject:MenuFromNode(submenu, titles, handler)];
     NSString *title = S(node[@"title"]);
     if (!title.length) title = S(node[@"name"]);
     return [UIMenu menuWithTitle:title children:result];
