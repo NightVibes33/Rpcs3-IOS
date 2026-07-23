@@ -57,13 +57,89 @@ def patch_fatal_error_relaunch(upstream_root: Path) -> None:
     source.write_text(updated, encoding="utf-8")
 
 
+def patch_qt_component_graph(upstream_root: Path) -> None:
+    """Use Qt's device modules on iOS without requesting desktop QtDBus."""
+
+    cmake = upstream_root / "3rdparty/qt6.cmake"
+    marker = "RPCS3 iOS: QtDBus is a desktop-only optional component"
+    text = cmake.read_text(encoding="utf-8")
+    if marker in text:
+        return
+
+    old = '''add_library(3rdparty_qt6 INTERFACE)
+
+set(QT_MIN_VER 6.7.0)
+
+find_package(Qt6 ${QT_MIN_VER} CONFIG COMPONENTS Widgets Concurrent Multimedia MultimediaWidgets Svg SvgWidgets)
+if(WIN32)
+	target_link_libraries(3rdparty_qt6 INTERFACE Qt6::Widgets Qt6::Concurrent Qt6::Multimedia Qt6::MultimediaWidgets Qt6::Svg Qt6::SvgWidgets)
+else()
+	set(QT_NO_PRIVATE_MODULE_WARNING ON)
+	find_package(Qt6 ${QT_MIN_VER} COMPONENTS DBus Gui GuiPrivate)
+	if(Qt6DBus_FOUND)
+		target_link_libraries(3rdparty_qt6 INTERFACE Qt6::Widgets Qt6::DBus Qt6::Concurrent Qt6::Multimedia Qt6::MultimediaWidgets Qt6::Svg Qt6::SvgWidgets)
+		target_compile_definitions(3rdparty_qt6 INTERFACE -DHAVE_QTDBUS)
+	else()
+		target_link_libraries(3rdparty_qt6 INTERFACE Qt6::Widgets Qt6::Concurrent Qt6::Multimedia Qt6::MultimediaWidgets Qt6::Svg Qt6::SvgWidgets)
+	endif()
+	target_link_libraries(3rdparty_qt6 INTERFACE Qt6::GuiPrivate)
+endif()
+'''
+
+    new = '''add_library(3rdparty_qt6 INTERFACE)
+
+set(QT_MIN_VER 6.7.0)
+
+if(CMAKE_SYSTEM_NAME STREQUAL "iOS")
+	# RPCS3 iOS: QtDBus is a desktop-only optional component. Resolve the
+	# complete device module set in one required package lookup so CMake keeps
+	# the iOS libraries paired with the host-side Qt tools.
+	set(QT_NO_PRIVATE_MODULE_WARNING ON)
+	find_package(Qt6 ${QT_MIN_VER} CONFIG REQUIRED COMPONENTS
+		Widgets Concurrent Multimedia MultimediaWidgets Svg SvgWidgets Gui GuiPrivate)
+	target_link_libraries(3rdparty_qt6 INTERFACE
+		Qt6::Widgets Qt6::Concurrent Qt6::Multimedia Qt6::MultimediaWidgets
+		Qt6::Svg Qt6::SvgWidgets Qt6::GuiPrivate)
+else()
+	find_package(Qt6 ${QT_MIN_VER} CONFIG COMPONENTS Widgets Concurrent Multimedia MultimediaWidgets Svg SvgWidgets)
+	if(WIN32)
+		target_link_libraries(3rdparty_qt6 INTERFACE Qt6::Widgets Qt6::Concurrent Qt6::Multimedia Qt6::MultimediaWidgets Qt6::Svg Qt6::SvgWidgets)
+	else()
+		set(QT_NO_PRIVATE_MODULE_WARNING ON)
+		find_package(Qt6 ${QT_MIN_VER} COMPONENTS DBus Gui GuiPrivate)
+		if(Qt6DBus_FOUND)
+			target_link_libraries(3rdparty_qt6 INTERFACE Qt6::Widgets Qt6::DBus Qt6::Concurrent Qt6::Multimedia Qt6::MultimediaWidgets Qt6::Svg Qt6::SvgWidgets)
+			target_compile_definitions(3rdparty_qt6 INTERFACE -DHAVE_QTDBUS)
+		else()
+			target_link_libraries(3rdparty_qt6 INTERFACE Qt6::Widgets Qt6::Concurrent Qt6::Multimedia Qt6::MultimediaWidgets Qt6::Svg Qt6::SvgWidgets)
+		endif()
+		target_link_libraries(3rdparty_qt6 INTERFACE Qt6::GuiPrivate)
+	endif()
+endif()
+'''
+
+    if old not in text:
+        raise SystemExit("Unable to locate the pinned RPCS3 Qt component block")
+    updated = text.replace(old, new, 1)
+    for required in (
+        marker,
+        'CMAKE_SYSTEM_NAME STREQUAL "iOS"',
+        "CONFIG REQUIRED COMPONENTS",
+        "Qt6::GuiPrivate",
+    ):
+        if required not in updated:
+            raise SystemExit(f"Qt iOS component patch verification failed: {required}")
+    cmake.write_text(updated, encoding="utf-8")
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("upstream_root", type=Path)
     args = parser.parse_args()
 
     patch_fatal_error_relaunch(args.upstream_root)
-    print("Patched and verified the full RPCS3 Qt frontend fatal-error path for iOS")
+    patch_qt_component_graph(args.upstream_root)
+    print("Patched and verified the full RPCS3 Qt frontend fatal-error and iOS component paths")
     return 0
 
 
