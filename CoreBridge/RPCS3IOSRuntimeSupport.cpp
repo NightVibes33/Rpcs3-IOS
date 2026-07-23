@@ -1,6 +1,7 @@
 #include "stdafx.h"
 
 #include "Input/pad_thread.h"
+#include "Emu/Io/pad_config.h"
 #include "Emu/Io/pad_types.h"
 
 #include <chrono>
@@ -8,6 +9,12 @@
 #include <cstdlib>
 #include <functional>
 #include <thread>
+
+// The desktop Qt frontend normally owns this definition in
+// rpcs3qt/pad_settings_dialog.cpp. The iOS runtime framework deliberately
+// excludes that desktop dialog, but upstream system_utils.cpp still reads the
+// active input configuration map while resolving per-title pad profiles.
+cfg_input_configurations g_cfg_input_configs;
 
 namespace pad
 {
