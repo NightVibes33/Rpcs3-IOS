@@ -17,6 +17,14 @@ def load_base_module():
     return module
 
 
+def run_port_patcher(name: str, upstream_root: Path) -> None:
+    port_root = Path(__file__).resolve().parent.parent
+    patcher = port_root / "scripts" / name
+    if not patcher.is_file():
+        raise SystemExit(f"Missing iOS upstream patcher: {patcher}")
+    subprocess.run([sys.executable, str(patcher), str(upstream_root)], check=True)
+
+
 def patch_port_v0040_compatibility() -> None:
     port_root = Path(__file__).resolve().parent.parent
     patcher = port_root / "scripts/patch-upstream-ios-v0040-compat.py"
@@ -56,11 +64,20 @@ def main() -> int:
     if len(sys.argv) != 3:
         raise SystemExit("usage: patch-upstream-ios-runtime-blockers.py <upstream_root> <ffmpeg_root>")
 
+    upstream_root = Path(sys.argv[1]).resolve()
     patch_port_v0040_compatibility()
     base = load_base_module()
     status = int(base.main())
-    patch_ios_hidapi_barrier(Path(sys.argv[1]))
+    patch_ios_hidapi_barrier(upstream_root)
+
+    # These link corrections must be part of the shared overlay so the graph
+    # probe, runtime framework, and full Qt application all receive identical
+    # physical-iOS dependency behavior.
+    run_port_patcher("patch-upstream-ios-openal.py", upstream_root)
+    run_port_patcher("patch-upstream-ios-audio-frameworks.py", upstream_root)
+
     print("Applied HIDAPI's pthread barrier fallback for iPhoneOS")
+    print("Applied iOS OpenAL atomic and audio-framework linkage corrections")
     return status
 
 
