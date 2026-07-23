@@ -106,10 +106,19 @@ jobs:
           python -m pip install --upgrade pip aqtinstall
           IOS_ARCH="$(python -m aqt list-qt mac ios --arch "$QT_VERSION" | tr ' ' '\n' | sed '/^$/d' | head -n 1)"
           test -n "$IOS_ARCH"
-          python -m aqt list-qt mac ios --modules "$QT_VERSION" "$IOS_ARCH" | tee "$CI_LOGS/qt-ios-modules.txt"
+          AVAILABLE_MODULES="$(python -m aqt list-qt mac ios --modules "$QT_VERSION" "$IOS_ARCH")"
+          printf '%s\n' "$AVAILABLE_MODULES" | tee "$CI_LOGS/qt-ios-modules.txt"
+          for module in qtmultimedia qtimageformats qtshadertools; do
+            grep -qw "$module" <<<"$AVAILABLE_MODULES" || {
+              echo "Required Qt iOS module is unavailable: $module" >&2
+              exit 1
+            }
+          done
+          # QtSvg is part of the Qt 6.11.1 iOS base package and is not exposed as
+          # a separate aqt extension. Request only modules present in the index.
           python -m aqt install-qt mac ios "$QT_VERSION" "$IOS_ARCH" \
             --autodesktop \
-            -m qtmultimedia qtsvg qtimageformats qtshadertools \
+            -m qtmultimedia qtimageformats qtshadertools \
             -O "$QT_ROOT"
 
       - name: Verify full RPCS3 Qt dependencies
