@@ -39,6 +39,7 @@ for required in \
   "$REVISION_FILE" \
   "$PORT_ROOT/scripts/build-moltenvk-ios.sh" \
   "$PORT_ROOT/scripts/patch-upstream-ios-cubeb.py" \
+  "$PORT_ROOT/scripts/patch-upstream-ios-v0040-compat.py" \
   "$PORT_ROOT/CoreBridge/RPCS3UpstreamFirmwareInstaller.cpp" \
   "$PORT_ROOT/CoreBridge/RPCS3IOSPadBridge.cpp"; do
   test -f "$required"
@@ -67,6 +68,8 @@ test -f "$MOLTENVK_ROOT/lib/libMoltenVK.a"
 
 python3 scripts/apply-upstream-ios-overlay.py "$ROOT" --mode upstream \
   >"$BUILD/logs/overlay.log" 2>&1
+python3 scripts/patch-upstream-ios-v0040-compat.py "$PORT_ROOT" \
+  >"$BUILD/logs/v0040-compat.log" 2>&1
 python3 scripts/patch-upstream-ios-libusb-api.py "$ROOT" \
   >"$BUILD/logs/libusb.log" 2>&1
 python3 scripts/patch-upstream-ios-cubeb.py "$ROOT" \
