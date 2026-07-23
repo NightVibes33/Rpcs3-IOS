@@ -40,6 +40,7 @@ for required in \
   "$PORT_ROOT/scripts/build-moltenvk-ios.sh" \
   "$PORT_ROOT/scripts/patch-upstream-ios-cubeb.py" \
   "$PORT_ROOT/scripts/patch-upstream-ios-v0040-compat.py" \
+  "$PORT_ROOT/scripts/patch-upstream-ios-openal.py" \
   "$PORT_ROOT/CoreBridge/RPCS3UpstreamFirmwareInstaller.cpp" \
   "$PORT_ROOT/CoreBridge/RPCS3IOSPadBridge.cpp"; do
   test -f "$required"
@@ -70,6 +71,8 @@ python3 scripts/apply-upstream-ios-overlay.py "$ROOT" --mode upstream \
   >"$BUILD/logs/overlay.log" 2>&1
 python3 scripts/patch-upstream-ios-v0040-compat.py "$PORT_ROOT" \
   >"$BUILD/logs/v0040-compat.log" 2>&1
+python3 scripts/patch-upstream-ios-openal.py "$ROOT" \
+  >"$BUILD/logs/openal-ios.log" 2>&1
 python3 scripts/patch-upstream-ios-libusb-api.py "$ROOT" \
   >"$BUILD/logs/libusb.log" 2>&1
 python3 scripts/patch-upstream-ios-cubeb.py "$ROOT" \
@@ -109,6 +112,19 @@ cmake \
   -DUSE_FAUDIO=OFF \
   -DUSE_PRECOMPILED_HEADERS=OFF \
   >"$BUILD/logs/configure.log" 2>&1
+
+RUNTIME_LINK_COMMAND="$(find "$BUILD/tree" -path '*rpcs3_ios_upstream_runtime.dir/link.txt' -print -quit)"
+test -n "$RUNTIME_LINK_COMMAND"
+test -f "$RUNTIME_LINK_COMMAND"
+if grep -q -- '-latomic' "$RUNTIME_LINK_COMMAND"; then
+  echo "Invalid iOS runtime link command still contains -latomic: $RUNTIME_LINK_COMMAND" | tee "$BUILD/logs/link-smoke.log"
+  cat "$RUNTIME_LINK_COMMAND" >> "$BUILD/logs/link-smoke.log"
+  exit 1
+fi
+{
+  echo "PASS: generated physical-iOS runtime link command does not contain -latomic"
+  echo "Link command: $RUNTIME_LINK_COMMAND"
+} | tee "$BUILD/logs/link-smoke.log"
 
 cmake --build "$BUILD/tree" \
   --target rpcs3_ios_upstream_runtime \
