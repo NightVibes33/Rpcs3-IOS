@@ -73,11 +73,44 @@ jobs:
               if probe_text.count(anchor) != 1:
                   raise SystemExit("Unable to locate graph-generation call for late runtime linkage")
               probe_text = probe_text.replace(anchor, anchor + late_link, 1)
-              probe.write_text(probe_text, encoding="utf-8")
           if probe_text.count(late_link) != 1:
               raise SystemExit("Graph probe did not receive exactly one late runtime-linkage call")
 
-          print("PASS: graph uses AudioToolbox/CoreAudio and completes runtime linkage after target generation")
+          old_validation = '''      nm -gU "$probe_binary" > "$BUILD/runtime-link-probe-symbols.txt"
+              if grep -q '_rpcs3_ios_upstream_runtime_link_probe' "$BUILD/runtime-link-probe-symbols.txt"; then
+                probe_symbol_present=true
+              else
+                phase "Runtime link probe is missing the exported bridge symbol"
+                link_probe_status=127
+              fi
+          '''
+          new_validation = '''      runtime_framework_binary="$(find "$BUILD/tree" -type f -path '*/RPCS3UpstreamRuntime.framework/RPCS3UpstreamRuntime' -print | head -n 1)"
+              if [[ -z "$runtime_framework_binary" || ! -f "$runtime_framework_binary" ]]; then
+                phase "Runtime link probe is missing its RPCS3UpstreamRuntime framework provider"
+                link_probe_status=127
+              else
+                nm -gU "$runtime_framework_binary" > "$BUILD/runtime-framework-symbols.txt"
+                otool -L "$probe_binary" > "$BUILD/runtime-link-probe-linked-libraries.txt"
+                if grep -q '_rpcs3_ios_upstream_runtime_link_probe' "$BUILD/runtime-framework-symbols.txt" && \\
+                   grep -q 'RPCS3UpstreamRuntime.framework/RPCS3UpstreamRuntime' "$BUILD/runtime-link-probe-linked-libraries.txt"; then
+                  probe_symbol_present=true
+                else
+                  phase "Runtime framework export or executable dependency validation failed"
+                  link_probe_status=127
+                fi
+              fi
+          '''
+          if old_validation not in probe_text:
+              raise SystemExit("Unable to locate obsolete executable-export validation")
+          probe_text = probe_text.replace(old_validation, new_validation, 1)
+          probe.write_text(probe_text, encoding="utf-8")
+
+          if probe_text.count("runtime-framework-symbols.txt") != 2:
+              raise SystemExit("Graph probe did not receive framework-export validation")
+          if probe_text.count("runtime-link-probe-linked-libraries.txt") != 2:
+              raise SystemExit("Graph probe did not receive executable dependency validation")
+
+          print("PASS: graph completes runtime linkage and validates the framework export consumed by the executable")
           PY
 
       - name: Publish pending graph status
