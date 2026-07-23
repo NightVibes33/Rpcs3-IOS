@@ -132,6 +132,49 @@ endif()
     cmake.write_text(updated, encoding="utf-8")
 
 
+def patch_qt_utils_process_launch(upstream_root: Path) -> None:
+    """Keep Finder reveal support on macOS while avoiding QProcess on iOS."""
+
+    source = upstream_root / "rpcs3/rpcs3qt/qt_utils.cpp"
+    marker = "RPCS3 iOS: Finder reveal and child processes are unavailable"
+    text = source.read_text(encoding="utf-8")
+    if marker in text:
+        return
+
+    old = '''#elif defined(__APPLE__)
+				gui_log.notice("gui::utils::open_dir: About to open file path '%s'", spath);
+
+				QProcess::execute("/usr/bin/osascript", { "-e", "tell application \\"Finder\\" to reveal POSIX file \\"" + path + "\\"" });
+				QProcess::execute("/usr/bin/osascript", { "-e", "tell application \\"Finder\\" to activate" });
+#else
+'''
+    new = '''#elif defined(__APPLE__) && !defined(RPCS3_IOS)
+				gui_log.notice("gui::utils::open_dir: About to open file path '%s'", spath);
+
+				QProcess::execute("/usr/bin/osascript", { "-e", "tell application \\"Finder\\" to reveal POSIX file \\"" + path + "\\"" });
+				QProcess::execute("/usr/bin/osascript", { "-e", "tell application \\"Finder\\" to activate" });
+#elif defined(RPCS3_IOS)
+				// RPCS3 iOS: Finder reveal and child processes are unavailable.
+				// The caller already has the sandbox path, so leave it unchanged.
+				gui_log.notice("gui::utils::open_dir: Finder reveal is unavailable on iOS for '%s'", spath);
+#else
+'''
+    if old not in text:
+        raise SystemExit("Unable to locate the pinned Qt Finder reveal branch")
+
+    updated = text.replace(old, new, 1)
+    for required in (
+        marker,
+        "#elif defined(__APPLE__) && !defined(RPCS3_IOS)",
+        "#elif defined(RPCS3_IOS)",
+        'QProcess::execute("/usr/bin/osascript"',
+    ):
+        if required not in updated:
+            raise SystemExit(f"Qt process-launch patch verification failed: {required}")
+
+    source.write_text(updated, encoding="utf-8")
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("upstream_root", type=Path)
@@ -139,7 +182,8 @@ def main() -> int:
 
     patch_fatal_error_relaunch(args.upstream_root)
     patch_qt_component_graph(args.upstream_root)
-    print("Patched and verified the full RPCS3 Qt frontend fatal-error and iOS component paths")
+    patch_qt_utils_process_launch(args.upstream_root)
+    print("Patched and verified the full RPCS3 Qt frontend fatal-error, component, and iOS process-launch paths")
     return 0
 
 
