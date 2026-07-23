@@ -123,15 +123,22 @@ def complete_runtime_linkage(upstream_root: Path) -> None:
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("upstream_root", type=Path)
+    parser.add_argument(
+        "--dependencies-only",
+        action="store_true",
+        help="Patch Cubeb/RtMidi before the generated runtime target exists",
+    )
     args = parser.parse_args()
     upstream_root = args.upstream_root.resolve()
 
     patch_runtime_target(upstream_root)
     patch_cubeb_target(upstream_root)
     patch_rtmidi_target(upstream_root)
-    complete_runtime_linkage(upstream_root)
+    if not args.dependencies_only:
+        complete_runtime_linkage(upstream_root)
 
-    print("Patched iOS dependency frameworks and completed the runtime support linkage graph")
+    mode = "dependency-only" if args.dependencies_only else "complete runtime"
+    print(f"Patched iOS audio frameworks in {mode} mode")
     return 0
 
 
