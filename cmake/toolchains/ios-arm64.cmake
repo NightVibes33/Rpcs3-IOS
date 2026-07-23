@@ -11,6 +11,16 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_OBJCXX_STANDARD 20)
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 
+# qt-cmake can lose its device prefix when RPCS3 performs nested package
+# discovery while cross-compiling. Pin the verified iOS Qt package directory
+# from the workflow environment so find_package(Qt6) always resolves the
+# physical-device libraries while QT_HOST_PATH continues to supply host tools.
+if(DEFINED ENV{QT_ROOT} AND DEFINED ENV{QT_VERSION})
+  set(RPCS3_IOS_QT_PREFIX "$ENV{QT_ROOT}/$ENV{QT_VERSION}/ios")
+  list(PREPEND CMAKE_PREFIX_PATH "${RPCS3_IOS_QT_PREFIX}")
+  set(Qt6_DIR "${RPCS3_IOS_QT_PREFIX}/lib/cmake/Qt6" CACHE PATH "Qt 6 iOS package directory" FORCE)
+endif()
+
 set(CMAKE_XCODE_ATTRIBUTE_CODE_SIGNING_ALLOWED NO)
 set(CMAKE_XCODE_ATTRIBUTE_CODE_SIGNING_REQUIRED NO)
 set(CMAKE_XCODE_ATTRIBUTE_ONLY_ACTIVE_ARCH YES)
