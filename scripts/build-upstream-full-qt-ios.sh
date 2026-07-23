@@ -85,21 +85,39 @@ python3 scripts/patch-upstream-ios-full-qt-blockers.py "$ROOT" \
   >"$BUILD/logs/full-qt-platform-blockers.log" 2>&1
 
 # Smoke the exact post-overlay dependency graph before invoking Xcode.
-grep -q 'int usbi_get_monotonic_time(struct timespec \*tp)' \
-  "$ROOT/3rdparty/libusb/libusb/libusb/os/ios_usb.c"
-grep -q 'int usbi_get_real_time(struct timespec \*tp)' \
-  "$ROOT/3rdparty/libusb/libusb/libusb/os/ios_usb.c"
 grep -q 'CMAKE_SYSTEM_NAME STREQUAL "iOS"' \
   "$ROOT/3rdparty/OpenAL/openal-soft/CMakeLists.txt"
 grep -q 'AudioToolbox' "$ROOT/3rdparty/cubeb/cubeb/CMakeLists.txt"
 python3 - \
+  "$ROOT/3rdparty/libusb/libusb/libusb/os/ios_usb.c" \
+  "$ROOT/3rdparty/libusb/libusb/libusb/libusbi.h" \
   "$ROOT/3rdparty/cubeb/cubeb/CMakeLists.txt" \
   "$ROOT/3rdparty/rtmidi/rtmidi/CMakeLists.txt" <<'PY' \
   | tee "$BUILD/logs/dependency-smoke.log"
 from pathlib import Path
+import re
 import sys
 
-cubeb = Path(sys.argv[1]).read_text(encoding="utf-8")
+libusb_source = Path(sys.argv[1]).read_text(encoding="utf-8")
+libusb_header = Path(sys.argv[2]).read_text(encoding="utf-8")
+for name in ("usbi_get_monotonic_time", "usbi_get_real_time"):
+    declaration = re.search(
+        rf"(?m)^\s*(void|int)\s+{name}\s*\(\s*struct timespec\s*\*\s*tp\s*\)\s*;",
+        libusb_header,
+    )
+    definition = re.search(
+        rf"(?m)^\s*(void|int)\s+{name}\s*\(\s*struct timespec\s*\*\s*tp\s*\)\s*\{{",
+        libusb_source,
+    )
+    if not declaration or not definition:
+        raise SystemExit(f"libusb iOS clock hook is missing: {name}")
+    if declaration.group(1) != definition.group(1):
+        raise SystemExit(
+            f"libusb iOS clock signature mismatch for {name}: "
+            f"declared {declaration.group(1)}, defined {definition.group(1)}"
+        )
+
+cubeb = Path(sys.argv[3]).read_text(encoding="utf-8")
 audio_anchor = "check_include_files(AudioUnit/AudioUnit.h USE_AUDIOUNIT)"
 audio_section = cubeb.index(audio_anchor)
 ios_start = cubeb.index('if(CMAKE_SYSTEM_NAME STREQUAL "iOS")', audio_section)
@@ -110,7 +128,7 @@ if '"-framework AudioUnit"' in ios_branch:
 if '"-framework AudioToolbox"' not in ios_branch:
     raise SystemExit("Cubeb iOS branch is missing AudioToolbox")
 
-rtmidi = Path(sys.argv[2]).read_text(encoding="utf-8")
+rtmidi = Path(sys.argv[4]).read_text(encoding="utf-8")
 core_midi = rtmidi.index("# CoreMIDI")
 ios_start = rtmidi.index('if(CMAKE_SYSTEM_NAME STREQUAL "iOS")', core_midi)
 ios_end = rtmidi.index("  else()", ios_start)
