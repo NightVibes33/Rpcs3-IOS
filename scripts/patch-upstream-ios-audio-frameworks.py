@@ -52,6 +52,44 @@ def patch_cubeb_target(upstream_root: Path) -> None:
     cmake.write_text(text, encoding="utf-8")
 
 
+def patch_rtmidi_target(upstream_root: Path) -> None:
+    cmake = upstream_root / "3rdparty/rtmidi/rtmidi/CMakeLists.txt"
+    text = cmake.read_text(encoding="utf-8")
+
+    old = '''if(RTMIDI_API_CORE)
+  find_library(CORESERVICES_LIB CoreServices)
+  find_library(COREAUDIO_LIB CoreAudio)
+  find_library(COREMIDI_LIB CoreMIDI)
+  find_library(COREFOUNDATION_LIB CoreFoundation)
+  list(APPEND API_DEFS "-D__MACOSX_CORE__")
+  list(APPEND API_LIST "coremidi")
+  list(APPEND LINKLIBS ${CORESERVICES_LIB} ${COREAUDIO_LIB} ${COREMIDI_LIB} ${COREFOUNDATION_LIB})
+  list(APPEND LIBS_REQUIRES "-framework CoreServices -framework CoreAudio -framework CoreMIDI -framework CoreFoundation")
+  list(APPEND LINKFLAGS "-Wl,-F/Library/Frameworks")
+endif()
+'''
+    new = '''if(RTMIDI_API_CORE)
+  find_library(COREAUDIO_LIB CoreAudio)
+  find_library(COREMIDI_LIB CoreMIDI)
+  find_library(COREFOUNDATION_LIB CoreFoundation)
+  list(APPEND API_DEFS "-D__MACOSX_CORE__")
+  list(APPEND API_LIST "coremidi")
+  if(CMAKE_SYSTEM_NAME STREQUAL "iOS")
+    # CoreMIDI is available on iOS, but the macOS CoreServices umbrella is not.
+    list(APPEND LINKLIBS ${COREAUDIO_LIB} ${COREMIDI_LIB} ${COREFOUNDATION_LIB})
+    list(APPEND LIBS_REQUIRES "-framework CoreAudio -framework CoreMIDI -framework CoreFoundation")
+  else()
+    find_library(CORESERVICES_LIB CoreServices)
+    list(APPEND LINKLIBS ${CORESERVICES_LIB} ${COREAUDIO_LIB} ${COREMIDI_LIB} ${COREFOUNDATION_LIB})
+    list(APPEND LIBS_REQUIRES "-framework CoreServices -framework CoreAudio -framework CoreMIDI -framework CoreFoundation")
+    list(APPEND LINKFLAGS "-Wl,-F/Library/Frameworks")
+  endif()
+endif()
+'''
+    text = replace_or_verify(text, old, new, "RtMidi CoreMIDI framework block")
+    cmake.write_text(text, encoding="utf-8")
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("upstream_root", type=Path)
@@ -60,8 +98,9 @@ def main() -> int:
 
     patch_runtime_target(upstream_root)
     patch_cubeb_target(upstream_root)
+    patch_rtmidi_target(upstream_root)
 
-    print("Patched the iOS runtime and Cubeb to use AudioToolbox/CoreAudio without macOS-only AudioUnit/CoreServices frameworks")
+    print("Patched iOS runtime, Cubeb, and RtMidi links to use device SDK frameworks without AudioUnit/CoreServices")
     return 0
 
 
