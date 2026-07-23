@@ -198,10 +198,12 @@ def patch_gui_pad_thread_desktop_events(upstream_root: Path) -> None:
         1,
     )
 
-    if marker not in updated or normal_guard in updated or spaced_guard in updated:
-        raise SystemExit("Qt GUI pad desktop-event patch verification failed")
+    if marker not in updated:
+        raise SystemExit("Qt GUI pad desktop-event marker was not inserted")
     if updated.count(ios_safe_guard) != 6:
         raise SystemExit("Qt GUI pad patch did not guard every Apple desktop branch")
+    if "\n#elif defined(__APPLE__)\n" in updated or "\n#elif defined (__APPLE__)\n" in updated:
+        raise SystemExit("Qt GUI pad patch left an unguarded Apple desktop branch")
 
     source.write_text(updated, encoding="utf-8")
 
