@@ -19,6 +19,18 @@ def patch_runtime_target(upstream_root: Path) -> None:
     cmake = upstream_root / "rpcs3/Emu/CMakeLists.txt"
     text = cmake.read_text(encoding="utf-8")
 
+    framework_tokens = (
+        '"-framework AudioUnit"',
+        '"-framework AudioToolbox"',
+        '"-framework CoreAudio"',
+    )
+    if not any(token in text for token in framework_tokens):
+        # The interpreter-only graph does not attach audio frameworks directly
+        # to rpcs3_emu; Cubeb owns that dependency graph instead. This is valid
+        # and still requires the Cubeb/RtMidi corrections below.
+        print(f"RPCS3 iOS runtime target has no direct audio framework block: {cmake}")
+        return
+
     invalid = '        "-framework AudioUnit"\n'
     if invalid in text:
         text = text.replace(invalid, "", 1)
