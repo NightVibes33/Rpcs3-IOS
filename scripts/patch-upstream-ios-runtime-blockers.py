@@ -4,9 +4,20 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 import re
+import subprocess
+import sys
 
 
 TEXT_SUFFIXES = {".c", ".cc", ".cpp", ".cxx", ".h", ".hh", ".hpp", ".hxx", ".mm"}
+
+
+def patch_port_v0040_compatibility() -> None:
+    """Keep every upstream lane on the pinned v0.0.40 no-exceptions ABI."""
+    port_root = Path(__file__).resolve().parent.parent
+    patcher = port_root / "scripts/patch-upstream-ios-v0040-compat.py"
+    if not patcher.is_file():
+        raise SystemExit(f"Missing v0.0.40 compatibility patch: {patcher}")
+    subprocess.run([sys.executable, str(patcher), str(port_root)], check=True)
 
 
 def replace_once(path: Path, needle: str, replacement: str, label: str) -> None:
@@ -84,6 +95,32 @@ def patch_ios_hidapi_backend(upstream_root: Path) -> None:
     if needle not in source_text:
         raise SystemExit("Unable to locate HIDAPI Apple backend selector")
     source_cmake.write_text(source_text.replace(needle, replacement, 1), encoding="utf-8")
+
+    barrier_header = upstream_root / "3rdparty/hidapi/hidapi/libusb/hidapi_thread_pthread.h"
+    barrier_text = barrier_header.read_text(encoding="utf-8")
+    barrier_marker = "RPCS3 iOS: pthread barriers are unavailable on iPhoneOS"
+    if barrier_marker not in barrier_text:
+        barrier_needle = """#include <pthread.h>
+
+#if defined(__ANDROID__) && __ANDROID_API__ < __ANDROID_API_N__
+"""
+        barrier_replacement = """#include <pthread.h>
+
+#if defined(__APPLE__)
+#include <TargetConditionals.h>
+#endif
+
+/* RPCS3 iOS: pthread barriers are unavailable on iPhoneOS. Reuse HIDAPI's
+   mutex/condition fallback that is already used on older Android releases. */
+#if (defined(__ANDROID__) && __ANDROID_API__ < __ANDROID_API_N__) || \
+    (defined(__APPLE__) && TARGET_OS_IPHONE)
+"""
+        if barrier_needle not in barrier_text:
+            raise SystemExit("Unable to locate HIDAPI pthread barrier fallback guard")
+        barrier_header.write_text(
+            barrier_text.replace(barrier_needle, barrier_replacement, 1),
+            encoding="utf-8",
+        )
 
 
 def patch_desktop_jit_write_toggles(upstream_root: Path) -> int:
@@ -278,9 +315,9 @@ if(RPCS3_IOS_UPSTREAM_GRAPH)
 	target_compile_definitions(3rdparty_ffmpeg INTERFACE RPCS3_IOS_FFMPEG=1)
 elseif(NOT ANDROID)
 '''
-    if needle not in text:
+    if nedle not in text:
         raise SystemExit("Unable to locate the RPCS3 iOS deferred FFmpeg target")
-    cmake.write_text(text.replace(needle, replacement, 1), encoding="utf-8")
+    cmake.write_text(text.replace(nedle, replacement, 1), encoding="utf-8")
 
 
 def verify_ffmpeg_install(ffmpeg_root: Path) -> None:
@@ -301,6 +338,7 @@ def main() -> int:
     args = parser.parse_args()
 
     verify_ffmpeg_install(args.ffmpeg_root)
+    patch_port_v0040_compatibility()
     patch_non_llvm_aarch64_backend(args.upstream_root)
     patch_ios_hidapi_backend(args.upstream_root)
     patched_calls = patch_desktop_jit_write_toggles(args.upstream_root)
@@ -308,8 +346,9 @@ def main() -> int:
     patch_ios_metal_surface(args.upstream_root)
     patch_ffmpeg_target(args.upstream_root, args.ffmpeg_root)
 
+    print("Applied the pinned RPCS3 v0.0.40 bridge and no-exceptions compatibility patch")
     print("Excluded LLVM-only ARM64 backend sources from interpreter-only iOS builds")
-    print("Selected HIDAPI libusb backend for iOS instead of macOS IOKit")
+    print("Selected HIDAPI libusb backend and pthread barrier fallback for iOS")
     print(f"Guarded {patched_calls} desktop-only JIT write-protection calls for iOS")
     print("Made RPCS3_CONFIG_DIR authoritative for the shared iOS dev_hdd0/dev_flash tree")
     print("Patched RPCS3's Apple Vulkan WSI helper to consume the iOS CAMetalLayer handle")
