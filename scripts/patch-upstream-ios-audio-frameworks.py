@@ -3,6 +3,8 @@ from __future__ import annotations
 
 import argparse
 from pathlib import Path
+import subprocess
+import sys
 
 
 def replace_or_verify(text: str, old: str, new: str, label: str) -> str:
@@ -35,7 +37,6 @@ def patch_cubeb_target(upstream_root: Path) -> None:
     cmake = upstream_root / "3rdparty/cubeb/cubeb/CMakeLists.txt"
     text = cmake.read_text(encoding="utf-8")
 
-    # patch-upstream-ios-cubeb.py runs first and creates this exact iOS branch.
     old = '''    target_link_libraries(cubeb PRIVATE
       "-framework AudioUnit"
       "-framework CoreAudio"
@@ -96,6 +97,17 @@ endif()
     cmake.write_text(text, encoding="utf-8")
 
 
+def complete_runtime_linkage(upstream_root: Path) -> None:
+    port_root = Path(__file__).resolve().parent.parent
+    script = port_root / "scripts/patch-upstream-ios-runtime-linkage.py"
+    if not script.is_file():
+        raise SystemExit(f"Missing runtime linkage patch: {script}")
+    subprocess.run(
+        [sys.executable, str(script), str(upstream_root), str(port_root)],
+        check=True,
+    )
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("upstream_root", type=Path)
@@ -105,8 +117,9 @@ def main() -> int:
     patch_runtime_target(upstream_root)
     patch_cubeb_target(upstream_root)
     patch_rtmidi_target(upstream_root)
+    complete_runtime_linkage(upstream_root)
 
-    print("Patched post-overlay Cubeb, RtMidi, and the iOS runtime to use device SDK frameworks without AudioUnit/CoreServices")
+    print("Patched iOS dependency frameworks and completed the runtime support linkage graph")
     return 0
 
 
