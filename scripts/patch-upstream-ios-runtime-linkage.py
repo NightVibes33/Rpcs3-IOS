@@ -27,9 +27,11 @@ def main() -> int:
 
     support = port_root / "CoreBridge/RPCS3IOSRuntimeSupport.cpp"
     globals_source = port_root / "CoreBridge/RPCS3IOSRuntimeGlobals.cpp"
+    bridge_header = port_root / "CoreBridge/RPCS3UpstreamRuntimeBridge.h"
     required_sources = [
         support,
         globals_source,
+        bridge_header,
         upstream_root / "rpcs3/Input/ps_move_config.cpp",
         upstream_root / "rpcs3/Input/ps_move_tracker.cpp",
         upstream_root / "rpcs3/Input/product_info.cpp",
@@ -52,6 +54,14 @@ if(RPCS3_IOS_UPSTREAM_GRAPH)
         "${{CMAKE_SOURCE_DIR}}/rpcs3/rpcs3_version.cpp"
     )
     target_link_libraries(rpcs3_ios_upstream_runtime PRIVATE iconv Fusion)
+    add_custom_command(TARGET rpcs3_ios_upstream_runtime POST_BUILD
+        COMMAND ${{CMAKE_COMMAND}} -E make_directory
+            "$<TARGET_FILE_DIR:rpcs3_ios_upstream_runtime>/Headers"
+        COMMAND ${{CMAKE_COMMAND}} -E copy_if_different
+            "{bridge_header.as_posix()}"
+            "$<TARGET_FILE_DIR:rpcs3_ios_upstream_runtime>/Headers/RPCS3UpstreamRuntimeBridge.h"
+        COMMENT "Materialize the public RPCS3 iOS runtime framework header"
+    )
 endif()
 '''
 
@@ -65,11 +75,13 @@ endif()
         "Input/product_info.cpp",
         "rpcs3_version.cpp",
         "target_link_libraries(rpcs3_ios_upstream_runtime PRIVATE iconv Fusion)",
+        "Materialize the public RPCS3 iOS runtime framework header",
+        "Headers/RPCS3UpstreamRuntimeBridge.h",
     ):
         if expected not in text:
             raise SystemExit(f"Runtime linkage patch verification failed: {expected}")
 
-    print("Completed iOS runtime linkage with host callbacks, input globals, LDD pad support, Fusion motion helpers, product metadata, version helpers, and iconv")
+    print("Completed iOS runtime linkage with host callbacks, input globals, LDD pad support, Fusion motion helpers, product metadata, version helpers, iconv, and public framework header packaging")
     return 0
 
 
