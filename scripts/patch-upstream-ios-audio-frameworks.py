@@ -35,20 +35,26 @@ def patch_cubeb_target(upstream_root: Path) -> None:
     cmake = upstream_root / "3rdparty/cubeb/cubeb/CMakeLists.txt"
     text = cmake.read_text(encoding="utf-8")
 
-    old = '''  target_link_libraries(cubeb PRIVATE "-framework AudioUnit" "-framework CoreAudio" "-framework CoreServices")
-  list(APPEND private_libs_flags "-framework AudioUnit" "-framework CoreAudio" "-framework CoreServices")
+    # patch-upstream-ios-cubeb.py runs first and creates this exact iOS branch.
+    old = '''    target_link_libraries(cubeb PRIVATE
+      "-framework AudioUnit"
+      "-framework CoreAudio"
+      "-framework AudioToolbox")
+    list(APPEND private_libs_flags
+      "-framework AudioUnit"
+      "-framework CoreAudio"
+      "-framework AudioToolbox")
 '''
-    new = '''  # iOS exposes the Audio Unit v2 C API through AudioToolbox. The standalone
-  # AudioUnit and CoreServices frameworks are macOS-only in the device SDK.
-  if(CMAKE_SYSTEM_NAME STREQUAL "iOS")
-    target_link_libraries(cubeb PRIVATE "-framework AudioToolbox" "-framework CoreAudio")
-    list(APPEND private_libs_flags "-framework AudioToolbox" "-framework CoreAudio")
-  else()
-    target_link_libraries(cubeb PRIVATE "-framework AudioUnit" "-framework CoreAudio" "-framework CoreServices")
-    list(APPEND private_libs_flags "-framework AudioUnit" "-framework CoreAudio" "-framework CoreServices")
-  endif()
+    new = '''    # iOS exposes the Audio Unit v2 C API through AudioToolbox; the device
+    # SDK does not ship a standalone AudioUnit framework.
+    target_link_libraries(cubeb PRIVATE
+      "-framework CoreAudio"
+      "-framework AudioToolbox")
+    list(APPEND private_libs_flags
+      "-framework CoreAudio"
+      "-framework AudioToolbox")
 '''
-    text = replace_or_verify(text, old, new, "Cubeb Apple audio framework block")
+    text = replace_or_verify(text, old, new, "post-backport Cubeb iOS framework branch")
     cmake.write_text(text, encoding="utf-8")
 
 
@@ -100,7 +106,7 @@ def main() -> int:
     patch_cubeb_target(upstream_root)
     patch_rtmidi_target(upstream_root)
 
-    print("Patched iOS runtime, Cubeb, and RtMidi links to use device SDK frameworks without AudioUnit/CoreServices")
+    print("Patched post-overlay Cubeb, RtMidi, and the iOS runtime to use device SDK frameworks without AudioUnit/CoreServices")
     return 0
 
 
