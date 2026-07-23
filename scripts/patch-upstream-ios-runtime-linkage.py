@@ -26,8 +26,10 @@ def main() -> int:
         raise SystemExit(f"Unable to locate the generated iOS runtime target in {cmake}")
 
     support = port_root / "CoreBridge/RPCS3IOSRuntimeSupport.cpp"
+    globals_source = port_root / "CoreBridge/RPCS3IOSRuntimeGlobals.cpp"
     required_sources = [
         support,
+        globals_source,
         upstream_root / "rpcs3/Input/ps_move_config.cpp",
         upstream_root / "rpcs3/Input/ps_move_tracker.cpp",
         upstream_root / "rpcs3/Input/product_info.cpp",
@@ -43,12 +45,13 @@ def main() -> int:
 if(RPCS3_IOS_UPSTREAM_GRAPH)
     target_sources(rpcs3_ios_upstream_runtime PRIVATE
         "{support.as_posix()}"
+        "{globals_source.as_posix()}"
         "${{CMAKE_SOURCE_DIR}}/rpcs3/Input/ps_move_config.cpp"
         "${{CMAKE_SOURCE_DIR}}/rpcs3/Input/ps_move_tracker.cpp"
         "${{CMAKE_SOURCE_DIR}}/rpcs3/Input/product_info.cpp"
         "${{CMAKE_SOURCE_DIR}}/rpcs3/rpcs3_version.cpp"
     )
-    target_link_libraries(rpcs3_ios_upstream_runtime PRIVATE iconv)
+    target_link_libraries(rpcs3_ios_upstream_runtime PRIVATE iconv Fusion)
 endif()
 '''
 
@@ -57,15 +60,16 @@ endif()
 
     for expected in (
         "RPCS3IOSRuntimeSupport.cpp",
+        "RPCS3IOSRuntimeGlobals.cpp",
         "Input/ps_move_tracker.cpp",
         "Input/product_info.cpp",
         "rpcs3_version.cpp",
-        "target_link_libraries(rpcs3_ios_upstream_runtime PRIVATE iconv)",
+        "target_link_libraries(rpcs3_ios_upstream_runtime PRIVATE iconv Fusion)",
     ):
         if expected not in text:
             raise SystemExit(f"Runtime linkage patch verification failed: {expected}")
 
-    print("Completed iOS runtime linkage with host callbacks, LDD pad support, PS Move helpers, product metadata, version helpers, and iconv")
+    print("Completed iOS runtime linkage with host callbacks, input globals, LDD pad support, Fusion motion helpers, product metadata, version helpers, and iconv")
     return 0
 
 
