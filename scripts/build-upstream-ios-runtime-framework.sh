@@ -129,14 +129,19 @@ if grep -q -- '-framework AudioUnit' "$RUNTIME_LINK_COMMAND"; then
   cat "$RUNTIME_LINK_COMMAND" >> "$BUILD/logs/link-smoke.log"
   exit 1
 fi
+if grep -q -- '-framework CoreServices' "$RUNTIME_LINK_COMMAND"; then
+  echo "Invalid iOS runtime link command still contains the macOS-only CoreServices framework: $RUNTIME_LINK_COMMAND" | tee "$BUILD/logs/link-smoke.log"
+  cat "$RUNTIME_LINK_COMMAND" >> "$BUILD/logs/link-smoke.log"
+  exit 1
+fi
 if ! grep -q -- '-framework AudioToolbox' "$RUNTIME_LINK_COMMAND"; then
   echo "Invalid iOS runtime link command is missing AudioToolbox: $RUNTIME_LINK_COMMAND" | tee "$BUILD/logs/link-smoke.log"
   cat "$RUNTIME_LINK_COMMAND" >> "$BUILD/logs/link-smoke.log"
   exit 1
 fi
 {
-  echo "PASS: generated physical-iOS runtime link command has no -latomic or standalone AudioUnit framework"
-  echo "PASS: AudioToolbox remains linked for the Audio Unit C APIs"
+  echo "PASS: generated physical-iOS runtime link command has no -latomic, AudioUnit, or CoreServices"
+  echo "PASS: AudioToolbox/CoreAudio remain linked for Cubeb and CoreMIDI remains available for RtMidi"
   echo "Link command: $RUNTIME_LINK_COMMAND"
 } | tee "$BUILD/logs/link-smoke.log"
 
