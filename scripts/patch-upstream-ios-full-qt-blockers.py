@@ -5,15 +5,8 @@ import argparse
 from pathlib import Path
 
 
-def replace_once(path: Path, needle: str, replacement: str, label: str) -> None:
-    text = path.read_text(encoding="utf-8")
-    if needle not in text:
-        raise SystemExit(f"Unable to locate upstream {label} block in {path}")
-    path.write_text(text.replace(needle, replacement, 1), encoding="utf-8")
-
-
 def patch_fatal_error_relaunch(upstream_root: Path) -> None:
-    """Keep the desktop relaunch behavior while avoiding process creation on iOS."""
+    """Keep desktop relaunch behavior while avoiding process creation on iOS."""
 
     source = upstream_root / "rpcs3/rpcs3.cpp"
     marker = "RPCS3 iOS: an app bundle cannot relaunch itself as a child process"
@@ -21,93 +14,47 @@ def patch_fatal_error_relaunch(upstream_root: Path) -> None:
     if marker in text:
         return
 
-    needle = '''#ifdef _WIN32
-		constexpr DWORD size = 32767;
-		std::vector<wchar_t> buffer(size);
-		GetModuleFileNameW(nullptr, buffer.data(), size);
-		const std::wstring arg(text.cbegin(), text.cend()); // ignore unicode for now
-		_wspawnl(_P_WAIT, buffer.data(), buffer.data(), L"--error", arg.c_str(), nullptr);
-#else
-		pid_t pid;
-		std::vector<char> data(text.data(), text.data() + text.size() + 1);
-		std::string run_arg = +s_argv0;
-		std::string err_arg = "--error";
+    spawn_anchor = "_wspawnl(_P_WAIT"
+    spawn_pos = text.find(spawn_anchor)
+    if spawn_pos < 0:
+        raise SystemExit("Unable to locate upstream Windows fatal-error relaunch call")
 
-		if (run_arg.find_first_of('/') == umax)
-		{
-			// AppImage has "rpcs3" in argv[0], can't just execute it
-#ifdef __linux__
-			char buffer[PATH_MAX]{};
-			if (::readlink("/proc/self/exe", buffer, sizeof(buffer) - 1) > 0)
-			{
-				printf("Found exec link: %s\n", buffer);
-				run_arg = buffer;
-			}
-#endif
-		}
+    block_start = text.rfind("#ifdef _WIN32", 0, spawn_pos)
+    if block_start < 0:
+        raise SystemExit("Unable to locate the start of the fatal-error relaunch block")
 
-		char* argv[] = {run_arg.data(), err_arg.data(), data.data(), nullptr};
-		int ret = posix_spawn(&pid, run_arg.c_str(), nullptr, nullptr, argv, environ);
+    failure_anchor = 'std::fprintf(stderr, "posix_spawn() failed: %d\\n", ret);'
+    failure_pos = text.find(failure_anchor, spawn_pos)
+    if failure_pos < 0:
+        raise SystemExit("Unable to locate upstream POSIX fatal-error relaunch call")
 
-		if (ret == 0)
-		{
-			int status;
-			waitpid(pid, &status, 0);
-		}
-		else
-		{
-			std::fprintf(stderr, "posix_spawn() failed: %d\n", ret);
-		}
-#endif
-'''
+    block_end = text.find("#endif", failure_pos)
+    if block_end < 0:
+        raise SystemExit("Unable to locate the end of the fatal-error relaunch block")
+    block_end += len("#endif")
 
+    original = text[block_start:block_end]
+    if not original.startswith("#ifdef _WIN32") or spawn_anchor not in original or failure_anchor not in original:
+        raise SystemExit("Fatal-error relaunch anchors resolved to an unexpected source block")
+
+    desktop_body = original[len("#ifdef _WIN32"):]
     replacement = '''#if defined(RPCS3_IOS)
 		// RPCS3 iOS: an app bundle cannot relaunch itself as a child process.
-		// Display the same upstream fatal dialog in-process and then abort below.
+		// Show the same upstream report in-process and abort through the existing path.
 		show_report(text);
-#elif defined(_WIN32)
-		constexpr DWORD size = 32767;
-		std::vector<wchar_t> buffer(size);
-		GetModuleFileNameW(nullptr, buffer.data(), size);
-		const std::wstring arg(text.cbegin(), text.cend()); // ignore unicode for now
-		_wspawnl(_P_WAIT, buffer.data(), buffer.data(), L"--error", arg.c_str(), nullptr);
-#else
-		pid_t pid;
-		std::vector<char> data(text.data(), text.data() + text.size() + 1);
-		std::string run_arg = +s_argv0;
-		std::string err_arg = "--error";
+#elif defined(_WIN32)''' + desktop_body
 
-		if (run_arg.find_first_of('/') == umax)
-		{
-			// AppImage has "rpcs3" in argv[0], can't just execute it
-#ifdef __linux__
-			char buffer[PATH_MAX]{};
-			if (::readlink("/proc/self/exe", buffer, sizeof(buffer) - 1) > 0)
-			{
-				printf("Found exec link: %s\n", buffer);
-				run_arg = buffer;
-			}
-#endif
-		}
+    updated = text[:block_start] + replacement + text[block_end:]
+    for required in (
+        marker,
+        "#elif defined(_WIN32)",
+        spawn_anchor,
+        failure_anchor,
+    ):
+        if required not in updated:
+            raise SystemExit(f"Fatal-error relaunch patch verification failed: {required}")
 
-		char* argv[] = {run_arg.data(), err_arg.data(), data.data(), nullptr};
-		int ret = posix_spawn(&pid, run_arg.c_str(), nullptr, nullptr, argv, environ);
-
-		if (ret == 0)
-		{
-			int status;
-			waitpid(pid, &status, 0);
-		}
-		else
-		{
-			std::fprintf(stderr, "posix_spawn() failed: %d\n", ret);
-		}
-#endif
-'''
-
-    if needle not in text:
-        raise SystemExit("Unable to locate upstream fatal-error process relaunch block")
-    source.write_text(text.replace(needle, replacement, 1), encoding="utf-8")
+    source.write_text(updated, encoding="utf-8")
 
 
 def main() -> int:
