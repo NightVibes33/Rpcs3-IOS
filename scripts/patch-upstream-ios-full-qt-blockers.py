@@ -63,7 +63,7 @@ def main() -> int:
     args = parser.parse_args()
 
     patch_fatal_error_relaunch(args.upstream_root)
-    print("Patched the full RPCS3 Qt frontend to keep fatal errors in-process on iOS")
+    print("Patched and verified the full RPCS3 Qt frontend fatal-error path for iOS")
     return 0
 
 
