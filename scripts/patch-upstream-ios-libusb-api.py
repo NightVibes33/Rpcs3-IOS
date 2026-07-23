@@ -14,5 +14,18 @@ text = text.replace(
     "",
 )
 text = text.replace("    .clock_gettime = ios_clock_gettime,\n", "")
+
+marker = "/* RPCS3_IOS_LIBUSB_CLOCKS */"
+if marker not in text:
+    text += f'''\n\n{marker}\nint usbi_get_monotonic_time(struct timespec *tp)\n{{\n    return clock_gettime(CLOCK_MONOTONIC, tp);\n}}\n\nint usbi_get_real_time(struct timespec *tp)\n{{\n    return clock_gettime(CLOCK_REALTIME, tp);\n}}\n'''
+
+for required in (
+    "static void ios_exit(struct libusb_context *ctx)",
+    "int usbi_get_monotonic_time(struct timespec *tp)",
+    "int usbi_get_real_time(struct timespec *tp)",
+):
+    if required not in text:
+        raise SystemExit(f"iOS libusb patch verification failed: {required}")
+
 source.write_text(text, encoding="utf-8")
-print(f"Patched iOS libusb backend API in {source}")
+print(f"Patched iOS libusb backend API and POSIX clocks in {source}")
