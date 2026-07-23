@@ -144,12 +144,14 @@ PY
 UPSTREAM_SHA="$(git -C "$ROOT" rev-parse HEAD)"
 printf '%s\n' "$UPSTREAM_SHA" > "$BUILD/upstream-revision.txt"
 
+# Keep Qt's generated iOS toolchain primary. Our port settings are chainloaded
+# through it so Qt retains its device root paths and matching host tools.
 "$QT_CMAKE" \
   -S "$ROOT" \
   -B "$BUILD/tree" \
   -G Xcode \
   -DQT_HOST_PATH="$HOST_QT" \
-  -DCMAKE_TOOLCHAIN_FILE="$TOOLCHAIN" \
+  -DQT_CHAINLOAD_TOOLCHAIN_FILE="$TOOLCHAIN" \
   -DCMAKE_BUILD_TYPE=Release \
   -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
   -DCMAKE_OSX_ARCHITECTURES=arm64 \
