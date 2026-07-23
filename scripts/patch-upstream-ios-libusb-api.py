@@ -3,6 +3,7 @@ from pathlib import Path
 import re
 import sys
 
+# Keep generated definitions synchronized with the pinned libusb declarations.
 root = Path(sys.argv[1])
 source = root / "3rdparty/libusb/libusb/libusb/os/ios_usb.c"
 header = root / "3rdparty/libusb/libusb/libusb/libusbi.h"
