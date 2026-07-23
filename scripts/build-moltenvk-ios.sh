@@ -19,18 +19,24 @@ PACKAGE_ROOT=""
 
 mkdir -p "$CACHE_DIR" "$PORT_ROOT/BuildSupport"
 
+fail() {
+    echo "MoltenVK iOS preparation failed: $*" >&2
+    exit 1
+}
+
 if [[ -f "$OUTPUT/version.txt" ]] && \
    [[ "$(tr -d '[:space:]' < "$OUTPUT/version.txt")" == "$VERSION" ]] && \
    [[ -f "$OUTPUT/lib/libMoltenVK.a" ]] && \
    [[ -f "$OUTPUT/include/vulkan/vulkan.h" ]] && \
-   [[ -f "$OUTPUT/include/MoltenVK/mvk_vulkan.h" ]]; then
+   [[ -f "$OUTPUT/include/MoltenVK/mvk_vulkan.h" ]] && \
+   [[ -f "$OUTPUT/include/MoltenVK/mvk_private_api.h" ]]; then
     echo "Using cached MoltenVK $VERSION iOS package at $OUTPUT"
     exit 0
 fi
 
 for tool in curl python3 shasum git make xcodebuild; do
-    command -v "$tool" >/dev/null
- done
+    command -v "$tool" >/dev/null || fail "required tool is unavailable: $tool"
+done
 
 validate_archive() {
     local archive="$1"
@@ -136,7 +142,8 @@ build_from_source() {
     )
 
     PACKAGE_ROOT="$SOURCE_ROOT/Package/Release"
-    [[ -d "$PACKAGE_ROOT/MoltenVK/static/MoltenVK.xcframework" ]]
+    [[ -d "$PACKAGE_ROOT/MoltenVK/static/MoltenVK.xcframework" ]] || \
+        fail "source build did not produce the static MoltenVK XCFramework"
     SOURCE_ORIGIN="$SOURCE_URL#v$VERSION (built from source)"
 }
 
@@ -175,7 +182,7 @@ import plistlib
 import sys
 from pathlib import Path
 
-info_path = Path(sys.argv[1])
+info_path = Path(sys.argv[1]).resolve()
 root = info_path.parent
 with info_path.open("rb") as stream:
     info = plistlib.load(stream)
@@ -185,52 +192,93 @@ for library in info.get("AvailableLibraries", []):
         continue
     if library.get("SupportedPlatformVariant"):
         continue
+
     identifier = library["LibraryIdentifier"]
-    library_path = root / identifier / library["LibraryPath"]
+    slice_root = root / identifier
+    library_path = slice_root / library["LibraryPath"]
+
+    binary_candidates = []
     if library_path.suffix == ".framework":
-        binary_path = library_path / library_path.stem
-        headers_path = library_path / "Headers"
+        binary_candidates.extend(
+            [
+                library_path / library_path.stem,
+                library_path / "MoltenVK",
+                library_path / "libMoltenVK.a",
+            ]
+        )
     else:
-        binary_path = library_path
-        headers_path = root / identifier / library.get("HeadersPath", "Headers")
-    print(binary_path)
-    print(headers_path)
+        binary_candidates.append(library_path)
+
+    binary = next((path for path in binary_candidates if path.is_file()), None)
+    if binary is None and slice_root.is_dir():
+        recursive = sorted(
+            path
+            for path in slice_root.rglob("*")
+            if path.is_file() and path.name in {"MoltenVK", "libMoltenVK.a"}
+        )
+        binary = recursive[0] if recursive else None
+
+    header_candidates = []
+    headers_path = library.get("HeadersPath")
+    if headers_path:
+        header_candidates.append(slice_root / headers_path)
+    if library_path.suffix == ".framework":
+        header_candidates.append(library_path / "Headers")
+    header_candidates.append(slice_root / "Headers")
+    headers = next((path for path in header_candidates if path.is_dir()), None)
+
+    print(identifier)
+    print(binary if binary is not None else "")
+    print(headers if headers is not None else "")
     break
 else:
     raise SystemExit("The MoltenVK XCFramework has no physical iOS device slice")
 PY
 
-MOLTENVK_BINARY="$(sed -n '1p' "$SLICE_INFO_FILE")"
-MOLTENVK_HEADERS="$(sed -n '2p' "$SLICE_INFO_FILE")"
+MOLTENVK_IDENTIFIER="$(sed -n '1p' "$SLICE_INFO_FILE")"
+MOLTENVK_BINARY="$(sed -n '2p' "$SLICE_INFO_FILE")"
+MOLTENVK_HEADERS="$(sed -n '3p' "$SLICE_INFO_FILE")"
 
-test -n "$MOLTENVK_BINARY"
-test -n "$MOLTENVK_HEADERS"
-test -f "$MOLTENVK_BINARY"
-test -d "$MOLTENVK_HEADERS"
+echo "Selected MoltenVK iOS slice: ${MOLTENVK_IDENTIFIER:-<missing>}"
+echo "Selected MoltenVK binary: ${MOLTENVK_BINARY:-<missing>}"
+echo "Selected MoltenVK slice headers: ${MOLTENVK_HEADERS:-<not-declared>}"
 
-/usr/bin/ditto "$MOLTENVK_HEADERS" "$OUTPUT/include"
+[[ -n "$MOLTENVK_IDENTIFIER" ]] || fail "XCFramework did not identify a physical iOS slice"
+[[ -n "$MOLTENVK_BINARY" ]] || fail "physical iOS slice did not expose a MoltenVK binary"
+[[ -f "$MOLTENVK_BINARY" ]] || fail "selected MoltenVK binary does not exist: $MOLTENVK_BINARY"
+
+# Framework/static-library packaging varies between MoltenVK releases. Copy the
+# declared slice headers when present, then normalize the package-level Vulkan
+# and MoltenVK include roots so RPCS3 receives every transitive header.
+if [[ -n "$MOLTENVK_HEADERS" && -d "$MOLTENVK_HEADERS" ]]; then
+    /usr/bin/ditto "$MOLTENVK_HEADERS" "$OUTPUT/include"
+fi
+
+VULKAN_HEADER="$(find "$PACKAGE_ROOT" -type f -path '*/vulkan/vulkan.h' -print | head -n 1)"
+[[ -n "$VULKAN_HEADER" ]] || fail "release package does not contain vulkan/vulkan.h"
+VULKAN_INCLUDE_ROOT="$(dirname "$(dirname "$VULKAN_HEADER")")"
+echo "Normalizing Vulkan headers from: $VULKAN_INCLUDE_ROOT"
+/usr/bin/ditto "$VULKAN_INCLUDE_ROOT" "$OUTPUT/include"
+
+MVK_HEADER="$(find "$PACKAGE_ROOT" -type f -name 'mvk_vulkan.h' -print | head -n 1)"
+[[ -n "$MVK_HEADER" ]] || fail "release package does not contain mvk_vulkan.h"
+MVK_INCLUDE_DIR="$(dirname "$MVK_HEADER")"
+echo "Normalizing MoltenVK headers from: $MVK_INCLUDE_DIR"
+mkdir -p "$OUTPUT/include/MoltenVK"
+/usr/bin/ditto "$MVK_INCLUDE_DIR" "$OUTPUT/include/MoltenVK"
+
+PRIVATE_HEADER="$(find "$PACKAGE_ROOT" -type f -name 'mvk_private_api.h' -print | head -n 1)"
+[[ -n "$PRIVATE_HEADER" ]] || fail "release package does not contain mvk_private_api.h"
+if [[ ! -f "$OUTPUT/include/MoltenVK/mvk_private_api.h" ]]; then
+    cp "$PRIVATE_HEADER" "$OUTPUT/include/MoltenVK/mvk_private_api.h"
+fi
+
 cp "$MOLTENVK_BINARY" "$OUTPUT/lib/libMoltenVK.a"
 
-# Normalize the include tree expected by RPCS3 and CMake's FindVulkan module.
-if [[ ! -f "$OUTPUT/include/vulkan/vulkan.h" ]]; then
-    VULKAN_HEADER="$(find "$MOLTENVK_HEADERS" -type f -path '*/vulkan/vulkan.h' -print | head -n 1)"
-    test -n "$VULKAN_HEADER"
-    VULKAN_DIR="$(dirname "$VULKAN_HEADER")"
-    mkdir -p "$OUTPUT/include/vulkan"
-    /usr/bin/ditto "$VULKAN_DIR" "$OUTPUT/include/vulkan"
-fi
-if [[ ! -f "$OUTPUT/include/MoltenVK/mvk_vulkan.h" ]]; then
-    MVK_HEADER="$(find "$MOLTENVK_HEADERS" -type f -name 'mvk_vulkan.h' -print | head -n 1)"
-    test -n "$MVK_HEADER"
-    MVK_DIR="$(dirname "$MVK_HEADER")"
-    mkdir -p "$OUTPUT/include/MoltenVK"
-    /usr/bin/ditto "$MVK_DIR" "$OUTPUT/include/MoltenVK"
-fi
-
-test -f "$OUTPUT/include/vulkan/vulkan.h"
-test -f "$OUTPUT/include/MoltenVK/mvk_vulkan.h"
-test -f "$OUTPUT/include/MoltenVK/mvk_private_api.h"
-test -f "$OUTPUT/lib/libMoltenVK.a"
+[[ -f "$OUTPUT/include/vulkan/vulkan.h" ]] || fail "normalized Vulkan header is missing"
+[[ -f "$OUTPUT/include/MoltenVK/mvk_vulkan.h" ]] || fail "normalized MoltenVK public header is missing"
+[[ -f "$OUTPUT/include/MoltenVK/mvk_private_api.h" ]] || fail "normalized MoltenVK private header is missing"
+[[ -f "$OUTPUT/lib/libMoltenVK.a" ]] || fail "normalized MoltenVK static library is missing"
 
 printf '%s\n' "$VERSION" > "$OUTPUT/version.txt"
 printf '%s\n' "$SOURCE_ORIGIN" > "$OUTPUT/source-url.txt"
