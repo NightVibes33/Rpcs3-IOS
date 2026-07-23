@@ -48,6 +48,25 @@ jobs:
           fi
           echo "PASS: pinned bridge sources match RPCS3 v0.0.40 no-exceptions ABI"
 
+      - name: Remove unavailable direct AudioUnit framework from graph template
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          path = Path("scripts/patch-upstream-ios-emu-graph.py")
+          text = path.read_text(encoding="utf-8")
+          needle = '        "-framework AudioUnit"\n'
+          if text.count(needle) != 1:
+              raise SystemExit("Unexpected direct AudioUnit framework count in graph template")
+          text = text.replace(needle, "", 1)
+          path.write_text(text, encoding="utf-8")
+          if '"-framework AudioUnit"' in text:
+              raise SystemExit("Direct AudioUnit framework remains in graph template")
+          print("PASS: graph runtime uses AudioToolbox/CoreAudio without unavailable AudioUnit.framework")
+          PY
+
       - name: Publish pending graph status
         shell: bash
         env:
