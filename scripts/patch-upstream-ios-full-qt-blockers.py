@@ -175,6 +175,37 @@ def patch_qt_utils_process_launch(upstream_root: Path) -> None:
     source.write_text(updated, encoding="utf-8")
 
 
+def patch_gui_pad_thread_desktop_events(upstream_root: Path) -> None:
+    """Exclude macOS CoreGraphics/Carbon event injection from the iOS frontend."""
+
+    source = upstream_root / "rpcs3/Input/gui_pad_thread.cpp"
+    marker = "RPCS3 iOS: desktop CoreGraphics input injection is unavailable"
+    text = source.read_text(encoding="utf-8")
+    if marker in text:
+        return
+
+    normal_guard = "#elif defined(__APPLE__)"
+    spaced_guard = "#elif defined (__APPLE__)"
+    if text.count(normal_guard) != 5 or text.count(spaced_guard) != 1:
+        raise SystemExit("Unexpected Apple desktop event guards in gui_pad_thread.cpp")
+
+    ios_safe_guard = "#elif defined(__APPLE__) && !defined(RPCS3_IOS)"
+    updated = text.replace(normal_guard, ios_safe_guard)
+    updated = updated.replace(spaced_guard, ios_safe_guard)
+    updated = updated.replace(
+        ios_safe_guard + "\n",
+        ios_safe_guard + "\n// RPCS3 iOS: desktop CoreGraphics input injection is unavailable.\n",
+        1,
+    )
+
+    if marker not in updated or normal_guard in updated or spaced_guard in updated:
+        raise SystemExit("Qt GUI pad desktop-event patch verification failed")
+    if updated.count(ios_safe_guard) != 6:
+        raise SystemExit("Qt GUI pad patch did not guard every Apple desktop branch")
+
+    source.write_text(updated, encoding="utf-8")
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("upstream_root", type=Path)
@@ -183,7 +214,8 @@ def main() -> int:
     patch_fatal_error_relaunch(args.upstream_root)
     patch_qt_component_graph(args.upstream_root)
     patch_qt_utils_process_launch(args.upstream_root)
-    print("Patched and verified the full RPCS3 Qt frontend fatal-error, component, and iOS process-launch paths")
+    patch_gui_pad_thread_desktop_events(args.upstream_root)
+    print("Patched and verified the full RPCS3 Qt frontend fatal-error, component, process-launch, and desktop input paths for iOS")
     return 0
 
 
