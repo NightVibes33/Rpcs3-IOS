@@ -193,6 +193,79 @@ elseif(NOT ANDROID)
     cmake.write_text(text.replace(needle, replacement, 1), encoding="utf-8")
 
 
+def patch_port_runtime_bridge_sources() -> None:
+    """Adapt the port-owned runtime bridge to RPCS3's no-exceptions v0.0.40 graph."""
+    port_root = Path(__file__).resolve().parent.parent
+    bridge = port_root / "CoreBridge/RPCS3UpstreamRuntimeBridge.cpp"
+    gs_frame = port_root / "Port/iOS/RPCS3IOSGSFrame.mm"
+
+    bridge_text = bridge.read_text(encoding="utf-8")
+    include_needle = '#include "Crypto/unpkg.h"\n'
+    include_block = '''#include "Crypto/unpkg.h"
+#include "Emu/Cell/Modules/cellSaveData.h"
+#include "Emu/Cell/Modules/sceNpTrophy.h"
+#include "util/video_source.h"
+'''
+    if '#include "Emu/Cell/Modules/cellSaveData.h"' not in bridge_text:
+        if include_needle not in bridge_text:
+            raise SystemExit("Unable to locate the runtime bridge package include")
+        bridge_text = bridge_text.replace(include_needle, include_block, 1)
+
+    if bridge_text.count("    try\n    {\n") != 3:
+        raise SystemExit("Expected three bridge exception guards before the no-exceptions rewrite")
+    bridge_text = bridge_text.replace("    try\n    {\n", "    {\n")
+
+    catch_blocks = (
+        '''    catch (const std::exception& error)
+    {
+        set_state(RPCS3IOSUpstreamStateFailed, std::string("Upstream Emu.Init failed: ") + error.what());
+        return 0;
+    }
+    catch (...)
+    {
+        set_state(RPCS3IOSUpstreamStateFailed, "Upstream Emu.Init failed with an unknown exception.");
+        return 0;
+    }
+''',
+        '''    catch (const std::exception& error)
+    {
+        set_state(RPCS3IOSUpstreamStateFailed, std::string("Upstream PKG installation failed: ") + error.what());
+        return 0;
+    }
+    catch (...)
+    {
+        set_state(RPCS3IOSUpstreamStateFailed, "Upstream PKG installation failed with an unknown exception.");
+        return 0;
+    }
+''',
+        '''    catch (const std::exception& error)
+    {
+        g_last_boot_result = static_cast<int>(game_boot_result::generic_error);
+        set_state(RPCS3IOSUpstreamStateFailed, std::string("Upstream BootGame failed: ") + error.what());
+        return g_last_boot_result;
+    }
+    catch (...)
+    {
+        g_last_boot_result = static_cast<int>(game_boot_result::generic_error);
+        set_state(RPCS3IOSUpstreamStateFailed, "Upstream BootGame failed with an unknown exception.");
+        return g_last_boot_result;
+    }
+''',
+    )
+    for catch_block in catch_blocks:
+        if catch_block not in bridge_text:
+            raise SystemExit("Unable to locate a runtime bridge exception handler")
+        bridge_text = bridge_text.replace(catch_block, "", 1)
+
+    bridge.write_text(bridge_text, encoding="utf-8")
+
+    frame_text = gs_frame.read_text(encoding="utf-8")
+    obsolete_override = "    void update_title(double) override {}\n"
+    if obsolete_override not in frame_text:
+        raise SystemExit("Unable to locate the obsolete GSFrameBase update_title override")
+    gs_frame.write_text(frame_text.replace(obsolete_override, "", 1), encoding="utf-8")
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("upstream_root", type=Path)
@@ -211,6 +284,7 @@ def main() -> int:
         patch_libusb_for_ios(args.upstream_root)
         patch_asmjit_for_ios(args.upstream_root)
         patch_ffmpeg_for_ios(args.upstream_root)
+        patch_port_runtime_bridge_sources()
         # The dedicated runtime-blocker patch owns metal_layer.mm. Keeping the
         # Apple WSI edit in one place avoids a guaranteed second-patch failure.
 
