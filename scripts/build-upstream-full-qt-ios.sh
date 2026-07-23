@@ -92,19 +92,36 @@ grep -q 'int usbi_get_real_time(struct timespec \*tp)' \
 grep -q 'CMAKE_SYSTEM_NAME STREQUAL "iOS"' \
   "$ROOT/3rdparty/OpenAL/openal-soft/CMakeLists.txt"
 grep -q 'AudioToolbox' "$ROOT/3rdparty/cubeb/cubeb/CMakeLists.txt"
-if sed -n '/if(CMAKE_SYSTEM_NAME STREQUAL "iOS")/,/else()/p' \
-  "$ROOT/3rdparty/cubeb/cubeb/CMakeLists.txt" | grep -q 'AudioUnit'; then
-  echo "Cubeb iOS branch still links the unavailable standalone AudioUnit framework" >&2
-  exit 1
-fi
-if sed -n '/# CoreMIDI/,/# Android AMIDI/p' \
-  "$ROOT/3rdparty/rtmidi/rtmidi/CMakeLists.txt" | \
-  sed -n '/CMAKE_SYSTEM_NAME STREQUAL "iOS"/,/else()/p' | grep -q 'CoreServices'; then
-  echo "RtMidi iOS branch still links the unavailable CoreServices framework" >&2
-  exit 1
-fi
+python3 - \
+  "$ROOT/3rdparty/cubeb/cubeb/CMakeLists.txt" \
+  "$ROOT/3rdparty/rtmidi/rtmidi/CMakeLists.txt" <<'PY' \
+  | tee "$BUILD/logs/dependency-smoke.log"
+from pathlib import Path
+import sys
 
-echo "PASS: post-overlay iOS dependency smoke checks" | tee "$BUILD/logs/dependency-smoke.log"
+cubeb = Path(sys.argv[1]).read_text(encoding="utf-8")
+audio_anchor = "check_include_files(AudioUnit/AudioUnit.h USE_AUDIOUNIT)"
+audio_section = cubeb.index(audio_anchor)
+ios_start = cubeb.index('if(CMAKE_SYSTEM_NAME STREQUAL "iOS")', audio_section)
+ios_end = cubeb.index("  else()", ios_start)
+ios_branch = cubeb[ios_start:ios_end]
+if '"-framework AudioUnit"' in ios_branch:
+    raise SystemExit("Cubeb iOS branch still links the unavailable standalone AudioUnit framework")
+if '"-framework AudioToolbox"' not in ios_branch:
+    raise SystemExit("Cubeb iOS branch is missing AudioToolbox")
+
+rtmidi = Path(sys.argv[2]).read_text(encoding="utf-8")
+core_midi = rtmidi.index("# CoreMIDI")
+ios_start = rtmidi.index('if(CMAKE_SYSTEM_NAME STREQUAL "iOS")', core_midi)
+ios_end = rtmidi.index("  else()", ios_start)
+ios_branch = rtmidi[ios_start:ios_end]
+if "CoreServices" in ios_branch:
+    raise SystemExit("RtMidi iOS branch still links the unavailable CoreServices framework")
+if "CoreMIDI" not in ios_branch:
+    raise SystemExit("RtMidi iOS branch is missing CoreMIDI")
+
+print("PASS: post-overlay iOS dependency smoke checks")
+PY
 
 UPSTREAM_SHA="$(git -C "$ROOT" rev-parse HEAD)"
 printf '%s\n' "$UPSTREAM_SHA" > "$BUILD/upstream-revision.txt"
