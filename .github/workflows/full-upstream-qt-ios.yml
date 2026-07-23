@@ -28,7 +28,7 @@ permissions:
 
 concurrency:
   group: full-upstream-rpcs3-qt-ios-${{ github.ref }}
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
   build:
