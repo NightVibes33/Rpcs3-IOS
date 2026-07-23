@@ -42,7 +42,12 @@ for required in \
   "$HOST_QT" \
   "$PORT_ROOT/scripts/build-ffmpeg-ios.sh" \
   "$PORT_ROOT/scripts/build-moltenvk-ios.sh" \
+  "$PORT_ROOT/scripts/apply-upstream-ios-overlay.py" \
+  "$PORT_ROOT/scripts/patch-upstream-ios-libusb-api.py" \
+  "$PORT_ROOT/scripts/patch-upstream-ios-cubeb.py" \
+  "$PORT_ROOT/scripts/patch-upstream-ios-openal.py" \
   "$PORT_ROOT/scripts/patch-upstream-ios-emu-graph.py" \
+  "$PORT_ROOT/scripts/patch-upstream-ios-audio-frameworks.py" \
   "$PORT_ROOT/scripts/patch-upstream-ios-full-qt-blockers.py"; do
   test -e "$required"
 done
@@ -70,10 +75,36 @@ python3 scripts/patch-upstream-ios-libusb-api.py "$ROOT" \
   >"$BUILD/logs/libusb.log" 2>&1
 python3 scripts/patch-upstream-ios-cubeb.py "$ROOT" \
   >"$BUILD/logs/cubeb.log" 2>&1
+python3 scripts/patch-upstream-ios-openal.py "$ROOT" \
+  >"$BUILD/logs/openal-ios.log" 2>&1
 python3 scripts/patch-upstream-ios-emu-graph.py "$ROOT" \
   >"$BUILD/logs/full-qt-graph.log" 2>&1
+python3 scripts/patch-upstream-ios-audio-frameworks.py "$ROOT" \
+  >"$BUILD/logs/audio-frameworks.log" 2>&1
 python3 scripts/patch-upstream-ios-full-qt-blockers.py "$ROOT" \
   >"$BUILD/logs/full-qt-platform-blockers.log" 2>&1
+
+# Smoke the exact post-overlay dependency graph before invoking Xcode.
+grep -q 'int usbi_get_monotonic_time(struct timespec \*tp)' \
+  "$ROOT/3rdparty/libusb/libusb/libusb/os/ios_usb.c"
+grep -q 'int usbi_get_real_time(struct timespec \*tp)' \
+  "$ROOT/3rdparty/libusb/libusb/libusb/os/ios_usb.c"
+grep -q 'CMAKE_SYSTEM_NAME STREQUAL "iOS"' \
+  "$ROOT/3rdparty/OpenAL/openal-soft/CMakeLists.txt"
+grep -q 'AudioToolbox' "$ROOT/3rdparty/cubeb/cubeb/CMakeLists.txt"
+if sed -n '/if(CMAKE_SYSTEM_NAME STREQUAL "iOS")/,/else()/p' \
+  "$ROOT/3rdparty/cubeb/cubeb/CMakeLists.txt" | grep -q 'AudioUnit'; then
+  echo "Cubeb iOS branch still links the unavailable standalone AudioUnit framework" >&2
+  exit 1
+fi
+if sed -n '/# CoreMIDI/,/# Android AMIDI/p' \
+  "$ROOT/3rdparty/rtmidi/rtmidi/CMakeLists.txt" | \
+  sed -n '/CMAKE_SYSTEM_NAME STREQUAL "iOS"/,/else()/p' | grep -q 'CoreServices'; then
+  echo "RtMidi iOS branch still links the unavailable CoreServices framework" >&2
+  exit 1
+fi
+
+echo "PASS: post-overlay iOS dependency smoke checks" | tee "$BUILD/logs/dependency-smoke.log"
 
 UPSTREAM_SHA="$(git -C "$ROOT" rev-parse HEAD)"
 printf '%s\n' "$UPSTREAM_SHA" > "$BUILD/upstream-revision.txt"
@@ -108,21 +139,35 @@ printf '%s\n' "$UPSTREAM_SHA" > "$BUILD/upstream-revision.txt"
   -DUSE_PRECOMPILED_HEADERS=OFF \
   >"$BUILD/logs/configure.log" 2>&1
 
-# These files prove that the target is the actual RPCS3 application graph rather
-# than the local Qt shell that only consumes upstream Designer documents.
+SYSTEM_FILE="$(find "$BUILD/tree/CMakeFiles" -path '*/CMakeSystem.cmake' -print -quit)"
+test -n "$SYSTEM_FILE"
+grep -Eq 'CMAKE_SYSTEM_PROCESSOR "?(arm64|aarch64|ARM64)"?' "$SYSTEM_FILE" || {
+  echo "CMake did not retain the physical iOS ARM64 processor identity" >&2
+  cat "$SYSTEM_FILE" >&2
+  exit 1
+}
+
+# These files prove that the generated Xcode project is the actual RPCS3
+# application graph rather than the local Qt shell that consumes copied forms.
+XCODE_PROJECT="$(find "$BUILD/tree" -maxdepth 2 -name project.pbxproj -print -quit)"
+test -n "$XCODE_PROJECT"
 for required_source in \
-  'rpcs3/rpcs3.cpp' \
-  'rpcs3/rpcs3qt/main_window.cpp' \
-  'rpcs3/rpcs3qt/game_list_frame.cpp' \
-  'rpcs3/rpcs3qt/settings_dialog.cpp' \
-  'rpcs3/rpcs3qt/pkg_install_dialog.cpp' \
-  'rpcs3/rpcs3qt/save_manager_dialog.cpp' \
-  'rpcs3/rpcs3qt/trophy_manager_dialog.cpp'; do
-  grep -q "$required_source" "$BUILD/tree/compile_commands.json" || {
-    echo "The full frontend graph omitted $required_source" >&2
+  'rpcs3.cpp' \
+  'main_window.cpp' \
+  'game_list_frame.cpp' \
+  'settings_dialog.cpp' \
+  'pkg_install_dialog.cpp' \
+  'save_manager_dialog.cpp' \
+  'trophy_manager_dialog.cpp' \
+  'AArch64Common.cpp'; do
+  grep -q "$required_source" "$XCODE_PROJECT" || {
+    echo "The full frontend Xcode graph omitted $required_source" >&2
     exit 1
   }
 done
+
+echo "PASS: actual upstream Qt UI and ARM64 runtime sources are in the Xcode graph" \
+  | tee "$BUILD/logs/source-graph-smoke.log"
 
 cmake --build "$BUILD/tree" --config Release --target rpcs3 --parallel 3 \
   >"$BUILD/logs/build-full-rpcs3.log" 2>&1
@@ -150,7 +195,7 @@ for symbol_fragment in \
 done
 
 printf '%s\n' "$APP" > "$BUILD/app-path.txt"
-cat > "$BUILD/summary.md" <<EOF
+cat > "$BUILD/summary.md" <<EOF_SUMMARY
 # Full upstream RPCS3 Qt frontend for iOS
 
 - Requested revision: \`$UPSTREAM_REVISION\`
@@ -163,6 +208,6 @@ cat > "$BUILD/summary.md" <<EOF
 - Settings: upstream \`settings_dialog.cpp\`
 - Package UI: upstream \`pkg_install_dialog.cpp\`
 - This target does not use the local copied-form shell under \`QtApp/\`.
-EOF
+EOF_SUMMARY
 cat "$BUILD/summary.md"
 trap - EXIT
