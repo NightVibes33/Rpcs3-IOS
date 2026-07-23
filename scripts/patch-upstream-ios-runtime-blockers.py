@@ -9,6 +9,83 @@ import re
 TEXT_SUFFIXES = {".c", ".cc", ".cpp", ".cxx", ".h", ".hh", ".hpp", ".hxx", ".mm"}
 
 
+def replace_once(path: Path, needle: str, replacement: str, label: str) -> None:
+    text = path.read_text(encoding="utf-8")
+    if needle not in text:
+        raise SystemExit(f"Unable to locate upstream {label} block in {path}")
+    path.write_text(text.replace(needle, replacement, 1), encoding="utf-8")
+
+
+def patch_non_llvm_aarch64_backend(upstream_root: Path) -> None:
+    """Keep the ARM64 host helpers, but omit LLVM-only sources in interpreter builds."""
+    cmake = upstream_root / "rpcs3/Emu/CMakeLists.txt"
+    needle = '''if(CMAKE_SYSTEM_PROCESSOR MATCHES "ARM64|arm64|aarch64")
+    target_sources(rpcs3_emu PRIVATE
+        CPU/Backends/AArch64/AArch64ASM.cpp
+        CPU/Backends/AArch64/AArch64Common.cpp
+        CPU/Backends/AArch64/AArch64JIT.cpp
+        CPU/Backends/AArch64/AArch64Signal.cpp
+    )
+endif()
+'''
+    replacement = '''if(CMAKE_SYSTEM_PROCESSOR MATCHES "ARM64|arm64|aarch64")
+    target_sources(rpcs3_emu PRIVATE
+        CPU/Backends/AArch64/AArch64Common.cpp
+        CPU/Backends/AArch64/AArch64Signal.cpp
+    )
+    if(WITH_LLVM)
+        target_sources(rpcs3_emu PRIVATE
+            CPU/Backends/AArch64/AArch64ASM.cpp
+            CPU/Backends/AArch64/AArch64JIT.cpp
+        )
+    else()
+        message(STATUS "RPCS3 iOS: omitting LLVM-only AArch64ASM/AArch64JIT sources")
+    endif()
+endif()
+'''
+    replace_once(cmake, needle, replacement, "ARM64 backend source list")
+
+
+def patch_ios_hidapi_backend(upstream_root: Path) -> None:
+    """Use HIDAPI's libusb backend because iPhoneOS has no macOS IOHIDManager headers."""
+    wrapper = upstream_root / "3rdparty/hidapi/CMakeLists.txt"
+    wrapper_text = wrapper.read_text(encoding="utf-8")
+    wrapper_text = wrapper_text.replace(
+        "\tadd_library(3rdparty_hidapi INTERFACE)\n\tadd_subdirectory(hidapi EXCLUDE_FROM_ALL)\n",
+        "\tif(CMAKE_SYSTEM_NAME STREQUAL \"iOS\")\n"
+        "\t\tset(HIDAPI_NO_ICONV ON CACHE BOOL \"iOS uses the libusb HID backend without iconv\" FORCE)\n"
+        "\tendif()\n\n"
+        "\tadd_library(3rdparty_hidapi INTERFACE)\n\tadd_subdirectory(hidapi EXCLUDE_FROM_ALL)\n",
+        1,
+    )
+    wrapper_text = wrapper_text.replace(
+        "\tif(APPLE)\n\t\ttarget_link_libraries(3rdparty_hidapi INTERFACE hidapi_darwin \"-framework CoreFoundation\" \"-framework IOKit\")\n\telseif(CMAKE_SYSTEM MATCHES \"Linux\")",
+        "\tif(APPLE AND NOT CMAKE_SYSTEM_NAME STREQUAL \"iOS\")\n"
+        "\t\ttarget_link_libraries(3rdparty_hidapi INTERFACE hidapi_darwin \"-framework CoreFoundation\" \"-framework IOKit\")\n"
+        "\telseif(CMAKE_SYSTEM_NAME STREQUAL \"iOS\")\n"
+        "\t\ttarget_link_libraries(3rdparty_hidapi INTERFACE hidapi::libusb)\n"
+        "\telseif(CMAKE_SYSTEM MATCHES \"Linux\")",
+        1,
+    )
+    required_wrapper = (
+        'set(HIDAPI_NO_ICONV ON CACHE BOOL "iOS uses the libusb HID backend without iconv" FORCE)',
+        'APPLE AND NOT CMAKE_SYSTEM_NAME STREQUAL "iOS"',
+        'target_link_libraries(3rdparty_hidapi INTERFACE hidapi::libusb)',
+    )
+    for marker in required_wrapper:
+        if marker not in wrapper_text:
+            raise SystemExit(f"Unable to patch iOS HIDAPI wrapper marker: {marker}")
+    wrapper.write_text(wrapper_text, encoding="utf-8")
+
+    source_cmake = upstream_root / "3rdparty/hidapi/hidapi/src/CMakeLists.txt"
+    source_text = source_cmake.read_text(encoding="utf-8")
+    needle = "elseif(APPLE)\n"
+    replacement = 'elseif(APPLE AND NOT CMAKE_SYSTEM_NAME STREQUAL "iOS")\n'
+    if needle not in source_text:
+        raise SystemExit("Unable to locate HIDAPI Apple backend selector")
+    source_cmake.write_text(source_text.replace(needle, replacement, 1), encoding="utf-8")
+
+
 def patch_desktop_jit_write_toggles(upstream_root: Path) -> int:
     """Remove desktop-only pthread JIT write toggles from the iOS interpreter lane.
 
@@ -55,20 +132,11 @@ def patch_desktop_jit_write_toggles(upstream_root: Path) -> int:
 
 
 def patch_ios_config_dir(upstream_root: Path) -> None:
-    """Make the host-selected sandbox root authoritative for the iOS build.
-
-    Upstream Apple builds normally derive the RPCS3 data directory from HOME.
-    The iOS host already owns a sandbox root containing dev_hdd0/dev_flash, so
-    the bridge sets RPCS3_CONFIG_DIR before Emu.Init and this overlay makes the
-    upstream filesystem use that exact root instead of a second parallel tree.
-    """
-
     source = upstream_root / "Utilities/File.cpp"
     text = source.read_text(encoding="utf-8")
     marker = "RPCS3 iOS: honor RPCS3_CONFIG_DIR as the complete data root"
     if marker in text:
         return
-
     needle = '''#else
 
 #ifdef __APPLE__
@@ -124,26 +192,17 @@ def patch_ios_config_dir(upstream_root: Path) -> None:
 
 		if (!create_path(dir))
 '''
-
     if needle not in text:
         raise SystemExit("Unable to locate upstream Apple configuration-directory block")
     source.write_text(text.replace(needle, replacement, 1), encoding="utf-8")
 
 
 def patch_ios_metal_surface(upstream_root: Path) -> None:
-    """Make RPCS3's Apple Vulkan surface helper accept the iOS CAMetalLayer.
-
-    The upstream implementation assumes its opaque Apple handle is an NSView.
-    The iOS GSFrame already returns a CAMetalLayer directly, so the iOS branch
-    must pass that layer to vkCreateMetalSurfaceEXT without importing AppKit.
-    """
-
     source = upstream_root / "rpcs3/Emu/RSX/VK/vkutils/metal_layer.mm"
     text = source.read_text(encoding="utf-8")
     marker = "RPCS3 iOS CAMetalLayer handle"
     if marker in text:
         return
-
     needle = '''#pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wold-style-cast"
 #pragma GCC diagnostic ignored "-Wdeprecated-declarations"
@@ -173,7 +232,6 @@ void* GetCAMetalLayerFromMetalView(void* view) { return ((NSView*)view).layer; }
 #endif
 #pragma GCC diagnostic pop
 '''
-
     if needle not in text:
         raise SystemExit("Unable to locate upstream macOS metal_layer.mm implementation")
     source.write_text(text.replace(needle, replacement, 1), encoding="utf-8")
@@ -182,47 +240,44 @@ void* GetCAMetalLayerFromMetalView(void* view) { return ((NSView*)view).layer; }
 def patch_ffmpeg_target(upstream_root: Path, ffmpeg_root: Path) -> None:
     cmake = upstream_root / "3rdparty/CMakeLists.txt"
     text = cmake.read_text(encoding="utf-8")
-
     needle = '''# FFMPEG
 if(RPCS3_IOS_UPSTREAM_GRAPH)
-\tmessage(STATUS "RPCS3 iOS: deferring FFmpeg until an arm64-iOS build is provided")
-\tadd_library(3rdparty_ffmpeg INTERFACE)
-\ttarget_compile_definitions(3rdparty_ffmpeg INTERFACE RPCS3_IOS_FFMPEG_UNAVAILABLE=1)
+	message(STATUS "RPCS3 iOS: deferring FFmpeg until an arm64-iOS build is provided")
+	add_library(3rdparty_ffmpeg INTERFACE)
+	target_compile_definitions(3rdparty_ffmpeg INTERFACE RPCS3_IOS_FFMPEG_UNAVAILABLE=1)
 elseif(NOT ANDROID)
 '''
-
     root = ffmpeg_root.resolve().as_posix()
     replacement = f'''# FFMPEG
 if(RPCS3_IOS_UPSTREAM_GRAPH)
-\tset(RPCS3_IOS_FFMPEG_ROOT "{root}" CACHE PATH "Pinned arm64-iOS FFmpeg install" FORCE)
-\tmessage(STATUS "RPCS3 iOS: using arm64-iOS FFmpeg from ${{RPCS3_IOS_FFMPEG_ROOT}}")
-\tforeach(required_file IN ITEMS
-\t\tinclude/libavutil/pixfmt.h
-\t\tinclude/libavcodec/avcodec.h
-\t\tlib/libavformat.a
-\t\tlib/libavcodec.a
-\t\tlib/libavutil.a
-\t\tlib/libswscale.a
-\t\tlib/libswresample.a)
-\t\tif(NOT EXISTS "${{RPCS3_IOS_FFMPEG_ROOT}}/${{required_file}}")
-\t\t\tmessage(FATAL_ERROR "Missing iOS FFmpeg artifact: ${{RPCS3_IOS_FFMPEG_ROOT}}/${{required_file}}")
-\t\tendif()
-\tendforeach()
-\tadd_library(3rdparty_ffmpeg INTERFACE)
-\ttarget_include_directories(3rdparty_ffmpeg SYSTEM INTERFACE
-\t\t"${{RPCS3_IOS_FFMPEG_ROOT}}/include")
-\ttarget_link_libraries(3rdparty_ffmpeg INTERFACE
-\t\t"${{RPCS3_IOS_FFMPEG_ROOT}}/lib/libavformat.a"
-\t\t"${{RPCS3_IOS_FFMPEG_ROOT}}/lib/libavcodec.a"
-\t\t"${{RPCS3_IOS_FFMPEG_ROOT}}/lib/libswscale.a"
-\t\t"${{RPCS3_IOS_FFMPEG_ROOT}}/lib/libswresample.a"
-\t\t"${{RPCS3_IOS_FFMPEG_ROOT}}/lib/libavutil.a"
-\t\t"-framework CoreFoundation"
-\t\t"-lm")
-\ttarget_compile_definitions(3rdparty_ffmpeg INTERFACE RPCS3_IOS_FFMPEG=1)
+	set(RPCS3_IOS_FFMPEG_ROOT "{root}" CACHE PATH "Pinned arm64-iOS FFmpeg install" FORCE)
+	message(STATUS "RPCS3 iOS: using arm64-iOS FFmpeg from ${{RPCS3_IOS_FFMPEG_ROOT}}")
+	foreach(required_file IN ITEMS
+		include/libavutil/pixfmt.h
+		include/libavcodec/avcodec.h
+		lib/libavformat.a
+		lib/libavcodec.a
+		lib/libavutil.a
+		lib/libswscale.a
+		lib/libswresample.a)
+		if(NOT EXISTS "${{RPCS3_IOS_FFMPEG_ROOT}}/${{required_file}}")
+			message(FATAL_ERROR "Missing iOS FFmpeg artifact: ${{RPCS3_IOS_FFMPEG_ROOT}}/${{required_file}}")
+		endif()
+	endforeach()
+	add_library(3rdparty_ffmpeg INTERFACE)
+	target_include_directories(3rdparty_ffmpeg SYSTEM INTERFACE
+		"${{RPCS3_IOS_FFMPEG_ROOT}}/include")
+	target_link_libraries(3rdparty_ffmpeg INTERFACE
+		"${{RPCS3_IOS_FFMPEG_ROOT}}/lib/libavformat.a"
+		"${{RPCS3_IOS_FFMPEG_ROOT}}/lib/libavcodec.a"
+		"${{RPCS3_IOS_FFMPEG_ROOT}}/lib/libswscale.a"
+		"${{RPCS3_IOS_FFMPEG_ROOT}}/lib/libswresample.a"
+		"${{RPCS3_IOS_FFMPEG_ROOT}}/lib/libavutil.a"
+		"-framework CoreFoundation"
+		"-lm")
+	target_compile_definitions(3rdparty_ffmpeg INTERFACE RPCS3_IOS_FFMPEG=1)
 elseif(NOT ANDROID)
 '''
-
     if needle not in text:
         raise SystemExit("Unable to locate the RPCS3 iOS deferred FFmpeg target")
     cmake.write_text(text.replace(needle, replacement, 1), encoding="utf-8")
@@ -230,13 +285,9 @@ elseif(NOT ANDROID)
 
 def verify_ffmpeg_install(ffmpeg_root: Path) -> None:
     required = [
-        "include/libavutil/pixfmt.h",
-        "include/libavcodec/avcodec.h",
-        "lib/libavformat.a",
-        "lib/libavcodec.a",
-        "lib/libavutil.a",
-        "lib/libswscale.a",
-        "lib/libswresample.a",
+        "include/libavutil/pixfmt.h", "include/libavcodec/avcodec.h",
+        "lib/libavformat.a", "lib/libavcodec.a", "lib/libavutil.a",
+        "lib/libswscale.a", "lib/libswresample.a",
     ]
     missing = [name for name in required if not (ffmpeg_root / name).is_file()]
     if missing:
@@ -250,11 +301,15 @@ def main() -> int:
     args = parser.parse_args()
 
     verify_ffmpeg_install(args.ffmpeg_root)
+    patch_non_llvm_aarch64_backend(args.upstream_root)
+    patch_ios_hidapi_backend(args.upstream_root)
     patched_calls = patch_desktop_jit_write_toggles(args.upstream_root)
     patch_ios_config_dir(args.upstream_root)
     patch_ios_metal_surface(args.upstream_root)
     patch_ffmpeg_target(args.upstream_root, args.ffmpeg_root)
 
+    print("Excluded LLVM-only ARM64 backend sources from interpreter-only iOS builds")
+    print("Selected HIDAPI libusb backend for iOS instead of macOS IOKit")
     print(f"Guarded {patched_calls} desktop-only JIT write-protection calls for iOS")
     print("Made RPCS3_CONFIG_DIR authoritative for the shared iOS dev_hdd0/dev_flash tree")
     print("Patched RPCS3's Apple Vulkan WSI helper to consume the iOS CAMetalLayer handle")
