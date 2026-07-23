@@ -41,6 +41,7 @@ for required in \
   "$PORT_ROOT/scripts/patch-upstream-ios-cubeb.py" \
   "$PORT_ROOT/scripts/patch-upstream-ios-v0040-compat.py" \
   "$PORT_ROOT/scripts/patch-upstream-ios-openal.py" \
+  "$PORT_ROOT/scripts/patch-upstream-ios-audio-frameworks.py" \
   "$PORT_ROOT/CoreBridge/RPCS3UpstreamFirmwareInstaller.cpp" \
   "$PORT_ROOT/CoreBridge/RPCS3IOSPadBridge.cpp"; do
   test -f "$required"
@@ -79,6 +80,8 @@ python3 scripts/patch-upstream-ios-cubeb.py "$ROOT" \
   >"$BUILD/logs/cubeb.log" 2>&1
 python3 scripts/patch-upstream-ios-emu-graph.py "$ROOT" \
   >"$BUILD/logs/runtime-graph.log" 2>&1
+python3 scripts/patch-upstream-ios-audio-frameworks.py "$ROOT" \
+  >"$BUILD/logs/audio-frameworks.log" 2>&1
 
 GENERATED_RUNTIME_BRIDGE="$ROOT/rpcs3/Emu/RPCS3IOSUpstreamRuntimeBridge.cpp"
 test -f "$GENERATED_RUNTIME_BRIDGE"
@@ -121,8 +124,19 @@ if grep -q -- '-latomic' "$RUNTIME_LINK_COMMAND"; then
   cat "$RUNTIME_LINK_COMMAND" >> "$BUILD/logs/link-smoke.log"
   exit 1
 fi
+if grep -q -- '-framework AudioUnit' "$RUNTIME_LINK_COMMAND"; then
+  echo "Invalid iOS runtime link command still contains the unavailable standalone AudioUnit framework: $RUNTIME_LINK_COMMAND" | tee "$BUILD/logs/link-smoke.log"
+  cat "$RUNTIME_LINK_COMMAND" >> "$BUILD/logs/link-smoke.log"
+  exit 1
+fi
+if ! grep -q -- '-framework AudioToolbox' "$RUNTIME_LINK_COMMAND"; then
+  echo "Invalid iOS runtime link command is missing AudioToolbox: $RUNTIME_LINK_COMMAND" | tee "$BUILD/logs/link-smoke.log"
+  cat "$RUNTIME_LINK_COMMAND" >> "$BUILD/logs/link-smoke.log"
+  exit 1
+fi
 {
-  echo "PASS: generated physical-iOS runtime link command does not contain -latomic"
+  echo "PASS: generated physical-iOS runtime link command has no -latomic or standalone AudioUnit framework"
+  echo "PASS: AudioToolbox remains linked for the Audio Unit C APIs"
   echo "Link command: $RUNTIME_LINK_COMMAND"
 } | tee "$BUILD/logs/link-smoke.log"
 
@@ -180,7 +194,7 @@ cat > "$BUILD/summary.md" <<EOF
 - Renderer lane: upstream Vulkan through pinned MoltenVK, with Null fallback
 - Native surface: Qt iOS \`UIView\` hosting a runtime-owned \`CAMetalLayer\`
 - MoltenVK: \`$(cat "$MOLTENVK_ROOT/version.txt")\`
-- Audio: upstream Cubeb through iOS AudioUnit/AudioToolbox, with Null fallback only when initialization fails
+- Audio: upstream Cubeb through iOS AudioToolbox/CoreAudio, with Null fallback only when initialization fails
 - Firmware installer: upstream PUP validation, SCE decryption, and nested TAR extraction into \`dev_flash\`
 - Package installer: upstream \`package_reader::extract_data\`
 - Input: touch overlay feeds a connected RPCS3 LDD/cellPad controller
