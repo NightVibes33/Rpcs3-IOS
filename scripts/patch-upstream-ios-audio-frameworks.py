@@ -5,12 +5,16 @@ import argparse
 from pathlib import Path
 
 
-def main() -> int:
-    parser = argparse.ArgumentParser()
-    parser.add_argument("upstream_root", type=Path)
-    args = parser.parse_args()
+def replace_or_verify(text: str, old: str, new: str, label: str) -> str:
+    if old in text:
+        return text.replace(old, new, 1)
+    if new in text:
+        return text
+    raise SystemExit(f"Unable to locate {label}")
 
-    cmake = args.upstream_root / "rpcs3/Emu/CMakeLists.txt"
+
+def patch_runtime_target(upstream_root: Path) -> None:
+    cmake = upstream_root / "rpcs3/Emu/CMakeLists.txt"
     text = cmake.read_text(encoding="utf-8")
 
     invalid = '        "-framework AudioUnit"\n'
@@ -25,7 +29,39 @@ def main() -> int:
         raise SystemExit(f"The iOS runtime target is missing CoreAudio in {cmake}")
 
     cmake.write_text(text, encoding="utf-8")
-    print("Removed the unavailable standalone AudioUnit framework; iOS Audio Unit C APIs remain linked through AudioToolbox")
+
+
+def patch_cubeb_target(upstream_root: Path) -> None:
+    cmake = upstream_root / "3rdparty/cubeb/cubeb/CMakeLists.txt"
+    text = cmake.read_text(encoding="utf-8")
+
+    old = '''  target_link_libraries(cubeb PRIVATE "-framework AudioUnit" "-framework CoreAudio" "-framework CoreServices")
+  list(APPEND private_libs_flags "-framework AudioUnit" "-framework CoreAudio" "-framework CoreServices")
+'''
+    new = '''  # iOS exposes the Audio Unit v2 C API through AudioToolbox. The standalone
+  # AudioUnit and CoreServices frameworks are macOS-only in the device SDK.
+  if(CMAKE_SYSTEM_NAME STREQUAL "iOS")
+    target_link_libraries(cubeb PRIVATE "-framework AudioToolbox" "-framework CoreAudio")
+    list(APPEND private_libs_flags "-framework AudioToolbox" "-framework CoreAudio")
+  else()
+    target_link_libraries(cubeb PRIVATE "-framework AudioUnit" "-framework CoreAudio" "-framework CoreServices")
+    list(APPEND private_libs_flags "-framework AudioUnit" "-framework CoreAudio" "-framework CoreServices")
+  endif()
+'''
+    text = replace_or_verify(text, old, new, "Cubeb Apple audio framework block")
+    cmake.write_text(text, encoding="utf-8")
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("upstream_root", type=Path)
+    args = parser.parse_args()
+    upstream_root = args.upstream_root.resolve()
+
+    patch_runtime_target(upstream_root)
+    patch_cubeb_target(upstream_root)
+
+    print("Patched the iOS runtime and Cubeb to use AudioToolbox/CoreAudio without macOS-only AudioUnit/CoreServices frameworks")
     return 0
 
 
