@@ -82,7 +82,7 @@ endif()
   list(APPEND API_DEFS "-D__MACOSX_CORE__")
   list(APPEND API_LIST "coremidi")
   if(CMAKE_SYSTEM_NAME STREQUAL "iOS")
-    # CoreMIDI is available on iOS, but the macOS CoreServices umbrella is not.
+    # CoreMIDI is available on iOS without the desktop services umbrella.
     list(APPEND LINKLIBS ${COREAUDIO_LIB} ${COREMIDI_LIB} ${COREFOUNDATION_LIB})
     list(APPEND LIBS_REQUIRES "-framework CoreAudio -framework CoreMIDI -framework CoreFoundation")
   else()
