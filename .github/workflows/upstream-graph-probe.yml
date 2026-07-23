@@ -48,23 +48,36 @@ jobs:
           fi
           echo "PASS: pinned bridge sources match RPCS3 v0.0.40 no-exceptions ABI"
 
-      - name: Remove unavailable direct AudioUnit framework from graph template
+      - name: Complete physical-iOS graph template
         shell: bash
         run: |
           set -euo pipefail
           python3 - <<'PY'
           from pathlib import Path
 
-          path = Path("scripts/patch-upstream-ios-emu-graph.py")
-          text = path.read_text(encoding="utf-8")
-          needle = '        "-framework AudioUnit"\n'
-          if text.count(needle) != 1:
+          graph_patch = Path("scripts/patch-upstream-ios-emu-graph.py")
+          text = graph_patch.read_text(encoding="utf-8")
+          audio_unit = '        "-framework AudioUnit"\n'
+          if text.count(audio_unit) != 1:
               raise SystemExit("Unexpected direct AudioUnit framework count in graph template")
-          text = text.replace(needle, "", 1)
-          path.write_text(text, encoding="utf-8")
+          text = text.replace(audio_unit, "", 1)
+          graph_patch.write_text(text, encoding="utf-8")
           if '"-framework AudioUnit"' in text:
               raise SystemExit("Direct AudioUnit framework remains in graph template")
-          print("PASS: graph runtime uses AudioToolbox/CoreAudio without unavailable AudioUnit.framework")
+
+          probe = Path("scripts/probe-upstream-ios-graph.sh")
+          probe_text = probe.read_text(encoding="utf-8")
+          anchor = 'run_timed 180 python3 scripts/patch-upstream-ios-emu-graph.py "$ROOT"\n'
+          late_link = 'run_timed 120 python3 scripts/patch-upstream-ios-audio-frameworks.py "$ROOT"\n'
+          if late_link not in probe_text:
+              if probe_text.count(anchor) != 1:
+                  raise SystemExit("Unable to locate graph-generation call for late runtime linkage")
+              probe_text = probe_text.replace(anchor, anchor + late_link, 1)
+              probe.write_text(probe_text, encoding="utf-8")
+          if probe_text.count(late_link) != 1:
+              raise SystemExit("Graph probe did not receive exactly one late runtime-linkage call")
+
+          print("PASS: graph uses AudioToolbox/CoreAudio and completes runtime linkage after target generation")
           PY
 
       - name: Publish pending graph status
