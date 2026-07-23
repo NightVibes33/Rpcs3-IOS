@@ -34,6 +34,20 @@ jobs:
       - name: Checkout iOS port
         uses: actions/checkout@v4
 
+      - name: Patch pinned RPCS3 v0.0.40 bridge compatibility
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/patch-upstream-ios-v0040-compat.py "$GITHUB_WORKSPACE"
+          grep -q 'v0.0.40 selects Null as the default renderer directly' CoreBridge/RPCS3UpstreamRuntimeBridge.cpp
+          grep -q 'Database-config callbacks were added after the pinned v0.0.40 ABI' CoreBridge/RPCS3UpstreamRuntimeBridge.cpp
+          grep -q 'v0.0.40 has no SetHeadless API' CoreBridge/RPCS3UpstreamRuntimeBridge.cpp
+          if grep -q '^    try$' CoreBridge/RPCS3UpstreamFirmwareInstaller.cpp; then
+            echo "Firmware installer still contains exception guards" >&2
+            exit 1
+          fi
+          echo "PASS: pinned bridge sources match RPCS3 v0.0.40 no-exceptions ABI"
+
       - name: Publish pending graph status
         shell: bash
         env:
