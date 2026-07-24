@@ -25,9 +25,6 @@ def patch_runtime_target(upstream_root: Path) -> None:
         '"-framework CoreAudio"',
     )
     if not any(token in text for token in framework_tokens):
-        # The interpreter-only graph does not attach audio frameworks directly
-        # to rpcs3_emu; Cubeb owns that dependency graph instead. This is valid
-        # and still requires the Cubeb/RtMidi corrections below.
         print(f"RPCS3 iOS runtime target has no direct audio framework block: {cmake}")
         return
 
@@ -109,6 +106,67 @@ endif()
     cmake.write_text(text, encoding="utf-8")
 
 
+def patch_full_qt_opengl_blockers(upstream_root: Path) -> None:
+    source = upstream_root / "rpcs3/rpcs3qt/gui_application.cpp"
+    text = source.read_text(encoding="utf-8")
+    marker = "RPCS3 iOS: OpenGL frontend disabled"
+    if marker not in text:
+        text = replace_or_verify(
+            text,
+            '#include "gl_gs_frame.h"\n',
+            '#if !defined(RPCS3_IOS)\n#include "gl_gs_frame.h"\n#endif\n',
+            "Qt OpenGL frame include",
+        )
+        text = replace_or_verify(
+            text,
+            '#include "Emu/RSX/GL/GLGSRender.h"\n',
+            '#if !defined(RPCS3_IOS)\n#include "Emu/RSX/GL/GLGSRender.h"\n#endif\n',
+            "Qt OpenGL renderer include",
+        )
+        old_case = '''\tcase video_renderer::opengl:
+\t{
+\t\tframe = new gl_gs_frame(screen, frame_geometry, app_icon, m_gui_settings, m_start_games_fullscreen);
+\t\tbreak;
+\t}
+'''
+        new_case = '''\tcase video_renderer::opengl:
+\t{
+#if defined(RPCS3_IOS)
+\t\t// RPCS3 iOS: OpenGL frontend disabled; use the generic Qt frame.
+\t\tframe = new gs_frame(screen, frame_geometry, app_icon, m_gui_settings, m_start_games_fullscreen);
+#else
+\t\tframe = new gl_gs_frame(screen, frame_geometry, app_icon, m_gui_settings, m_start_games_fullscreen);
+#endif
+\t\tbreak;
+\t}
+'''
+        text = replace_or_verify(text, old_case, new_case, "Qt OpenGL frame construction")
+        source.write_text(text, encoding="utf-8")
+
+    cmake = upstream_root / "rpcs3/rpcs3qt/CMakeLists.txt"
+    cmake_text = cmake.read_text(encoding="utf-8")
+    cmake_text = replace_or_verify(
+        cmake_text,
+        "    gl_gs_frame.cpp\n",
+        "    $<$<NOT:$<BOOL:${RPCS3_IOS_FULL_QT_FRONTEND}>>:gl_gs_frame.cpp>\n",
+        "Qt OpenGL frame source",
+    )
+    cmake.write_text(cmake_text, encoding="utf-8")
+
+
+def patch_standard_qt_smoke_marker() -> None:
+    port_root = Path(__file__).resolve().parent.parent
+    script = port_root / "scripts/build-qt-ios-app.sh"
+    text = script.read_text(encoding="utf-8")
+    text = replace_or_verify(
+        text,
+        "grep -q 'rpcs3IOSPadButton_' \"$BUILD/binary-strings.txt\"",
+        "grep -q 'rpcs3IOSTouchControlsInstalled' \"$BUILD/binary-strings.txt\"",
+        "standard Qt touch-controls smoke marker",
+    )
+    script.write_text(text, encoding="utf-8")
+
+
 def complete_runtime_linkage(upstream_root: Path) -> None:
     port_root = Path(__file__).resolve().parent.parent
     script = port_root / "scripts/patch-upstream-ios-runtime-linkage.py"
@@ -134,11 +192,13 @@ def main() -> int:
     patch_runtime_target(upstream_root)
     patch_cubeb_target(upstream_root)
     patch_rtmidi_target(upstream_root)
+    patch_full_qt_opengl_blockers(upstream_root)
+    patch_standard_qt_smoke_marker()
     if not args.dependencies_only:
         complete_runtime_linkage(upstream_root)
 
     mode = "dependency-only" if args.dependencies_only else "complete runtime"
-    print(f"Patched iOS audio frameworks in {mode} mode")
+    print(f"Patched iOS audio, Qt OpenGL blockers, and CI smoke markers in {mode} mode")
     return 0
 
 
