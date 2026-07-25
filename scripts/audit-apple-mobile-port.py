@@ -44,7 +44,14 @@ def main() -> int:
             check("UIKit display sleep", contains(display, "rpcs3_apple_mobile_set_display_sleep_enabled"), str(display)),
             check("No iOS ApplicationServices include path", not (pad.is_file() and re.search(r"^\s*#(?:if|elif)\s+defined\(__APPLE__\)\s*$", pad.read_text(errors="replace"), re.MULTILINE)), str(pad)),
             check("No Finder child process on iOS", contains(qt_utils, "RPCS3 Apple mobile: use Qt/UIKit document handling"), str(qt_utils)),
-            check("HIDAPI barrier fallback", contains(hid, "RPCS3 Apple mobile pthread barrier compatibility"), str(hid)),
+            check(
+                "Single HIDAPI barrier fallback",
+                contains(hid, "RPCS3 iOS: pthread barriers are unavailable on iPhoneOS")
+                and contains(hid, "(defined(__APPLE__) && TARGET_OS_IPHONE)")
+                and not contains(hid, "RPCS3 Apple mobile pthread barrier compatibility")
+                and not contains(hid, "nullptr"),
+                str(hid),
+            ),
             check("Full Qt target integration", contains(qt_cmake, "rpcs3_enable_apple_mobile(rpcs3_ui)"), str(qt_cmake)),
         ])
 

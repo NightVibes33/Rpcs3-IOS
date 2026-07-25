@@ -200,85 +200,42 @@ def patch_qt_utils(root: Path) -> None:
 
 
 def patch_hidapi_barrier(root: Path) -> None:
+    """Enable HIDAPI's existing C pthread-barrier fallback exactly once."""
+
     path = root / "3rdparty/hidapi/hidapi/libusb/hidapi_thread_pthread.h"
     text = require(path)
-    marker = "RPCS3 Apple mobile pthread barrier compatibility"
+    marker = "RPCS3 iOS: pthread barriers are unavailable on iPhoneOS"
+    broken_marker = "RPCS3 Apple mobile pthread barrier compatibility"
+
+    if broken_marker in text or "nullptr" in text:
+        raise SystemExit("A duplicate C++-only HIDAPI barrier fallback is present")
     if marker in text:
         return
 
-    include_anchor = "#include <pthread.h>"
-    if include_anchor not in text:
-        raise SystemExit("Unable to locate pthread include in HIDAPI thread header")
+    needle = """#include <pthread.h>
 
-    fallback = r'''
+#if defined(__ANDROID__) && __ANDROID_API__ < __ANDROID_API_N__
+"""
+    replacement = """#include <pthread.h>
 
 #if defined(__APPLE__)
-// RPCS3 Apple mobile pthread barrier compatibility. Darwin does not expose
-// pthread_barrier_t, including on both iOS and iPadOS.
-#ifndef PTHREAD_BARRIER_SERIAL_THREAD
-#define PTHREAD_BARRIER_SERIAL_THREAD 1
-
-typedef struct
-{
-    pthread_mutex_t mutex;
-    pthread_cond_t condition;
-    unsigned threshold;
-    unsigned waiting;
-    unsigned generation;
-} pthread_barrier_t;
-
-static inline int pthread_barrier_init(pthread_barrier_t* barrier, const void*, unsigned count)
-{
-    if (!barrier || count == 0) return EINVAL;
-    int result = pthread_mutex_init(&barrier->mutex, nullptr);
-    if (result != 0) return result;
-    result = pthread_cond_init(&barrier->condition, nullptr);
-    if (result != 0)
-    {
-        pthread_mutex_destroy(&barrier->mutex);
-        return result;
-    }
-    barrier->threshold = count;
-    barrier->waiting = 0;
-    barrier->generation = 0;
-    return 0;
-}
-
-static inline int pthread_barrier_destroy(pthread_barrier_t* barrier)
-{
-    if (!barrier) return EINVAL;
-    int result = pthread_cond_destroy(&barrier->condition);
-    const int mutex_result = pthread_mutex_destroy(&barrier->mutex);
-    return result != 0 ? result : mutex_result;
-}
-
-static inline int pthread_barrier_wait(pthread_barrier_t* barrier)
-{
-    if (!barrier) return EINVAL;
-    pthread_mutex_lock(&barrier->mutex);
-    const unsigned generation = barrier->generation;
-    if (++barrier->waiting == barrier->threshold)
-    {
-        barrier->waiting = 0;
-        ++barrier->generation;
-        pthread_cond_broadcast(&barrier->condition);
-        pthread_mutex_unlock(&barrier->mutex);
-        return PTHREAD_BARRIER_SERIAL_THREAD;
-    }
-    while (generation == barrier->generation)
-    {
-        pthread_cond_wait(&barrier->condition, &barrier->mutex);
-    }
-    pthread_mutex_unlock(&barrier->mutex);
-    return 0;
-}
+#include <TargetConditionals.h>
 #endif
-#endif
-'''
-    if "#include <errno.h>" not in text:
-        text = text.replace(include_anchor, "#include <errno.h>\n" + include_anchor, 1)
-    text = text.replace(include_anchor, include_anchor + fallback, 1)
-    write(path, text)
+
+/* RPCS3 iOS: pthread barriers are unavailable on iPhoneOS. Reuse HIDAPI's
+   C-compatible mutex/condition fallback that is already used on older Android. */
+#if (defined(__ANDROID__) && __ANDROID_API__ < __ANDROID_API_N__) || \
+    (defined(__APPLE__) && TARGET_OS_IPHONE)
+"""
+    if needle not in text:
+        raise SystemExit("Unable to locate HIDAPI pthread barrier fallback guard")
+
+    patched = text.replace(needle, replacement, 1)
+    if patched.count(marker) != 1:
+        raise SystemExit("HIDAPI iPhoneOS barrier fallback was not applied exactly once")
+    if broken_marker in patched or "nullptr" in patched:
+        raise SystemExit("HIDAPI barrier patch introduced a duplicate C++ fallback")
+    write(path, patched)
 
 
 def patch_qt_cmake(root: Path, port_root: Path) -> None:
@@ -305,7 +262,7 @@ endif()
 def patch_vulkan_checkpoint(root: Path) -> None:
     candidates = [
         root / "rpcs3/Emu/RSX/VK/VKPresent.cpp",
-        root / "rpcs3/Emu/RSX/VK/swapchain.cpp",
+        root / "pcs3/Emu/RSX/VK/swapchain.cpp",
     ]
     path = next((p for p in candidates if p.is_file()), None)
     if path is None:
@@ -318,48 +275,4 @@ def patch_vulkan_checkpoint(root: Path) -> None:
     index = text.find("vkQueuePresentKHR")
     if index < 0:
         return
-    statement_end = text.find(";", index)
-    if statement_end < 0:
-        return
-
-    include = '#if defined(RPCS3_IOS)\n#include "RPCS3AppleMobilePlatform.h"\n#endif\n'
-    first_include = text.find("#include")
-    if first_include >= 0 and "RPCS3AppleMobilePlatform.h" not in text:
-        text = text[:first_include] + include + text[first_include:]
-        index = text.find("vkQueuePresentKHR")
-        statement_end = text.find(";", index)
-
-    insertion = (
-        "\n#if defined(RPCS3_IOS)\n"
-        "    // RPCS3 Apple mobile first-frame checkpoint. Reaching this point means\n"
-        "    // the Vulkan/MoltenVK presentation call returned to RPCS3.\n"
-        "    rpcs3_apple_mobile_mark_frame_presented();\n"
-        "#endif"
-    )
-    text = text[: statement_end + 1] + insertion + text[statement_end + 1 :]
-    write(path, text)
-
-
-def main() -> int:
-    parser = argparse.ArgumentParser()
-    parser.add_argument("upstream_root", type=Path)
-    parser.add_argument("--port-root", type=Path, default=Path(__file__).resolve().parents[1])
-    args = parser.parse_args()
-
-    root = args.upstream_root.resolve()
-    port_root = args.port_root.resolve()
-    if not (port_root / "CoreBridge/RPCS3AppleMobilePlatform.mm").is_file():
-        raise SystemExit(f"Apple mobile bridge missing under port root: {port_root}")
-
-    patch_display_sleep(root)
-    patch_gui_pad_thread(root)
-    patch_qt_utils(root)
-    patch_hidapi_barrier(root)
-    patch_qt_cmake(root, port_root)
-    patch_vulkan_checkpoint(root)
-    print("Patched upstream RPCS3 for the shared iOS/iPadOS platform layer")
-    return 0
-
-
-if __name__ == "__main__":
-    raise SystemExit(main())
+    statement_end = text.find(";kºwµç[ÊÌ¬µéš¶ë®ø¬‰¹^n‹§uªò

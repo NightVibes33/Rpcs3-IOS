@@ -11,7 +11,7 @@ Implemented:
 - Background pause, foreground resume, controller disconnect neutralization, memory-warning and thermal checkpoints.
 - iPhone/iPad device profiling and target family `1,2`.
 - App-sandbox Application Support and Documents locations.
-- HIDAPI pthread barrier compatibility for Darwin mobile.
+- HIDAPI's existing C pthread-barrier fallback enabled exactly once for iOS and iPadOS.
 - Exclusion of ApplicationServices/Carbon event injection and Finder/QProcess launching.
 - A Vulkan presentation checkpoint written to `Library/Application Support/RPCS3/runtime/apple-mobile-runtime.jsonl`.
 
