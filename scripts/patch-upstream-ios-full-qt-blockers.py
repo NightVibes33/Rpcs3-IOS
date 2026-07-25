@@ -19,6 +19,43 @@ def verify_python(script: Path) -> None:
     subprocess.run([sys.executable, "-m", "py_compile", str(script)], check=True)
 
 
+def patch_apple_mobile_source(port_root: Path) -> None:
+    source = port_root / "CoreBridge/RPCS3AppleMobilePlatform.mm"
+    text = source.read_text(encoding="utf-8")
+
+    # Objective-C declarations must be at global scope. Close the anonymous
+    # namespace after the C++ controller helper, then reopen it after @end so
+    # the remaining internal helpers retain internal linkage.
+    bad_boundary = "    return buttons;\n}\n\n@interface RPCS3AppleMobileControllerPump"
+    good_boundary = "    return buttons;\n}\n} // namespace\n\n@interface RPCS3AppleMobileControllerPump"
+    if bad_boundary in text:
+        text = text.replace(bad_boundary, good_boundary, 1)
+
+    bad_reopen = "@end\n\nvoid set_idle_timer(bool display_sleep_enabled)"
+    good_reopen = "@end\n\nnamespace\n{\nvoid set_idle_timer(bool display_sleep_enabled)"
+    if bad_reopen in text:
+        text = text.replace(bad_reopen, good_reopen, 1)
+
+    replacements = {
+        "(long)state": "static_cast<long>(state)",
+        "(int)screen.maximumFramesPerSecond": "static_cast<int>(screen.maximumFramesPerSecond)",
+        "(int)info.activeProcessorCount": "static_cast<int>(info.activeProcessorCount)",
+    }
+    for old, new in replacements.items():
+        text = text.replace(old, new)
+
+    if good_boundary not in text:
+        raise SystemExit("Apple-mobile controller Objective-C declaration is still inside the C++ namespace")
+    if good_reopen not in text:
+        raise SystemExit("Apple-mobile internal helper namespace was not reopened after @implementation")
+    for forbidden in replacements:
+        if forbidden in text:
+            raise SystemExit(f"Apple-mobile source still contains a fatal old-style cast: {forbidden}")
+
+    source.write_text(text, encoding="utf-8")
+    print("Patched Apple-mobile Objective-C++ namespace and cast blockers")
+
+
 def run_patch(script: Path, upstream_root: str) -> None:
     verify_python(script)
     subprocess.run([sys.executable, str(script), upstream_root], check=True)
@@ -61,7 +98,9 @@ def main() -> int:
         raise SystemExit(f"usage: {Path(sys.argv[0]).name} UPSTREAM_ROOT")
 
     scripts = Path(__file__).resolve().parent
+    port_root = scripts.parent
     upstream_root = sys.argv[1]
+    patch_apple_mobile_source(port_root)
     run_patch(scripts / "patch-upstream-ios-full-qt-blockers-base.py", upstream_root)
     run_apple_mobile_patch(scripts / "patch-upstream-apple-mobile-platform.py", upstream_root)
     return 0
