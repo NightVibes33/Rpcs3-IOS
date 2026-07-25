@@ -9,6 +9,7 @@ PREFIX="${FFMPEG_IOS_ROOT:-$PORT_ROOT/BuildSupport/ffmpeg-ios}"
 DEPLOYMENT_TARGET="${DEPLOYMENT_TARGET:-26.0}"
 JOBS="${FFMPEG_JOBS:-3}"
 STAMP="$PREFIX/.rpcs3-ios-ffmpeg-$FFMPEG_TAG-videotoolbox-v1"
+LEGACY_STAMP="$PREFIX/.rpcs3-ios-ffmpeg-$FFMPEG_TAG"
 
 required_libraries=(
   libavcodec.a
@@ -34,6 +35,9 @@ if [[ "$valid_install" == 1 ]]; then
 fi
 
 if [[ "$valid_install" == 1 ]]; then
+  # Older graph/cache contracts still look for this stamp. Only create it after
+  # the stricter VideoToolbox symbol validation above has succeeded.
+  printf '%s\n' "$FFMPEG_TAG" > "$LEGACY_STAMP"
   echo "Using cached FFmpeg $FFMPEG_TAG arm64-iOS VideoToolbox install at $PREFIX"
   exit 0
 fi
@@ -114,6 +118,7 @@ grep -q '_av_map_videotoolbox_format_to_pixfmt' "$SYMBOLS_FILE"
 grep -q '#define LIBAVUTIL_VERSION_MAJOR  *59' "$PREFIX/include/libavutil/version.h"
 grep -q '#define LIBAVUTIL_VERSION_MINOR  *39' "$PREFIX/include/libavutil/version.h"
 printf '%s\n' "$FFMPEG_TAG" > "$STAMP"
+printf '%s\n' "$FFMPEG_TAG" > "$LEGACY_STAMP"
 
 cat > "$PREFIX/rpcs3-ios-build.txt" <<EOF
 FFmpeg tag: $FFMPEG_TAG
