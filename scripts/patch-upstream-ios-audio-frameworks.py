@@ -49,9 +49,9 @@ def patch_runtime_target(upstream_root: Path) -> None:
         '        "-framework CoreVideo"\n',
     )
     if not all(framework in text for framework in media_frameworks):
-        anchor = '        "-framework AVFoundation"\n'
+        anchor = '        "-framework AudioToolbox"\n'
         if anchor not in text:
-            raise SystemExit(f"The iOS runtime target is missing the AVFoundation framework anchor in {cmake}")
+            raise SystemExit(f"The iOS runtime target is missing the AudioToolbox framework anchor in {cmake}")
         missing = "".join(framework for framework in media_frameworks if framework not in text)
         text = text.replace(anchor, anchor + missing, 1)
 
