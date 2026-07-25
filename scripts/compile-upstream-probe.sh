@@ -23,6 +23,15 @@ CLANGXX="$(xcrun --sdk iphoneos --find clang++)"
 LIBTOOL="$(xcrun --sdk iphoneos --find libtool)"
 TARGET="arm64-apple-ios26.0"
 UPSTREAM_SHA="$(git -C "$ROOT" rev-parse HEAD)"
+mkdir -p "$OUT/generated"
+cat > "$OUT/generated/RPCS3IOSBuildManifest.h" <<EOF
+#pragma once
+
+#define RPCS3_IOS_BUILD_UPSTREAM_REVISION "$UPSTREAM_SHA"
+#define RPCS3_IOS_BUILD_UPSTREAM_SOURCE_COUNT 0
+#define RPCS3_IOS_BUILD_CAPABILITY_LEVEL 1
+#define RPCS3_IOS_BUILD_CLASSIFICATION "compile-probe"
+EOF
 
 cat > "$OUT/metadata.txt" <<EOF
 upstream_sha=$UPSTREAM_SHA
@@ -42,6 +51,7 @@ COMMON=(
   -include "$PWD/Port/IOSPlatform.h"
   -I"$PWD/Port"
   -I"$PWD/CoreBridge"
+  -I"$PWD/$OUT/generated"
   -I"$ROOT"
   -I"$ROOT/Utilities"
   -I"$ROOT/rpcs3"
