@@ -39,6 +39,26 @@ def patch_runtime_target(upstream_root: Path) -> None:
     if '"-framework CoreAudio"' not in text:
         raise SystemExit(f"The iOS runtime target is missing CoreAudio in {cmake}")
 
+    # VideoToolbox-enabled FFmpeg pulls symbols from these three Apple media
+    # frameworks into the generated RPCS3UpstreamRuntime framework. Keep the
+    # dependency on the runtime provider so both the graph probe and Qt host
+    # consume the same complete linkage contract.
+    media_frameworks = (
+        '        "-framework VideoToolbox"\n',
+        '        "-framework CoreMedia"\n',
+        '        "-framework CoreVideo"\n',
+    )
+    if not all(framework in text for framework in media_frameworks):
+        anchor = '        "-framework AVFoundation"\n'
+        if anchor not in text:
+            raise SystemExit(f"The iOS runtime target is missing the AVFoundation framework anchor in {cmake}")
+        missing = "".join(framework for framework in media_frameworks if framework not in text)
+        text = text.replace(anchor, anchor + missing, 1)
+
+    for framework in media_frameworks:
+        if text.count(framework) != 1:
+            raise SystemExit(f"The iOS runtime target must link {framework.strip()} exactly once in {cmake}")
+
     cmake.write_text(text, encoding="utf-8")
 
 
