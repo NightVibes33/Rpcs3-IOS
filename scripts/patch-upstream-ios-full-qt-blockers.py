@@ -208,6 +208,46 @@ def patch_gui_pad_thread_desktop_events(upstream_root: Path) -> None:
     source.write_text(updated, encoding="utf-8")
 
 
+def patch_display_sleep_control(upstream_root: Path) -> None:
+    """Keep the macOS IOPM backend off iOS, where UIKit owns app sleep behavior."""
+
+    source = upstream_root / "rpcs3/display_sleep_control.cpp"
+    marker = "RPCS3 iOS: display sleep control is managed by UIKit"
+    text = source.read_text(encoding="utf-8")
+    if marker in text:
+        return
+
+    apple_guard = "#elif defined(__APPLE__)"
+    if text.count(apple_guard) != 2:
+        raise SystemExit("Unexpected Apple display-sleep guard count")
+
+    ios_safe_guard = "#elif defined(__APPLE__) && !defined(RPCS3_IOS)"
+    updated = text.replace(apple_guard, ios_safe_guard)
+    updated = updated.replace(
+        ios_safe_guard + "\n#pragma GCC diagnostic push",
+        ios_safe_guard + "\n// RPCS3 iOS: display sleep control is managed by UIKit.\n#pragma GCC diagnostic push",
+        1,
+    )
+
+    supported = "#if defined(_WIN32) || defined(__APPLE__)"
+    supported_ios_safe = "#if defined(_WIN32) || (defined(__APPLE__) && !defined(RPCS3_IOS))"
+    if updated.count(supported) != 1:
+        raise SystemExit("Unable to locate display sleep support condition")
+    updated = updated.replace(supported, supported_ios_safe, 1)
+
+    for required in (
+        marker,
+        "#include <IOKit/pwr_mgt/IOPMLib.h>",
+        supported_ios_safe,
+    ):
+        if required not in updated:
+            raise SystemExit(f"Display sleep patch verification failed: {required}")
+    if updated.count(ios_safe_guard) != 2:
+        raise SystemExit("Display sleep patch did not guard both macOS branches")
+
+    source.write_text(updated, encoding="utf-8")
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("upstream_root", type=Path)
@@ -217,7 +257,8 @@ def main() -> int:
     patch_qt_component_graph(args.upstream_root)
     patch_qt_utils_process_launch(args.upstream_root)
     patch_gui_pad_thread_desktop_events(args.upstream_root)
-    print("Patched and verified the full RPCS3 Qt frontend fatal-error, component, process-launch, and desktop input paths for iOS")
+    patch_display_sleep_control(args.upstream_root)
+    print("Patched and verified the full RPCS3 Qt frontend fatal-error, component, process-launch, desktop input, and display-sleep paths for iOS")
     return 0
 
 
