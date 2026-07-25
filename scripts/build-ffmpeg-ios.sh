@@ -25,10 +25,12 @@ for library in "${required_libraries[@]}"; do
   [[ -f "$PREFIX/lib/$library" ]] || valid_install=0
 done
 if [[ "$valid_install" == 1 ]]; then
-  if ! /usr/bin/nm -gU "$PREFIX/lib/libavutil.a" 2>/dev/null \
-      | grep -q '_av_map_videotoolbox_format_to_pixfmt'; then
+  cache_symbols="$PREFIX/.libavutil-symbols.txt"
+  if ! /usr/bin/nm -gU "$PREFIX/lib/libavutil.a" >"$cache_symbols" 2>/dev/null \
+      || ! grep -q '_av_map_videotoolbox_format_to_pixfmt' "$cache_symbols"; then
     valid_install=0
   fi
+  rm -f "$cache_symbols"
 fi
 
 if [[ "$valid_install" == 1 ]]; then
@@ -106,8 +108,9 @@ for library in "${required_libraries[@]}"; do
   lipo -info "$PREFIX/lib/$library" || true
 done
 
-"$NM" -gU "$PREFIX/lib/libavutil.a" \
-  | grep -q '_av_map_videotoolbox_format_to_pixfmt'
+SYMBOLS_FILE="$PREFIX/libavutil-symbols.txt"
+"$NM" -gU "$PREFIX/lib/libavutil.a" > "$SYMBOLS_FILE"
+grep -q '_av_map_videotoolbox_format_to_pixfmt' "$SYMBOLS_FILE"
 grep -q '#define LIBAVUTIL_VERSION_MAJOR  *59' "$PREFIX/include/libavutil/version.h"
 grep -q '#define LIBAVUTIL_VERSION_MINOR  *39' "$PREFIX/include/libavutil/version.h"
 printf '%s\n' "$FFMPEG_TAG" > "$STAMP"
