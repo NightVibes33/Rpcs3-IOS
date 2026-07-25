@@ -15,10 +15,6 @@ if [[ ! -d "$ROOT/.git" ]]; then
   git clone --filter=blob:none --depth 1 --branch "$UPSTREAM_REVISION" --single-branch \
     https://github.com/RPCS3/rpcs3.git "$ROOT" \
     >"$OUT/logs/clone.log" 2>&1
-  git -C "$ROOT" submodule sync --recursive \
-    >"$OUT/logs/submodule-sync.log" 2>&1
-  git -C "$ROOT" submodule update --init --recursive --depth 1 --jobs 4 \
-    >"$OUT/logs/submodules.log" 2>&1
 fi
 
 SDKROOT="$(xcrun --sdk iphoneos --show-sdk-path)"
@@ -49,6 +45,7 @@ COMMON=(
   -I"$ROOT"
   -I"$ROOT/Utilities"
   -I"$ROOT/rpcs3"
+  -I"$ROOT/rpcs3/Crypto"
   -I"$ROOT/3rdparty"
 )
 
