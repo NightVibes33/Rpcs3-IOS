@@ -19,6 +19,22 @@ std::atomic<int> g_drawable_height{1};
 std::atomic<int> g_display_rate{60};
 std::atomic<bool> g_layer_visible{false};
 
+// ARC requires Objective-C bridge-cast syntax for these opaque pointer
+// conversions. Keep that syntax in two tiny helpers and suppress only the
+// generic C++ old-style-cast warning around the required bridge expressions.
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wold-style-cast"
+UIView* bridge_view_from_opaque(void* native_view)
+{
+    return (__bridge UIView*)native_view;
+}
+
+void* bridge_layer_to_opaque(CAMetalLayer* layer)
+{
+    return (__bridge void*)layer;
+}
+#pragma clang diagnostic pop
+
 void run_on_main_sync(dispatch_block_t block)
 {
     if ([NSThread isMainThread])
@@ -164,7 +180,7 @@ int attach_render_view(void* native_view)
 
     __block int attached = 0;
     run_on_main_sync(^{
-        UIView* view = (__bridge UIView*)native_view;
+        UIView* view = bridge_view_from_opaque(native_view);
         if (![view isKindOfClass:UIView.class])
         {
             return;
@@ -183,7 +199,7 @@ int attach_render_view(void* native_view)
         [g_host_view.layer addSublayer:g_metal_layer];
 
         update_geometry_on_main();
-        g_layer_handle.store((__bridge void*)g_metal_layer, std::memory_order_release);
+        g_layer_handle.store(bridge_layer_to_opaque(g_metal_layer), std::memory_order_release);
         g_layer_visible.store(true, std::memory_order_release);
         attached = g_metal_layer.device ? 1 : 0;
     });
