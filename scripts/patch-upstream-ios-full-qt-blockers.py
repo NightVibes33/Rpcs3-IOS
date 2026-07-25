@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -56,6 +57,25 @@ def patch_apple_mobile_source(port_root: Path) -> None:
     print("Patched Apple-mobile Objective-C++ namespace and cast blockers")
 
 
+def patch_ios_hid_pad_handler(upstream_root: Path) -> None:
+    source = upstream_root / "rpcs3/Input/hid_pad_handler.cpp"
+    text = source.read_text(encoding="utf-8")
+    guard = "#if defined(__APPLE__) && !defined(RPCS3_IOS)"
+    text, changed = re.subn(
+        r"(?m)^#if defined\(__APPLE__\)\s*$",
+        guard,
+        text,
+    )
+    if changed == 0 and guard not in text:
+        raise SystemExit("Unable to guard the macOS-only HIDAPI path for iOS")
+    if re.search(r"(?m)^#if defined\(__APPLE__\)\s*$", text):
+        raise SystemExit("An unguarded macOS HIDAPI branch remains in hid_pad_handler.cpp")
+    if "hid_darwin_set_open_exclusive(0);" not in text:
+        raise SystemExit("Unexpected hid_pad_handler.cpp shape: Darwin exclusive-mode call is missing")
+    source.write_text(text, encoding="utf-8")
+    print(f"Guarded {changed} macOS HIDAPI branch(es) from the iOS build")
+
+
 def run_patch(script: Path, upstream_root: str) -> None:
     verify_python(script)
     subprocess.run([sys.executable, str(script), upstream_root], check=True)
@@ -99,10 +119,11 @@ def main() -> int:
 
     scripts = Path(__file__).resolve().parent
     port_root = scripts.parent
-    upstream_root = sys.argv[1]
+    upstream_root = Path(sys.argv[1]).resolve()
     patch_apple_mobile_source(port_root)
-    run_patch(scripts / "patch-upstream-ios-full-qt-blockers-base.py", upstream_root)
-    run_apple_mobile_patch(scripts / "patch-upstream-apple-mobile-platform.py", upstream_root)
+    run_patch(scripts / "patch-upstream-ios-full-qt-blockers-base.py", str(upstream_root))
+    run_apple_mobile_patch(scripts / "patch-upstream-apple-mobile-platform.py", str(upstream_root))
+    patch_ios_hid_pad_handler(upstream_root)
     return 0
 
 

@@ -16,11 +16,31 @@ function(rpcs3_enable_apple_mobile target)
         return()
     endif()
 
+    set(apple_mobile_platform "${RPCS3_IOS_PORT_ROOT}/CoreBridge/RPCS3AppleMobilePlatform.mm")
+    set(upstream_runtime_bridge "${CMAKE_SOURCE_DIR}/rpcs3/Emu/RPCS3IOSUpstreamRuntimeBridge.cpp")
+    set(upstream_pad_bridge "${RPCS3_IOS_PORT_ROOT}/CoreBridge/RPCS3IOSPadBridge.cpp")
+    set(upstream_gs_frame "${RPCS3_IOS_PORT_ROOT}/Port/iOS/RPCS3IOSGSFrame.mm")
+    foreach(required_source IN ITEMS
+        "${apple_mobile_platform}"
+        "${upstream_runtime_bridge}"
+        "${upstream_pad_bridge}"
+        "${upstream_gs_frame}")
+        if(NOT EXISTS "${required_source}")
+            message(FATAL_ERROR "RPCS3 Apple mobile source is missing: ${required_source}")
+        endif()
+    endforeach()
+
     enable_language(OBJCXX)
     target_sources("${target}" PRIVATE
-        "${RPCS3_IOS_PORT_ROOT}/CoreBridge/RPCS3AppleMobilePlatform.mm")
+        "${apple_mobile_platform}"
+        "${upstream_runtime_bridge}"
+        "${upstream_pad_bridge}"
+        "${upstream_gs_frame}")
     target_include_directories("${target}" PRIVATE
-        "${RPCS3_IOS_PORT_ROOT}/CoreBridge")
+        "${RPCS3_IOS_PORT_ROOT}/CoreBridge"
+        "${RPCS3_IOS_PORT_ROOT}/Port/iOS"
+        "${CMAKE_SOURCE_DIR}"
+        "${CMAKE_SOURCE_DIR}/rpcs3")
     target_compile_definitions("${target}" PRIVATE
         RPCS3_IOS=1
         RPCS3_APPLE_MOBILE=1)
@@ -31,7 +51,14 @@ function(rpcs3_enable_apple_mobile target)
         "-framework UIKit"
         "-framework QuartzCore"
         "-framework Metal"
+        "-framework CoreGraphics"
+        "-framework IOSurface"
         "-framework AVFoundation"
+        "-framework VideoToolbox"
+        "-framework CoreMedia"
+        "-framework CoreVideo"
+        "-framework AudioToolbox"
+        "-framework CoreAudio"
         "-framework GameController")
 
     set_target_properties("${target}" PROPERTIES

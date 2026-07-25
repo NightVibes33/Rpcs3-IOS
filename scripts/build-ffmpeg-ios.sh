@@ -8,7 +8,7 @@ BUILD_ROOT="${FFMPEG_BUILD_ROOT:-$PORT_ROOT/.cache/ffmpeg-ios-build-$FFMPEG_TAG}
 PREFIX="${FFMPEG_IOS_ROOT:-$PORT_ROOT/BuildSupport/ffmpeg-ios}"
 DEPLOYMENT_TARGET="${DEPLOYMENT_TARGET:-26.0}"
 JOBS="${FFMPEG_JOBS:-3}"
-STAMP="$PREFIX/.rpcs3-ios-ffmpeg-$FFMPEG_TAG"
+STAMP="$PREFIX/.rpcs3-ios-ffmpeg-$FFMPEG_TAG-videotoolbox-v1"
 
 required_libraries=(
   libavcodec.a
@@ -24,9 +24,15 @@ valid_install=1
 for library in "${required_libraries[@]}"; do
   [[ -f "$PREFIX/lib/$library" ]] || valid_install=0
 done
+if [[ "$valid_install" == 1 ]]; then
+  if ! /usr/bin/nm -gU "$PREFIX/lib/libavutil.a" 2>/dev/null \
+      | grep -q '_av_map_videotoolbox_format_to_pixfmt'; then
+    valid_install=0
+  fi
+fi
 
 if [[ "$valid_install" == 1 ]]; then
-  echo "Using cached FFmpeg $FFMPEG_TAG arm64-iOS install at $PREFIX"
+  echo "Using cached FFmpeg $FFMPEG_TAG arm64-iOS VideoToolbox install at $PREFIX"
   exit 0
 fi
 
@@ -80,6 +86,7 @@ pushd "$BUILD_ROOT" >/dev/null
   --disable-postproc \
   --disable-network \
   --disable-autodetect \
+  --enable-videotoolbox \
   --disable-iconv \
   --disable-bzlib \
   --disable-lzma \
@@ -99,6 +106,8 @@ for library in "${required_libraries[@]}"; do
   lipo -info "$PREFIX/lib/$library" || true
 done
 
+"$NM" -gU "$PREFIX/lib/libavutil.a" \
+  | grep -q '_av_map_videotoolbox_format_to_pixfmt'
 grep -q '#define LIBAVUTIL_VERSION_MAJOR  *59' "$PREFIX/include/libavutil/version.h"
 grep -q '#define LIBAVUTIL_VERSION_MINOR  *39' "$PREFIX/include/libavutil/version.h"
 printf '%s\n' "$FFMPEG_TAG" > "$STAMP"
@@ -109,6 +118,7 @@ Target: arm64-apple-ios$DEPLOYMENT_TARGET
 SDK: $SDK_ROOT
 Source: $SOURCE_ROOT
 Build: $BUILD_ROOT
+VideoToolbox: enabled
 EOF
 
 cat "$PREFIX/rpcs3-ios-build.txt"
