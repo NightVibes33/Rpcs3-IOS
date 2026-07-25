@@ -209,7 +209,7 @@ echo "PASS: actual upstream Qt UI and ARM64 runtime sources are in the Xcode gra
 cmake --build "$BUILD/tree" --config Release --target rpcs3 --parallel 3 \
   >"$BUILD/logs/build-full-rpcs3.log" 2>&1
 
-APP="$(find "$BUILD/tree" -type d \( -name 'RPCS3-iOS.app' -o -name 'rpcs3.app' \) -path '*Release*' -print | head -n 1)"
+APP="$(find "$BUILD/tree" -type d \( -name 'RPCS3-iOS.app' -o -name 'rpcs3.app' \) -print | head -n 1)"
 test -n "$APP"
 test -d "$APP"
 BIN="$(find "$APP" -maxdepth 1 -type f \( -name 'RPCS3-iOS' -o -name 'rpcs3' \) -print | head -n 1)"

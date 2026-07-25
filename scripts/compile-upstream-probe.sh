@@ -4,13 +4,21 @@ set -euo pipefail
 ROOT="${1:-upstream-rpcs3}"
 OUT="${OUT:-compile-probe}"
 MANIFEST="${MANIFEST:-Port/portable-sources.txt}"
+REVISION_FILE="${REVISION_FILE:-UPSTREAM_RPCS3_REVISION}"
 
 rm -rf "$OUT"
 mkdir -p "$OUT/logs" "$OUT/objects"
 
 if [[ ! -d "$ROOT/.git" ]]; then
-  git clone --filter=blob:none --recurse-submodules --shallow-submodules --depth 1 \
-    https://github.com/RPCS3/rpcs3.git "$ROOT"
+  UPSTREAM_REVISION="$(tr -d '[:space:]' < "$REVISION_FILE")"
+  test -n "$UPSTREAM_REVISION"
+  git clone --filter=blob:none --depth 1 --branch "$UPSTREAM_REVISION" --single-branch \
+    https://github.com/RPCS3/rpcs3.git "$ROOT" \
+    >"$OUT/logs/clone.log" 2>&1
+  git -C "$ROOT" submodule sync --recursive \
+    >"$OUT/logs/submodule-sync.log" 2>&1
+  git -C "$ROOT" submodule update --init --recursive --depth 1 --jobs 4 \
+    >"$OUT/logs/submodules.log" 2>&1
 fi
 
 SDKROOT="$(xcrun --sdk iphoneos --show-sdk-path)"
