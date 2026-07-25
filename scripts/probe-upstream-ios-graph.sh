@@ -19,6 +19,7 @@ test -n "$UPSTREAM_REVISION"
 test -f "$TIMEOUT_RUNNER"
 test -f "$PHASE1_COLLECTOR"
 test -f "$PORT_ROOT/scripts/build-ffmpeg-ios.sh"
+test -f "$PORT_ROOT/scripts/patch-upstream-ios-audio-frameworks.py"
 
 rm -rf "$ROOT" "$BUILD"
 mkdir -p "$LOG_DIR"
@@ -67,6 +68,7 @@ run_timed 120 python3 scripts/apply-upstream-ios-overlay.py "$ROOT" --mode upstr
 run_timed 120 python3 scripts/patch-upstream-ios-libusb-api.py "$ROOT"
 run_timed 120 python3 scripts/patch-upstream-ios-cubeb.py "$ROOT"
 run_timed 180 python3 scripts/patch-upstream-ios-emu-graph.py "$ROOT"
+run_timed 120 python3 scripts/patch-upstream-ios-audio-frameworks.py "$ROOT"
 
 git -C "$ROOT" rev-parse HEAD | tee "$BUILD/upstream-revision.txt"
 git -C "$ROOT" submodule status --recursive > "$BUILD/upstream-submodules.txt"
@@ -150,12 +152,20 @@ if [[ $configure_status -eq 0 && $build_status -eq 0 && $bridge_status -eq 0 ]];
     else
       file "$probe_binary" | tee "$BUILD/runtime-link-probe-file.txt"
       lipo -info "$probe_binary" | tee "$BUILD/runtime-link-probe-architectures.txt"
-      nm -gU "$probe_binary" > "$BUILD/runtime-link-probe-symbols.txt"
-      if grep -q '_rpcs3_ios_upstream_runtime_link_probe' "$BUILD/runtime-link-probe-symbols.txt"; then
-        probe_symbol_present=true
-      else
-        phase "Runtime link probe is missing the exported bridge symbol"
+      runtime_framework_binary="$(find "$BUILD/tree" -type f -path '*/RPCS3UpstreamRuntime.framework/RPCS3UpstreamRuntime' -print | head -n 1)"
+      if [[ -z "$runtime_framework_binary" || ! -f "$runtime_framework_binary" ]]; then
+        phase "Runtime link probe is missing its RPCS3UpstreamRuntime framework provider"
         link_probe_status=127
+      else
+        nm -gU "$runtime_framework_binary" > "$BUILD/runtime-framework-symbols.txt"
+        otool -L "$probe_binary" > "$BUILD/runtime-link-probe-linked-libraries.txt"
+        if grep -q '_rpcs3_ios_upstream_runtime_link_probe' "$BUILD/runtime-framework-symbols.txt" && \
+           grep -q 'RPCS3UpstreamRuntime.framework/RPCS3UpstreamRuntime' "$BUILD/runtime-link-probe-linked-libraries.txt"; then
+          probe_symbol_present=true
+        else
+          phase "Runtime framework export or executable dependency validation failed"
+          link_probe_status=127
+        fi
       fi
     fi
   fi
@@ -211,7 +221,7 @@ fi
   echo "- Upstream runtime bridge build exit status: \`$bridge_status\`"
   echo "- Emu.Init runtime link probe exit status: \`$link_probe_status\`"
   echo "- Runtime link probe binary: \`${probe_binary:-not-produced}\`"
-  echo "- Runtime bridge symbol present in linked executable: \`$probe_symbol_present\`"
+  echo "- Runtime framework export consumed by linked executable: \`$probe_symbol_present\`"
   echo "- Phase 1 evidence exit status: \`$phase1_status\`"
   echo "- Upstream Emu/System.cpp configured: \`$system_cpp_configured\`"
   echo "- Upstream Emu/System.cpp object built: \`$system_cpp_object_built\`"
