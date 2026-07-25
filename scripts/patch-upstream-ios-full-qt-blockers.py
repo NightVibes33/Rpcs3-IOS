@@ -6,6 +6,7 @@ import sys
 from pathlib import Path
 
 
+# This watched Full Qt entry point also dispatches the shared Apple-mobile patch.
 def run_patch(script: Path, upstream_root: str) -> None:
     subprocess.run([sys.executable, str(script), upstream_root], check=True)
 
