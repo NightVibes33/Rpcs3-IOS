@@ -239,6 +239,10 @@ jobs:
           rm -rf Payload output
           mkdir -p Payload output
           cp -R "${{ steps.bundle.outputs.app }}" Payload/RPCS3-iOS.app
+          /usr/bin/plutil -convert xml1 Payload/RPCS3-iOS.app/Info.plist
+          /usr/libexec/PlistBuddy -c "Set :CFBundleIdentifier com.nightvibes33.rpcs3ios" Payload/RPCS3-iOS.app/Info.plist
+          /usr/bin/plutil -lint Payload/RPCS3-iOS.app/Info.plist
+          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' Payload/RPCS3-iOS.app/Info.plist)" = "com.nightvibes33.rpcs3ios"
           rm -rf Payload/RPCS3-iOS.app/_CodeSignature
           rm -f Payload/RPCS3-iOS.app/embedded.mobileprovision
           test -f Payload/RPCS3-iOS.app/Frameworks/RPCS3UpstreamRuntime.framework/RPCS3UpstreamRuntime
