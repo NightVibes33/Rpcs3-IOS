@@ -182,6 +182,7 @@ nm -gU "$EMBEDDED_RUNTIME" > "$BUILD/embedded-runtime-symbols.txt"
 cat "$BUILD/binary-defined-symbols.txt"
 
 for symbol in \
+  _rpcs3_ios_debug_log \
   _rpcs3_ios_core_initialize \
   _rpcs3_ios_core_set_render_view \
   _rpcs3_ios_core_clear_render_view \

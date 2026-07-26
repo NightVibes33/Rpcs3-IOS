@@ -48,6 +48,7 @@ for required in \
   "$PORT_ROOT/scripts/patch-upstream-ios-openal.py" \
   "$PORT_ROOT/scripts/patch-upstream-ios-emu-graph.py" \
   "$PORT_ROOT/scripts/patch-upstream-ios-audio-frameworks.py" \
+  "$PORT_ROOT/Port/iOS/RPCS3IOSCrashLogger.mm" \
   "$PORT_ROOT/scripts/patch-upstream-ios-full-qt-blockers.py"; do
   test -e "$required"
 done
@@ -220,6 +221,7 @@ file "$BIN" | tee "$BUILD/binary-file.txt"
 lipo -info "$BIN" | tee "$BUILD/binary-architectures.txt"
 otool -L "$BIN" | tee "$BUILD/binary-linked-libraries.txt"
 nm -gU "$BIN" > "$BUILD/binary-symbols.txt"
+grep -q '_rpcs3_ios_debug_log' "$BUILD/binary-symbols.txt"
 strings "$BIN" > "$BUILD/binary-strings.txt"
 
 # Validate real frontend implementation, not copied .ui files.

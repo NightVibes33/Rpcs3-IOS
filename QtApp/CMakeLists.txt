@@ -46,6 +46,7 @@ set_target_properties(rpcs3_ios_upstream_runtime PROPERTIES
 
 qt_add_executable(RPCS3QtIOS MANUAL_FINALIZATION
     main.cpp
+    ../Port/iOS/RPCS3IOSCrashLogger.mm
     RPCS3QtMainWindow.cpp
     RPCS3QtMainWindow.h
     RPCS3IOSGameLaunchGuard.cpp

@@ -23,6 +23,8 @@
 #define RPCS3_QT_BUILD_MARKER "RPCS3 Qt iOS upstream main_window.ui"
 #endif
 
+extern "C" void rpcs3_ios_debug_log(const char* message);
+
 namespace
 {
 QString uniqueStagingDestination(const QString& directory, const QString& fileName,
@@ -361,21 +363,27 @@ void showFirmwareOnboarding(RPCS3QtMainWindow& window)
 
 int main(int argc, char* argv[])
 {
+    rpcs3_ios_debug_log("Entered Qt shell main");
     QApplication application(argc, argv);
+    rpcs3_ios_debug_log("QApplication constructed");
     QCoreApplication::setApplicationName(QStringLiteral("RPCS3"));
     QCoreApplication::setApplicationVersion(QStringLiteral("0.1.0"));
     QCoreApplication::setOrganizationName(QStringLiteral("NightVibes33"));
     QCoreApplication::setOrganizationDomain(QStringLiteral("com.nightvibes33"));
     application.setProperty("RPCS3QtBuildMarker", QString::fromLatin1(RPCS3_QT_BUILD_MARKER));
 
+    rpcs3_ios_debug_log("Initializing RPCS3 core");
     const int initialized = rpcs3_ios_core_initialize(nullptr);
+    rpcs3_ios_debug_log(initialized ? "RPCS3 core initialized" : "RPCS3 core initialization failed");
 
     RPCS3QtMainWindow window;
+    rpcs3_ios_debug_log("Main window constructed");
     QWidget* renderHost = createNativeRenderHost(window);
     bindFirmwareFlow(window);
     bindPlayablePackageFlow(window, renderHost);
     window.showMaximized();
     application.processEvents();
+    rpcs3_ios_debug_log("Main window shown");
 
     int renderSurfaceAttached = 0;
     if (renderHost)

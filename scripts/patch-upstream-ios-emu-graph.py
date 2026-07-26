@@ -112,6 +112,8 @@ elseif (NOT ANDROID)
             COMMAND "${MACDEPLOYQT_EXECUTABLE}" "${PROJECT_BINARY_DIR}/bin/rpcs3.app" "$<$<CONFIG:Debug,RelWithDebInfo>:-no-strip>")
 ''',
         '''    if(APPLE AND RPCS3_IOS_FULL_QT_FRONTEND)
+        target_sources(rpcs3 PRIVATE "${RPCS3_IOS_PORT_ROOT}/Port/iOS/RPCS3IOSCrashLogger.mm")
+        set_source_files_properties("${RPCS3_IOS_PORT_ROOT}/Port/iOS/RPCS3IOSCrashLogger.mm" PROPERTIES COMPILE_OPTIONS "-fobjc-arc")
         qt_finalize_target(rpcs3)
         set_target_properties(rpcs3 PROPERTIES
             OUTPUT_NAME "RPCS3-iOS"
