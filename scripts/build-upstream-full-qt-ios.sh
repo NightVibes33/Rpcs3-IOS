@@ -221,8 +221,8 @@ file "$BIN" | tee "$BUILD/binary-file.txt"
 lipo -info "$BIN" | tee "$BUILD/binary-architectures.txt"
 otool -L "$BIN" | tee "$BUILD/binary-linked-libraries.txt"
 nm -gU "$BIN" > "$BUILD/binary-symbols.txt"
-grep -q '_rpcs3_ios_debug_log' "$BUILD/binary-symbols.txt"
 strings "$BIN" > "$BUILD/binary-strings.txt"
+grep -q 'RPCS3 process loaded; installing crash handlers' "$BUILD/binary-strings.txt"
 
 # Validate real frontend implementation, not copied .ui files.
 for symbol_fragment in \
