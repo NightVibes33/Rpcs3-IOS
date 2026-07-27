@@ -157,21 +157,32 @@ jobs:
           test -d "$APP"
           rm -rf Payload full-qt-output
           mkdir -p Payload full-qt-output
-          cp -R "$APP" Payload/RPCS3-iOS.app
-          /usr/bin/plutil -convert xml1 Payload/RPCS3-iOS.app/Info.plist
-          /usr/libexec/PlistBuddy -c "Set :CFBundleIdentifier com.nightvibes33.rpcs3ios" Payload/RPCS3-iOS.app/Info.plist
-          /usr/libexec/PlistBuddy -c "Add :UIFileSharingEnabled bool true" Payload/RPCS3-iOS.app/Info.plist || /usr/libexec/PlistBuddy -c "Set :UIFileSharingEnabled true" Payload/RPCS3-iOS.app/Info.plist
-          /usr/libexec/PlistBuddy -c "Add :LSSupportsOpeningDocumentsInPlace bool true" Payload/RPCS3-iOS.app/Info.plist || /usr/libexec/PlistBuddy -c "Set :LSSupportsOpeningDocumentsInPlace true" Payload/RPCS3-iOS.app/Info.plist
-          /usr/bin/plutil -lint Payload/RPCS3-iOS.app/Info.plist
-          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' Payload/RPCS3-iOS.app/Info.plist)" = "com.nightvibes33.rpcs3ios"
-          rm -rf Payload/RPCS3-iOS.app/_CodeSignature
-          rm -f Payload/RPCS3-iOS.app/embedded.mobileprovision
+          cp -R "$APP" Payload/App.app
+          ORIGINAL_EXECUTABLE="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' Payload/App.app/Info.plist)"
+          test -f "Payload/App.app/$ORIGINAL_EXECUTABLE"
+          mv "Payload/App.app/$ORIGINAL_EXECUTABLE" Payload/App.app/App
+          /usr/bin/plutil -convert xml1 Payload/App.app/Info.plist
+          /usr/libexec/PlistBuddy -c "Set :CFBundleIdentifier com.nightvibes33.rpcs3ios" Payload/App.app/Info.plist
+          /usr/libexec/PlistBuddy -c "Set :CFBundleExecutable App" Payload/App.app/Info.plist
+          /usr/libexec/PlistBuddy -c "Add :UIFileSharingEnabled bool true" Payload/App.app/Info.plist || /usr/libexec/PlistBuddy -c "Set :UIFileSharingEnabled true" Payload/App.app/Info.plist
+          /usr/libexec/PlistBuddy -c "Add :LSSupportsOpeningDocumentsInPlace bool true" Payload/App.app/Info.plist || /usr/libexec/PlistBuddy -c "Set :LSSupportsOpeningDocumentsInPlace true" Payload/App.app/Info.plist
+          /usr/bin/plutil -lint Payload/App.app/Info.plist
+          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' Payload/App.app/Info.plist)" = "com.nightvibes33.rpcs3ios"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' Payload/App.app/Info.plist)" = "App"
+          test -x Payload/App.app/App
+          rm -rf Payload/App.app/_CodeSignature
+          rm -f Payload/App.app/embedded.mobileprovision
           SHORT_SHA="$(printf '%s' "$GITHUB_SHA" | cut -c1-7)"
           IPA="full-qt-output/RPCS3-Full-Upstream-Qt-iOS26-${SHORT_SHA}-unsigned.ipa"
           /usr/bin/ditto -c -k --sequesterRsrc --keepParent Payload "$IPA"
           shasum -a 256 "$IPA" > "$IPA.sha256"
           unzip -l "$IPA" | tee "$CI_LOGS/ipa-contents.txt"
-          grep -q 'Payload/RPCS3-iOS.app/' "$CI_LOGS/ipa-contents.txt"
+          grep -q 'Payload/App.app/' "$CI_LOGS/ipa-contents.txt"
+          grep -q 'Payload/App.app/Info.plist' "$CI_LOGS/ipa-contents.txt"
+          grep -q 'Payload/App.app/App' "$CI_LOGS/ipa-contents.txt"
+          unzip -p "$IPA" Payload/App.app/Info.plist > "$CI_LOGS/packaged-Info.plist"
+          /usr/bin/plutil -lint "$CI_LOGS/packaged-Info.plist"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$CI_LOGS/packaged-Info.plist")" = "com.nightvibes33.rpcs3ios"
           ls -lh full-qt-output
 
       - name: Upload full upstream unsigned IPA
