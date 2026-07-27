@@ -217,9 +217,23 @@ BIN="$(find "$APP" -maxdepth 1 -type f \( -name 'RPCS3-iOS' -o -name 'rpcs3' \) 
 test -n "$BIN"
 test -f "$BIN"
 
+# Qt's static iOS plugins currently propagate the macOS IOKit install name
+# from the SDK stub. That path does not exist on iOS and dyld terminates before
+# main or any crash logger can run.
+MACOS_IOKIT="/System/Library/Frameworks/IOKit.framework/Versions/A/IOKit"
+IOS_IOKIT="/System/Library/Frameworks/IOKit.framework/IOKit"
+if otool -L "$BIN" | grep -Fq "$MACOS_IOKIT"; then
+  install_name_tool -change "$MACOS_IOKIT" "$IOS_IOKIT" "$BIN"
+fi
+
 file "$BIN" | tee "$BUILD/binary-file.txt"
 lipo -info "$BIN" | tee "$BUILD/binary-architectures.txt"
 otool -L "$BIN" | tee "$BUILD/binary-linked-libraries.txt"
+if grep -Fq "$MACOS_IOKIT" "$BUILD/binary-linked-libraries.txt"; then
+  echo "Full iOS executable still contains the macOS IOKit install name" >&2
+  exit 1
+fi
+grep -Fq "$IOS_IOKIT" "$BUILD/binary-linked-libraries.txt"
 nm -gU "$BIN" > "$BUILD/binary-symbols.txt"
 strings "$BIN" > "$BUILD/binary-strings.txt"
 grep -q 'RPCS3 process loaded; installing crash handlers' "$BUILD/binary-strings.txt"
