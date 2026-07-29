@@ -13,6 +13,28 @@
 
 #include <exception>
 
+// QtCore's static iOS package still references desktop IOKit registry helpers.
+// iOS applications cannot rely on that private framework being loadable, so
+// satisfy those optional hardware queries locally and report no matching
+// desktop services.
+extern "C" CFMutableDictionaryRef IOServiceMatching(const char*)
+{
+    return nullptr;
+}
+
+extern "C" uint32_t IOServiceGetMatchingService(uint32_t, CFDictionaryRef matching)
+{
+    if (matching)
+        CFRelease(matching);
+    return 0;
+}
+
+extern "C" CFTypeRef IORegistryEntryCreateCFProperty(
+    uint32_t, CFStringRef, CFAllocatorRef, uint32_t)
+{
+    return nullptr;
+}
+
 namespace
 {
 int g_log_fd = STDERR_FILENO;

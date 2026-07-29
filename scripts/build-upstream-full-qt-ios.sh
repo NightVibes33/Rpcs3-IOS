@@ -189,6 +189,22 @@ grep -Eq 'CMAKE_SYSTEM_PROCESSOR "?(arm64|aarch64|ARM64)"?' "$SYSTEM_FILE" || {
 # application graph rather than the local Qt shell that consumes copied forms.
 XCODE_PROJECT="$(find "$BUILD/tree" -maxdepth 2 -name project.pbxproj -print -quit)"
 test -n "$XCODE_PROJECT"
+python3 - "$XCODE_PROJECT" <<'PY'
+from pathlib import Path
+import sys
+
+project = Path(sys.argv[1])
+text = project.read_text(encoding="utf-8")
+strong = '"-framework IOKit"'
+weak = '"-weak_framework IOKit"'
+count = text.count(strong)
+if count == 0:
+    raise SystemExit("Generated RPCS3 target has no strong IOKit flag to replace")
+project.write_text(text.replace(strong, weak), encoding="utf-8")
+print(f"Replaced {count} strong IOKit linker flags with weak loads")
+PY
+! grep -Fq '"-framework IOKit"' "$XCODE_PROJECT"
+grep -Fq '"-weak_framework IOKit"' "$XCODE_PROJECT"
 for required_source in \
   'rpcs3.cpp' \
   'main_window.cpp' \
@@ -229,12 +245,28 @@ fi
 file "$BIN" | tee "$BUILD/binary-file.txt"
 lipo -info "$BIN" | tee "$BUILD/binary-architectures.txt"
 otool -L "$BIN" | tee "$BUILD/binary-linked-libraries.txt"
+otool -l "$BIN" > "$BUILD/binary-load-commands.txt"
 if grep -Fq "$MACOS_IOKIT" "$BUILD/binary-linked-libraries.txt"; then
   echo "Full iOS executable still contains the macOS IOKit install name" >&2
   exit 1
 fi
 grep -Fq "$IOS_IOKIT" "$BUILD/binary-linked-libraries.txt"
+python3 - "$BUILD/binary-load-commands.txt" <<'PY'
+from pathlib import Path
+import sys
+
+blocks = Path(sys.argv[1]).read_text(encoding="utf-8").split("Load command")
+iokit = [block for block in blocks if "IOKit.framework" in block]
+if len(iokit) != 1:
+    raise SystemExit(f"Expected one IOKit load command, found {len(iokit)}")
+if "cmd LC_LOAD_WEAK_DYLIB" not in iokit[0]:
+    raise SystemExit("IOKit remains a strong pre-main dyld dependency")
+print("PASS: IOKit is weak-loaded")
+PY
 nm -gU "$BIN" > "$BUILD/binary-symbols.txt"
+for symbol in _IOServiceMatching _IOServiceGetMatchingService _IORegistryEntryCreateCFProperty; do
+  grep -q "$symbol" "$BUILD/binary-symbols.txt"
+done
 strings "$BIN" > "$BUILD/binary-strings.txt"
 grep -q 'RPCS3 process loaded; installing crash handlers' "$BUILD/binary-strings.txt"
 
