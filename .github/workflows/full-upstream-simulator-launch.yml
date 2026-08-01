@@ -13,7 +13,7 @@ on:
       - "scripts/patch-upstream-ios-full-qt-blockers.py"
       - "scripts/patch-upstream-ios-runtime-blockers.py"
       - "scripts/apply-upstream-ios-overlay.py"
-      - "cmake/toolchains/ios-simulator-arm64.cmake"
+      - "cmake/toolchains/ios-simulator-x86_64.cmake"
       - "Port/iOS/**"
       - "UPSTREAM_RPCS3_REVISION"
 
@@ -27,17 +27,17 @@ concurrency:
 jobs:
   launch:
     name: Build, install, launch, and observe real upstream app
-    runs-on: macos-26
+    runs-on: macos-15-intel
     timeout-minutes: 180
     env:
       DEPLOYMENT_TARGET: "26.0"
       IOS_SDK: iphonesimulator
-      IOS_ARCH: arm64
+      IOS_ARCH: x86_64
       QT_VERSION: "6.11.1"
       QT_ROOT: "${{ github.workspace }}/.qt-simulator"
       FULL_QT_ROOT: "${{ github.workspace }}/upstream-rpcs3-simulator"
       FULL_QT_BUILD: "${{ github.workspace }}/full-rpcs3-simulator-build"
-      RPCS3_IOS_TOOLCHAIN: "${{ github.workspace }}/cmake/toolchains/ios-simulator-arm64.cmake"
+      RPCS3_IOS_TOOLCHAIN: "${{ github.workspace }}/cmake/toolchains/ios-simulator-x86_64.cmake"
       RPCS3_IOS_FFMPEG_ROOT: "${{ github.workspace }}/BuildSupport/ffmpeg-ios-simulator"
       FFMPEG_SOURCE_ROOT: "${{ github.workspace }}/.cache/ffmpeg-n7.1"
       FFMPEG_BUILD_ROOT: "${{ github.workspace }}/.cache/ffmpeg-ios-simulator-build-n7.1"
@@ -71,7 +71,7 @@ jobs:
           done < <(find -L /Applications -maxdepth 1 -name 'Xcode*.app' -print | sort)
           test -n "$XCODE_PATH"
           sudo xcode-select -s "$XCODE_PATH/Contents/Developer"
-          test "$(uname -m)" = "arm64"
+          test "$(uname -m)" = "x86_64"
           xcodebuild -version | tee "$SIM_LOGS/xcode-version.txt"
           xcrun --sdk iphonesimulator --show-sdk-version | tee "$SIM_LOGS/simulator-sdk.txt"
           xcrun simctl list runtimes available -j > "$SIM_LOGS/runtimes.json"

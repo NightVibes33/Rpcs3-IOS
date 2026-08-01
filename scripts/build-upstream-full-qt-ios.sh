@@ -189,8 +189,8 @@ printf '%s\n' "$UPSTREAM_SHA" > "$BUILD/upstream-revision.txt"
 
 SYSTEM_FILE="$(find "$BUILD/tree/CMakeFiles" -path '*/CMakeSystem.cmake' -print -quit)"
 test -n "$SYSTEM_FILE"
-grep -Eq 'CMAKE_SYSTEM_PROCESSOR "?(arm64|aarch64|ARM64)"?' "$SYSTEM_FILE" || {
-  echo "CMake did not retain the physical iOS ARM64 processor identity" >&2
+grep -Eq "CMAKE_SYSTEM_PROCESSOR \"?$IOS_ARCH\"?" "$SYSTEM_FILE" || {
+  echo "CMake did not retain the requested iOS processor identity: $IOS_ARCH" >&2
   cat "$SYSTEM_FILE" >&2
   exit 1
 }
