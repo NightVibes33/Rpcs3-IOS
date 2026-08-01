@@ -229,8 +229,16 @@ for required_source in \
     exit 1
   }
 done
+if [[ "$IOS_ARCH" == "arm64" ]]; then
+  grep -q 'AArch64Common.cpp' "$XCODE_PROJECT" || {
+    echo "The ARM64 full frontend graph omitted AArch64Common.cpp" >&2
+    exit 1
+  }
+fi
 
-echo "PASS: actual upstream Qt UI and ARM64 runtime sources are in the Xcode graph" \
+done
+
+echo "PASS: actual upstream Qt UI and requested runtime sources are in the Xcode graph" \
   | tee "$BUILD/logs/source-graph-smoke.log"
 
 cmake --build "$BUILD/tree" --config Release --target rpcs3 --parallel 3 \
