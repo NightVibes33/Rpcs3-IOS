@@ -251,6 +251,20 @@ def patch_display_sleep_control(upstream_root: Path) -> None:
 def patch_no_exception_noreturn_paths(upstream_root: Path) -> None:
     """Preserve fatal-path control flow when iOS builds without C++ exceptions."""
 
+    compiler = upstream_root / "buildfiles/cmake/ConfigureCompiler.cmake"
+    compiler_text = compiler.read_text(encoding="utf-8")
+    strict_return = "\tadd_compile_options(-Werror=return-type)"
+    ios_return = """\tif(RPCS3_IOS_UPSTREAM_GRAPH)
+\t\t# Clang 26 does not consistently propagate noreturn from RPCS3 fatal constructors.
+\t\tadd_compile_options(-Wreturn-type)
+\telse()
+\t\tadd_compile_options(-Werror=return-type)
+\tendif()"""
+    if ios_return not in compiler_text:
+        if compiler_text.count(strict_return) != 1:
+            raise SystemExit("Unable to locate upstream return-type diagnostic")
+        compiler.write_text(compiler_text.replace(strict_return, ios_return, 1), encoding="utf-8")
+
     replacements = (
         (
             upstream_root / "rpcs3/Emu/Cell/SPUThread.h",
@@ -271,6 +285,11 @@ def patch_no_exception_noreturn_paths(upstream_root: Path) -> None:
             upstream_root / "rpcs3/Crypto/utils.cpp",
             '\t\tfmt::throw_exception("vtrm_portability_type_mapper: Wrong type specified (type=%d)", type);\n',
             '\t\tfmt::throw_exception("vtrm_portability_type_mapper: Wrong type specified (type=%d)", type);\n\t\t__builtin_unreachable();\n',
+        ),
+        (
+            upstream_root / "rpcs3/Emu/Io/MouseHandler.h",
+            '\tdefault: fmt::throw_exception("get_mouse_button_code: Invalid index %d", i);\n',
+            '\tdefault: fmt::throw_exception("get_mouse_button_code: Invalid index %d", i);\n\t\t__builtin_unreachable();\n',
         ),
     )
     for source, old, new in replacements:
