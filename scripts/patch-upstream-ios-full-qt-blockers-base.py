@@ -262,6 +262,16 @@ def patch_no_exception_noreturn_paths(upstream_root: Path) -> None:
             '\tfmt::throw_exception("Failed to reserve vm memory");\n',
             '\tfmt::throw_exception("Failed to reserve vm memory");\n\t__builtin_unreachable();\n',
         ),
+        (
+            upstream_root / "rpcs3/Crypto/utils.cpp",
+            '\t\tfmt::throw_exception("vtrm_get_laid_paid_from_type: Wrong type specified (type=%d)", type);\n',
+            '\t\tfmt::throw_exception("vtrm_get_laid_paid_from_type: Wrong type specified (type=%d)", type);\n\t\t__builtin_unreachable();\n',
+        ),
+        (
+            upstream_root / "rpcs3/Crypto/utils.cpp",
+            '\t\tfmt::throw_exception("vtrm_portability_type_mapper: Wrong type specified (type=%d)", type);\n',
+            '\t\tfmt::throw_exception("vtrm_portability_type_mapper: Wrong type specified (type=%d)", type);\n\t\t__builtin_unreachable();\n',
+        ),
     )
     for source, old, new in replacements:
         text = source.read_text(encoding="utf-8")
