@@ -48,7 +48,6 @@ for required in \
   "$REVISION_FILE" \
   "$TOOLCHAIN" \
   "$QT_CMAKE" \
-  "${CMAKE_PLATFORM_ARGS[@]}" \
   "$HOST_QT" \
   "$PORT_ROOT/scripts/build-ffmpeg-ios.sh" \
   "$PORT_ROOT/scripts/build-moltenvk-ios.sh" \
@@ -158,6 +157,7 @@ printf '%s\n' "$UPSTREAM_SHA" > "$BUILD/upstream-revision.txt"
 # Keep Qt's generated iOS toolchain primary. Our port settings are chainloaded
 # through it so Qt retains its device root paths and matching host tools.
 "$QT_CMAKE" \
+  "${CMAKE_PLATFORM_ARGS[@]}" \
   -S "$ROOT" \
   -B "$BUILD/tree" \
   -G Xcode \
