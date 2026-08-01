@@ -11,6 +11,7 @@ on:
       - "scripts/build-moltenvk-ios.sh"
       - "scripts/patch-upstream-ios-emu-graph.py"
       - "scripts/patch-upstream-ios-full-qt-blockers.py"
+      - "scripts/patch-upstream-ios-full-qt-blockers-base.py"
       - "scripts/patch-upstream-ios-runtime-blockers.py"
       - "scripts/apply-upstream-ios-overlay.py"
       - "cmake/toolchains/ios-simulator-x86_64.cmake"
