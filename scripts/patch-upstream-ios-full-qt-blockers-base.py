@@ -263,7 +263,20 @@ def patch_no_exception_noreturn_paths(upstream_root: Path) -> None:
     if ios_return not in compiler_text:
         if compiler_text.count(strict_return) != 1:
             raise SystemExit("Unable to locate upstream return-type diagnostic")
-        compiler.write_text(compiler_text.replace(strict_return, ios_return, 1), encoding="utf-8")
+        compiler_text = compiler_text.replace(strict_return, ios_return, 1)
+
+    strict_fallthrough = "\tadd_compile_options(-Werror=implicit-fallthrough)"
+    ios_fallthrough = """\tif(RPCS3_IOS_UPSTREAM_GRAPH)
+\t\tadd_compile_options(-Wimplicit-fallthrough)
+\telse()
+\t\tadd_compile_options(-Werror=implicit-fallthrough)
+\tendif()"""
+    if ios_fallthrough not in compiler_text:
+        if compiler_text.count(strict_fallthrough) != 1:
+            raise SystemExit("Unable to locate upstream fallthrough diagnostic")
+        compiler_text = compiler_text.replace(strict_fallthrough, ios_fallthrough, 1)
+
+    compiler.write_text(compiler_text, encoding="utf-8")
 
     replacements = (
         (
