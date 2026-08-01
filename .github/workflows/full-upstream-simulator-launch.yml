@@ -104,6 +104,13 @@ jobs:
           path: ${{ env.QT_ROOT }}
           key: ${{ steps.qt-cache.outputs.cache-primary-key }}
 
+      - name: Install x86 assembler
+        shell: bash
+        run: |
+          set -euo pipefail
+          brew install nasm
+          nasm -v
+
       - name: Build real upstream RPCS3 for iOS Simulator
         shell: bash
         run: |
