@@ -222,8 +222,7 @@ for required_source in \
   'settings_dialog.cpp' \
   'pkg_install_dialog.cpp' \
   'save_manager_dialog.cpp' \
-  'trophy_manager_dialog.cpp' \
-  'AArch64Common.cpp'; do
+  'trophy_manager_dialog.cpp'; do
   grep -q "$required_source" "$XCODE_PROJECT" || {
     echo "The full frontend Xcode graph omitted $required_source" >&2
     exit 1
@@ -235,8 +234,6 @@ if [[ "$IOS_ARCH" == "arm64" ]]; then
     exit 1
   }
 fi
-
-done
 
 echo "PASS: actual upstream Qt UI and requested runtime sources are in the Xcode graph" \
   | tee "$BUILD/logs/source-graph-smoke.log"
