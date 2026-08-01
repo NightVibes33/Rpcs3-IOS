@@ -5,7 +5,7 @@ ROOT="${FULL_QT_ROOT:-upstream-rpcs3-full-qt}"
 BUILD="${FULL_QT_BUILD:-full-rpcs3-qt-ios-build}"
 PORT_ROOT="$(pwd)"
 REVISION_FILE="$PORT_ROOT/UPSTREAM_RPCS3_REVISION"
-TOOLCHAIN="$PORT_ROOT/cmake/toolchains/ios-arm64.cmake"
+TOOLCHAIN="${RPCS3_IOS_TOOLCHAIN:-$PORT_ROOT/cmake/toolchains/ios-arm64.cmake}"
 QT_ROOT="${QT_ROOT:-$HOME/Qt}"
 QT_VERSION="${QT_VERSION:-6.11.1}"
 IOS_QT="$QT_ROOT/$QT_VERSION/ios"
@@ -14,6 +14,8 @@ QT_CMAKE="$IOS_QT/bin/qt-cmake"
 FFMPEG_ROOT="${RPCS3_IOS_FFMPEG_ROOT:-$PORT_ROOT/BuildSupport/ffmpeg-ios}"
 MOLTENVK_ROOT="${MOLTENVK_IOS_ROOT:-$PORT_ROOT/BuildSupport/moltenvk-ios}"
 DEPLOYMENT_TARGET="${DEPLOYMENT_TARGET:-26.0}"
+IOS_ARCH="${IOS_ARCH:-arm64}"
+IOS_SDK="${IOS_SDK:-iphoneos}"
 
 export RPCS3_IOS_FFMPEG_ROOT="$FFMPEG_ROOT"
 export FFMPEG_IOS_ROOT="$FFMPEG_ROOT"
@@ -155,7 +157,7 @@ printf '%s\n' "$UPSTREAM_SHA" > "$BUILD/upstream-revision.txt"
   -DQT_CHAINLOAD_TOOLCHAIN_FILE="$TOOLCHAIN" \
   -DCMAKE_BUILD_TYPE=Release \
   -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
-  -DCMAKE_OSX_ARCHITECTURES=arm64 \
+  -DCMAKE_OSX_ARCHITECTURES="$IOS_ARCH" \
   -DCMAKE_OSX_DEPLOYMENT_TARGET="$DEPLOYMENT_TARGET" \
   -DCMAKE_XCODE_ATTRIBUTE_CODE_SIGNING_ALLOWED=NO \
   -DCMAKE_XCODE_ATTRIBUTE_CODE_SIGNING_REQUIRED=NO \
@@ -286,7 +288,7 @@ cat > "$BUILD/summary.md" <<EOF_SUMMARY
 - Requested revision: \`$UPSTREAM_REVISION\`
 - Resolved commit: \`$UPSTREAM_SHA\`
 - Product: \`$APP\`
-- Target: \`arm64-apple-ios$DEPLOYMENT_TARGET\`
+- Target: \`$IOS_ARCH-apple-ios$DEPLOYMENT_TARGET ($IOS_SDK)\`
 - Frontend target: upstream \`rpcs3_ui\` + \`rpcs3_lib\` + \`rpcs3\`
 - Main implementation: upstream \`rpcs3qt/main_window.cpp\`
 - Game list: upstream \`game_list_frame.cpp\`

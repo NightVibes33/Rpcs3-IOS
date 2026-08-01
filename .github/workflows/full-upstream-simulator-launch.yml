@@ -1,0 +1,178 @@
+name: Launch Full RPCS3 in iOS Simulator
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/full-upstream-simulator-launch.yml"
+      - "scripts/build-upstream-full-qt-ios.sh"
+      - "scripts/build-ffmpeg-ios.sh"
+      - "scripts/build-moltenvk-ios.sh"
+      - "scripts/patch-upstream-ios-emu-graph.py"
+      - "scripts/patch-upstream-ios-full-qt-blockers.py"
+      - "scripts/patch-upstream-ios-runtime-blockers.py"
+      - "scripts/apply-upstream-ios-overlay.py"
+      - "cmake/toolchains/ios-simulator-arm64.cmake"
+      - "Port/iOS/**"
+      - "UPSTREAM_RPCS3_REVISION"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: full-rpcs3-ios-simulator-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  launch:
+    name: Build, install, launch, and observe real upstream app
+    runs-on: macos-26
+    timeout-minutes: 180
+    env:
+      DEPLOYMENT_TARGET: "26.0"
+      IOS_SDK: iphonesimulator
+      IOS_ARCH: arm64
+      QT_VERSION: "6.11.1"
+      QT_ROOT: "${{ github.workspace }}/.qt-simulator"
+      FULL_QT_ROOT: "${{ github.workspace }}/upstream-rpcs3-simulator"
+      FULL_QT_BUILD: "${{ github.workspace }}/full-rpcs3-simulator-build"
+      RPCS3_IOS_TOOLCHAIN: "${{ github.workspace }}/cmake/toolchains/ios-simulator-arm64.cmake"
+      RPCS3_IOS_FFMPEG_ROOT: "${{ github.workspace }}/BuildSupport/ffmpeg-ios-simulator"
+      FFMPEG_SOURCE_ROOT: "${{ github.workspace }}/.cache/ffmpeg-n7.1"
+      FFMPEG_BUILD_ROOT: "${{ github.workspace }}/.cache/ffmpeg-ios-simulator-build-n7.1"
+      MOLTENVK_VERSION: "1.4.1"
+      MOLTENVK_PLATFORM_VARIANT: simulator
+      MOLTENVK_IOS_ROOT: "${{ github.workspace }}/BuildSupport/moltenvk-ios-simulator"
+      MOLTENVK_CACHE_DIR: "${{ github.workspace }}/BuildSupport/downloads/moltenvk-1.4.1-simulator"
+      SIM_LOGS: "${{ github.workspace }}/simulator-launch-evidence"
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Select Xcode with iOS 26 simulator
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$SIM_LOGS"
+          XCODE_PATH=""
+          while IFS= read -r candidate; do
+            developer="$candidate/Contents/Developer"
+            [[ -d "$developer" ]] || continue
+            device_sdk="$(DEVELOPER_DIR="$developer" xcrun --sdk iphoneos --show-sdk-version 2>/dev/null || true)"
+            simulator_sdk="$(DEVELOPER_DIR="$developer" xcrun --sdk iphonesimulator --show-sdk-version 2>/dev/null || true)"
+            echo "Candidate: $candidate (device $device_sdk, simulator $simulator_sdk)"
+            if [[ "$device_sdk" == 26.* && "$simulator_sdk" == 26.* ]]; then
+              XCODE_PATH="$candidate"
+            fi
+          done < <(find -L /Applications -maxdepth 1 -name 'Xcode*.app' -print | sort)
+          test -n "$XCODE_PATH"
+          sudo xcode-select -s "$XCODE_PATH/Contents/Developer"
+          test "$(uname -m)" = "arm64"
+          xcodebuild -version | tee "$SIM_LOGS/xcode-version.txt"
+          xcrun --sdk iphonesimulator --show-sdk-version | tee "$SIM_LOGS/simulator-sdk.txt"
+          xcrun simctl list runtimes available -j > "$SIM_LOGS/runtimes.json"
+
+      - name: Restore Qt iOS package
+        id: qt-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: ${{ env.QT_ROOT }}
+          key: qt-${{ runner.os }}-${{ runner.arch }}-ios-${{ env.QT_VERSION }}-rpcs3-simulator-v1
+
+      - name: Install Qt iOS and host tools
+        if: steps.qt-cache.outputs.cache-hit != 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          AQT_VENV="$RUNNER_TEMP/aqt-simulator-venv"
+          python3 -m venv "$AQT_VENV"
+          source "$AQT_VENV/bin/activate"
+          python -m pip install --upgrade pip aqtinstall
+          IOS_ARCHIVE="$(python -m aqt list-qt mac ios --arch "$QT_VERSION" | tr ' ' '\n' | sed '/^$/d' | head -n 1)"
+          test -n "$IOS_ARCHIVE"
+          python -m aqt install-qt mac ios "$QT_VERSION" "$IOS_ARCHIVE" \
+            --autodesktop -m qtmultimedia qtimageformats qtshadertools -O "$QT_ROOT"
+
+      - name: Save Qt iOS package
+        if: steps.qt-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: ${{ env.QT_ROOT }}
+          key: ${{ steps.qt-cache.outputs.cache-primary-key }}
+
+      - name: Build real upstream RPCS3 for iOS Simulator
+        shell: bash
+        run: |
+          set -o pipefail
+          bash scripts/build-upstream-full-qt-ios.sh 2>&1 | tee "$SIM_LOGS/build-console.log"
+
+      - name: Boot simulator and launch RPCS3
+        shell: bash
+        run: |
+          set -euo pipefail
+          APP="$(cat "$FULL_QT_BUILD/app-path.txt")"
+          test -d "$APP"
+          /usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$APP/Info.plist" | tee "$SIM_LOGS/bundle-id.txt"
+          test "$(cat "$SIM_LOGS/bundle-id.txt")" = "com.nightvibes33.rpcs3ios"
+
+          python3 - "$SIM_LOGS/runtimes.json" > "$SIM_LOGS/runtime-id.txt" <<'PY'
+          import json, sys
+          data = json.load(open(sys.argv[1], encoding="utf-8"))
+          choices = [r for r in data["runtimes"] if r.get("isAvailable") and r["identifier"].startswith("com.apple.CoreSimulator.SimRuntime.iOS-26")]
+          if not choices:
+              raise SystemExit("No available iOS 26 simulator runtime")
+          print(choices[-1]["identifier"])
+          PY
+          RUNTIME_ID="$(cat "$SIM_LOGS/runtime-id.txt")"
+          DEVICE_TYPE="$(xcrun simctl list devicetypes -j | python3 -c 'import json,sys; d=json.load(sys.stdin)["devicetypes"]; print(next(x["identifier"] for x in reversed(d) if x["name"].startswith("iPhone")))')"
+          UDID="$(xcrun simctl create RPCS3-CI "$DEVICE_TYPE" "$RUNTIME_ID")"
+          echo "$UDID" > "$SIM_LOGS/simulator-udid.txt"
+          cleanup() { xcrun simctl shutdown "$UDID" >/dev/null 2>&1 || true; xcrun simctl delete "$UDID" >/dev/null 2>&1 || true; }
+          trap cleanup EXIT
+
+          xcrun simctl boot "$UDID"
+          xcrun simctl bootstatus "$UDID" -b
+          xcrun simctl install "$UDID" "$APP"
+          xcrun simctl get_app_container "$UDID" com.nightvibes33.rpcs3ios app | tee "$SIM_LOGS/installed-app-path.txt"
+
+          xcrun simctl spawn "$UDID" log stream --style compact --level debug \
+            --predicate 'process == "RPCS3-iOS" OR subsystem CONTAINS "com.nightvibes33.rpcs3ios"' \
+            > "$SIM_LOGS/unified.log" 2>&1 &
+          LOG_PID=$!
+          set +e
+          xcrun simctl launch --terminate-running-process "$UDID" com.nightvibes33.rpcs3ios \
+            > "$SIM_LOGS/launch.txt" 2>&1
+          LAUNCH_STATUS=$?
+          set -e
+          cat "$SIM_LOGS/launch.txt"
+          test "$LAUNCH_STATUS" -eq 0
+          sleep 20
+
+          xcrun simctl spawn "$UDID" launchctl list > "$SIM_LOGS/launchctl.txt"
+          grep -F 'com.nightvibes33.rpcs3ios' "$SIM_LOGS/launchctl.txt"
+          DATA_CONTAINER="$(xcrun simctl get_app_container "$UDID" com.nightvibes33.rpcs3ios data)"
+          test -s "$DATA_CONTAINER/Documents/RPCS3-debug.log"
+          cp "$DATA_CONTAINER/Documents/RPCS3-debug.log" "$SIM_LOGS/RPCS3-debug.log"
+          grep -F 'RPCS3 process loaded; installing crash handlers' "$SIM_LOGS/RPCS3-debug.log"
+
+          xcrun simctl io "$UDID" screenshot "$SIM_LOGS/rpcs3-launched.png"
+          sips -g pixelWidth -g pixelHeight "$SIM_LOGS/rpcs3-launched.png" | tee "$SIM_LOGS/screenshot-size.txt"
+          kill "$LOG_PID" >/dev/null 2>&1 || true
+          wait "$LOG_PID" >/dev/null 2>&1 || true
+          trap - EXIT
+          cleanup
+
+      - name: Upload simulator launch proof
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: RPCS3-Full-Upstream-iOS-Simulator-Launch-Proof
+          path: |
+            simulator-launch-evidence/**
+            full-rpcs3-simulator-build/logs/**
+            full-rpcs3-simulator-build/summary.md
+            full-rpcs3-simulator-build/binary-*.txt
+          if-no-files-found: warn
+          retention-days: 30

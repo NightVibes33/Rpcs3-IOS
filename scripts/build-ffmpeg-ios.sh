@@ -7,8 +7,10 @@ SOURCE_ROOT="${FFMPEG_SOURCE_ROOT:-$PORT_ROOT/.cache/ffmpeg-$FFMPEG_TAG}"
 BUILD_ROOT="${FFMPEG_BUILD_ROOT:-$PORT_ROOT/.cache/ffmpeg-ios-build-$FFMPEG_TAG}"
 PREFIX="${FFMPEG_IOS_ROOT:-$PORT_ROOT/BuildSupport/ffmpeg-ios}"
 DEPLOYMENT_TARGET="${DEPLOYMENT_TARGET:-26.0}"
+IOS_SDK="${IOS_SDK:-iphoneos}"
+IOS_ARCH="${IOS_ARCH:-arm64}"
 JOBS="${FFMPEG_JOBS:-3}"
-STAMP="$PREFIX/.rpcs3-ios-ffmpeg-$FFMPEG_TAG-videotoolbox-v1"
+STAMP="$PREFIX/.rpcs3-ios-ffmpeg-$FFMPEG_TAG-$IOS_SDK-videotoolbox-v2"
 LEGACY_STAMP="$PREFIX/.rpcs3-ios-ffmpeg-$FFMPEG_TAG"
 
 required_libraries=(
@@ -38,7 +40,7 @@ if [[ "$valid_install" == 1 ]]; then
   # Older graph/cache contracts still look for this stamp. Only create it after
   # the stricter VideoToolbox symbol validation above has succeeded.
   printf '%s\n' "$FFMPEG_TAG" > "$LEGACY_STAMP"
-  echo "Using cached FFmpeg $FFMPEG_TAG arm64-iOS VideoToolbox install at $PREFIX"
+  echo "Using cached FFmpeg $FFMPEG_TAG $IOS_ARCH-$IOS_SDK VideoToolbox install at $PREFIX"
   exit 0
 fi
 
@@ -58,13 +60,18 @@ else
   git -C "$SOURCE_ROOT" clean -ffdqx
 fi
 
-SDK_ROOT="$(xcrun --sdk iphoneos --show-sdk-path)"
-CC="$(xcrun --sdk iphoneos --find clang)"
-CXX="$(xcrun --sdk iphoneos --find clang++)"
-AR="$(xcrun --sdk iphoneos --find ar)"
-RANLIB="$(xcrun --sdk iphoneos --find ranlib)"
-STRIP="$(xcrun --sdk iphoneos --find strip)"
-NM="$(xcrun --sdk iphoneos --find nm)"
+SDK_ROOT="$(xcrun --sdk "$IOS_SDK" --show-sdk-path)"
+CC="$(xcrun --sdk "$IOS_SDK" --find clang)"
+CXX="$(xcrun --sdk "$IOS_SDK" --find clang++)"
+AR="$(xcrun --sdk "$IOS_SDK" --find ar)"
+RANLIB="$(xcrun --sdk "$IOS_SDK" --find ranlib)"
+STRIP="$(xcrun --sdk "$IOS_SDK" --find strip)"
+NM="$(xcrun --sdk "$IOS_SDK" --find nm)"
+if [[ "$IOS_SDK" == "iphonesimulator" ]]; then
+  TARGET_FLAGS="-target $IOS_ARCH-apple-ios$DEPLOYMENT_TARGET-simulator"
+else
+  TARGET_FLAGS="-arch $IOS_ARCH -miphoneos-version-min=$DEPLOYMENT_TARGET"
+fi
 
 rm -rf "$BUILD_ROOT" "$PREFIX"
 mkdir -p "$BUILD_ROOT" "$PREFIX"
@@ -73,7 +80,7 @@ pushd "$BUILD_ROOT" >/dev/null
 "$SOURCE_ROOT/configure" \
   --prefix="$PREFIX" \
   --target-os=darwin \
-  --arch=arm64 \
+  --arch="$IOS_ARCH" \
   --cc="$CC" \
   --cxx="$CXX" \
   --ar="$AR" \
@@ -97,9 +104,9 @@ pushd "$BUILD_ROOT" >/dev/null
   --disable-bzlib \
   --disable-lzma \
   --disable-zlib \
-  --extra-cflags="-arch arm64 -miphoneos-version-min=$DEPLOYMENT_TARGET -fPIC" \
-  --extra-cxxflags="-arch arm64 -miphoneos-version-min=$DEPLOYMENT_TARGET -fPIC" \
-  --extra-ldflags="-arch arm64 -miphoneos-version-min=$DEPLOYMENT_TARGET" \
+  --extra-cflags="$TARGET_FLAGS -fPIC" \
+  --extra-cxxflags="$TARGET_FLAGS -fPIC" \
+  --extra-ldflags="$TARGET_FLAGS" \
   --extra-libs="-lc++"
 
 make -j"$JOBS"
@@ -122,7 +129,7 @@ printf '%s\n' "$FFMPEG_TAG" > "$LEGACY_STAMP"
 
 cat > "$PREFIX/rpcs3-ios-build.txt" <<EOF
 FFmpeg tag: $FFMPEG_TAG
-Target: arm64-apple-ios$DEPLOYMENT_TARGET
+Target: $IOS_ARCH-apple-ios$DEPLOYMENT_TARGET ($IOS_SDK)
 SDK: $SDK_ROOT
 Source: $SOURCE_ROOT
 Build: $BUILD_ROOT

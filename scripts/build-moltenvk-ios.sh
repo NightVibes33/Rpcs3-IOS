@@ -2,6 +2,7 @@
 set -euo pipefail
 
 VERSION="${MOLTENVK_VERSION:-1.4.1}"
+MOLTENVK_PLATFORM_VARIANT="${MOLTENVK_PLATFORM_VARIANT:-device}"
 PORT_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 OUTPUT="${MOLTENVK_IOS_ROOT:-$PORT_ROOT/BuildSupport/moltenvk-ios}"
 CACHE_DIR="${MOLTENVK_CACHE_DIR:-$PORT_ROOT/BuildSupport/downloads/moltenvk-$VERSION}"
@@ -10,7 +11,7 @@ ARCHIVE_PART="$ARCHIVE.part"
 EXTRACTED="$CACHE_DIR/extracted"
 RELEASE_JSON="$CACHE_DIR/release.json"
 SOURCE_ROOT="$CACHE_DIR/source"
-SLICE_INFO_FILE="$CACHE_DIR/ios-device-slice.txt"
+SLICE_INFO_FILE="$CACHE_DIR/ios-$MOLTENVK_PLATFORM_VARIANT-slice.txt"
 ASSET_NAME="MoltenVK-ios.tar"
 ASSET_URL="${MOLTENVK_ASSET_URL:-https://github.com/KhronosGroup/MoltenVK/releases/download/v$VERSION/$ASSET_NAME}"
 SOURCE_URL="https://github.com/KhronosGroup/MoltenVK.git"
@@ -29,7 +30,9 @@ if [[ -f "$OUTPUT/version.txt" ]] && \
    [[ -f "$OUTPUT/lib/libMoltenVK.a" ]] && \
    [[ -f "$OUTPUT/include/vulkan/vulkan.h" ]] && \
    [[ -f "$OUTPUT/include/MoltenVK/mvk_vulkan.h" ]] && \
-   [[ -f "$OUTPUT/include/MoltenVK/mvk_private_api.h" ]]; then
+   [[ -f "$OUTPUT/include/MoltenVK/mvk_private_api.h" ]] && \
+   [[ -f "$OUTPUT/platform-variant.txt" ]] && \
+   [[ "$(tr -d '[:space:]' < "$OUTPUT/platform-variant.txt")" == "$MOLTENVK_PLATFORM_VARIANT" ]]; then
     echo "Using cached MoltenVK $VERSION iOS package at $OUTPUT"
     exit 0
 fi
@@ -177,20 +180,25 @@ if [[ -z "$XCFRAMEWORK_INFO" ]]; then
 fi
 
 echo "Using MoltenVK XCFramework metadata: $XCFRAMEWORK_INFO"
-python3 - "$XCFRAMEWORK_INFO" > "$SLICE_INFO_FILE" <<'PY'
+python3 - "$XCFRAMEWORK_INFO" "$MOLTENVK_PLATFORM_VARIANT" > "$SLICE_INFO_FILE" <<'PY'
 import plistlib
 import sys
 from pathlib import Path
 
 info_path = Path(sys.argv[1]).resolve()
 root = info_path.parent
+requested_variant = sys.argv[2]
 with info_path.open("rb") as stream:
     info = plistlib.load(stream)
 
 for library in info.get("AvailableLibraries", []):
     if library.get("SupportedPlatform") != "ios":
         continue
-    if library.get("SupportedPlatformVariant"):
+    variant = library.get("SupportedPlatformVariant", "")
+    if requested_variant == "simulator":
+        if variant != "simulator":
+            continue
+    elif variant:
         continue
 
     identifier = library["LibraryIdentifier"]
@@ -232,7 +240,7 @@ for library in info.get("AvailableLibraries", []):
     print(headers if headers is not None else "")
     break
 else:
-    raise SystemExit("The MoltenVK XCFramework has no physical iOS device slice")
+    raise SystemExit(f"The MoltenVK XCFramework has no requested iOS slice: {requested_variant}")
 PY
 
 MOLTENVK_IDENTIFIER="$(sed -n '1p' "$SLICE_INFO_FILE")"
@@ -243,8 +251,8 @@ echo "Selected MoltenVK iOS slice: ${MOLTENVK_IDENTIFIER:-<missing>}"
 echo "Selected MoltenVK binary: ${MOLTENVK_BINARY:-<missing>}"
 echo "Selected MoltenVK slice headers: ${MOLTENVK_HEADERS:-<not-declared>}"
 
-[[ -n "$MOLTENVK_IDENTIFIER" ]] || fail "XCFramework did not identify a physical iOS slice"
-[[ -n "$MOLTENVK_BINARY" ]] || fail "physical iOS slice did not expose a MoltenVK binary"
+[[ -n "$MOLTENVK_IDENTIFIER" ]] || fail "XCFramework did not identify a $MOLTENVK_PLATFORM_VARIANT iOS slice"
+[[ -n "$MOLTENVK_BINARY" ]] || fail "$MOLTENVK_PLATFORM_VARIANT iOS slice did not expose a MoltenVK binary"
 [[ -f "$MOLTENVK_BINARY" ]] || fail "selected MoltenVK binary does not exist: $MOLTENVK_BINARY"
 
 # Framework/static-library packaging varies between MoltenVK releases. Copy the
@@ -281,6 +289,7 @@ cp "$MOLTENVK_BINARY" "$OUTPUT/lib/libMoltenVK.a"
 [[ -f "$OUTPUT/lib/libMoltenVK.a" ]] || fail "normalized MoltenVK static library is missing"
 
 printf '%s\n' "$VERSION" > "$OUTPUT/version.txt"
+printf '%s\n' "$MOLTENVK_PLATFORM_VARIANT" > "$OUTPUT/platform-variant.txt"
 printf '%s\n' "$SOURCE_ORIGIN" > "$OUTPUT/source-url.txt"
 if [[ -f "$ARCHIVE" ]]; then
     shasum -a 256 "$ARCHIVE" > "$OUTPUT/MoltenVK-ios.tar.sha256"
@@ -288,4 +297,4 @@ fi
 shasum -a 256 "$OUTPUT/lib/libMoltenVK.a" > "$OUTPUT/lib/libMoltenVK.a.sha256"
 
 file "$OUTPUT/lib/libMoltenVK.a"
-echo "Prepared MoltenVK $VERSION physical-device iOS headers and static library at $OUTPUT"
+echo "Prepared MoltenVK $VERSION $MOLTENVK_PLATFORM_VARIANT iOS headers and static library at $OUTPUT"
