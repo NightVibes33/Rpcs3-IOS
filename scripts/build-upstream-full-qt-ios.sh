@@ -21,6 +21,13 @@ export RPCS3_IOS_FFMPEG_ROOT="$FFMPEG_ROOT"
 export FFMPEG_IOS_ROOT="$FFMPEG_ROOT"
 export MOLTENVK_IOS_ROOT="$MOLTENVK_ROOT"
 
+CMAKE_PLATFORM_ARGS=()
+if [[ "$IOS_SDK" == "iphonesimulator" ]]; then
+  # curl's cross-compile probe can link pipe2 against the macOS host even
+  # though the iOS Simulator SDK does not declare or provide it.
+  CMAKE_PLATFORM_ARGS+=("-DHAVE_PIPE2=0")
+fi
+
 print_failure_logs() {
   local status=$?
   if [[ $status -ne 0 ]]; then
@@ -41,6 +48,7 @@ for required in \
   "$REVISION_FILE" \
   "$TOOLCHAIN" \
   "$QT_CMAKE" \
+  "${CMAKE_PLATFORM_ARGS[@]}" \
   "$HOST_QT" \
   "$PORT_ROOT/scripts/build-ffmpeg-ios.sh" \
   "$PORT_ROOT/scripts/build-moltenvk-ios.sh" \
