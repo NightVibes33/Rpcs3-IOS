@@ -248,6 +248,30 @@ def patch_display_sleep_control(upstream_root: Path) -> None:
     source.write_text(updated, encoding="utf-8")
 
 
+def patch_no_exception_noreturn_paths(upstream_root: Path) -> None:
+    """Preserve fatal-path control flow when iOS builds without C++ exceptions."""
+
+    replacements = (
+        (
+            upstream_root / "rpcs3/Emu/Cell/SPUThread.h",
+            '\t\t\tfmt::throw_exception("Unexpected slice value (%d)", slice);\n',
+            '\t\t\tfmt::throw_exception("Unexpected slice value (%d)", slice);\n\t\t\t__builtin_unreachable();\n',
+        ),
+        (
+            upstream_root / "rpcs3/Emu/Memory/vm.cpp",
+            '\tfmt::throw_exception("Failed to reserve vm memory");\n',
+            '\tfmt::throw_exception("Failed to reserve vm memory");\n\t__builtin_unreachable();\n',
+        ),
+    )
+    for source, old, new in replacements:
+        text = source.read_text(encoding="utf-8")
+        if new in text:
+            continue
+        if text.count(old) != 1:
+            raise SystemExit(f"Unable to locate no-exception fatal path in {source}")
+        source.write_text(text.replace(old, new, 1), encoding="utf-8")
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("upstream_root", type=Path)
@@ -258,6 +282,7 @@ def main() -> int:
     patch_qt_utils_process_launch(args.upstream_root)
     patch_gui_pad_thread_desktop_events(args.upstream_root)
     patch_display_sleep_control(args.upstream_root)
+    patch_no_exception_noreturn_paths(args.upstream_root)
     print("Patched and verified the full RPCS3 Qt frontend fatal-error, component, process-launch, desktop input, and display-sleep paths for iOS")
     return 0
 
