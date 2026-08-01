@@ -42,6 +42,8 @@ jobs:
       FFMPEG_SOURCE_ROOT: "${{ github.workspace }}/.cache/ffmpeg-n7.1"
       FFMPEG_BUILD_ROOT: "${{ github.workspace }}/.cache/ffmpeg-ios-simulator-build-n7.1"
       MOLTENVK_VERSION: "1.4.1"
+      MOLTENVK_ASSET_NAME: MoltenVK-all.tar
+      MOLTENVK_ASSET_URL: "https://github.com/KhronosGroup/MoltenVK/releases/download/v1.4.1/MoltenVK-all.tar"
       MOLTENVK_PLATFORM_VARIANT: simulator
       MOLTENVK_IOS_ROOT: "${{ github.workspace }}/BuildSupport/moltenvk-ios-simulator"
       MOLTENVK_CACHE_DIR: "${{ github.workspace }}/BuildSupport/downloads/moltenvk-1.4.1-simulator"
