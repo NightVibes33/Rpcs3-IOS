@@ -35,6 +35,49 @@ static NSString * const RPCS3DynamicCoreErrorDomain = @"com.nightvibes33.rpcs3.d
 @implementation RPCS3PerformanceRecord
 @end
 
+
+@interface RPCS3SavestateRecord ()
+- (instancetype)initWithInfo:(const rpcs3_ios_savestate_info*)info;
+@end
+@implementation RPCS3SavestateRecord
+- (instancetype)initWithInfo:(const rpcs3_ios_savestate_info*)info
+{
+    self = [super init];
+    if (!self) return nil;
+    _compatible = info->compatible != 0;
+    _size = info->size;
+    _modifiedTime = info->modified_time;
+    _identifier = info->identifier ? ([NSString stringWithUTF8String:info->identifier] ?: @"") : @"";
+    return self;
+}
+@end
+
+@interface RPCS3TrophyRecord ()
+- (instancetype)initWithInfo:(const rpcs3_ios_trophy_info*)info;
+@end
+@implementation RPCS3TrophyRecord
+- (instancetype)initWithInfo:(const rpcs3_ios_trophy_info*)info
+{
+    self = [super init];
+    if (!self) return nil;
+    auto str = [](const char* value) -> NSString* {
+        return value ? ([NSString stringWithUTF8String:value] ?: @"") : @"";
+    };
+    _trophyID = info->trophy_id;
+    _displayOrder = info->display_order;
+    _grade = info->grade;
+    _earned = info->earned != 0;
+    _hidden = info->hidden != 0;
+    _unlockTimestamp = info->unlock_timestamp;
+    _trophySetID = str(info->trophy_set_id);
+    _gameTitle = str(info->game_title);
+    _name = str(info->name);
+    _trophyDescription = str(info->description);
+    _iconPath = str(info->icon_path);
+    return self;
+}
+@end
+
 @interface RPCS3GameRecord (Internal)
 - (instancetype)initWithInfo:(const rpcs3_ios_game_info*)info;
 @end
@@ -55,6 +98,8 @@ struct RPCS3API
     decltype(&rpcs3_ios_install_zip) install_zip = nullptr;
     decltype(&rpcs3_ios_install_folder) install_folder = nullptr;
     decltype(&rpcs3_ios_enumerate_games) enumerate_games = nullptr;
+    decltype(&rpcs3_ios_enumerate_savestates) enumerate_savestates = nullptr;
+    decltype(&rpcs3_ios_enumerate_trophies) enumerate_trophies = nullptr;
     decltype(&rpcs3_ios_set_display_surface) set_display_surface = nullptr;
     decltype(&rpcs3_ios_set_pad_state) set_pad_state = nullptr;
     decltype(&rpcs3_ios_boot_big_picture_mode) boot_big_picture_mode = nullptr;
@@ -98,6 +143,27 @@ bool load_symbol(void* handle, const char* name, T& output)
     return output != nullptr;
 }
 
+
+
+static void collect_savestate(void* user_context, const rpcs3_ios_savestate_info* info)
+{
+    if (!user_context || !info || info->struct_size < sizeof(rpcs3_ios_savestate_info))
+        return;
+    NSMutableArray<RPCS3SavestateRecord*>* records =
+        (__bridge NSMutableArray<RPCS3SavestateRecord*>*)user_context;
+    RPCS3SavestateRecord* record = [[RPCS3SavestateRecord alloc] initWithInfo:info];
+    if (record) [records addObject:record];
+}
+
+static void collect_trophy(void* user_context, const rpcs3_ios_trophy_info* info)
+{
+    if (!user_context || !info || info->struct_size < sizeof(rpcs3_ios_trophy_info))
+        return;
+    NSMutableArray<RPCS3TrophyRecord*>* records =
+        (__bridge NSMutableArray<RPCS3TrophyRecord*>*)user_context;
+    RPCS3TrophyRecord* record = [[RPCS3TrophyRecord alloc] initWithInfo:info];
+    if (record) [records addObject:record];
+}
 
 static void collect_game(void* user_context, const rpcs3_ios_game_info* game)
 {
@@ -228,6 +294,8 @@ NSError* make_error(NSInteger code, NSString* message)
     LOAD_API(rpcs3_ios_install_zip, install_zip);
     LOAD_API(rpcs3_ios_install_folder, install_folder);
     LOAD_API(rpcs3_ios_enumerate_games, enumerate_games);
+    LOAD_API(rpcs3_ios_enumerate_savestates, enumerate_savestates);
+    LOAD_API(rpcs3_ios_enumerate_trophies, enumerate_trophies);
     LOAD_API(rpcs3_ios_set_display_surface, set_display_surface);
     LOAD_API(rpcs3_ios_set_pad_state, set_pad_state);
     LOAD_API(rpcs3_ios_boot_big_picture_mode, boot_big_picture_mode);
@@ -601,11 +669,48 @@ NSError* make_error(NSInteger code, NSString* message)
     return [records copy];
 }
 
+
+- (NSArray<RPCS3SavestateRecord*>*)enumerateSavestatesForTitleID:(NSString*)titleID
+{
+    if (!self.ready || !_api.enumerate_savestates || titleID.length == 0)
+        return @[];
+    NSMutableArray<RPCS3SavestateRecord*>* records = [NSMutableArray array];
+    const rpcs3_ios_status status = _api.enumerate_savestates(
+        titleID.UTF8String, &collect_savestate, (__bridge void*)records);
+    if (status != RPCS3_IOS_OK)
+    {
+        [self setFailure:[self coreError]];
+        return @[];
+    }
+    return [records copy];
+}
+
+- (NSArray<RPCS3TrophyRecord*>*)enumerateTrophiesForTitleID:(NSString*)titleID
+{
+    if (!self.ready || !_api.enumerate_trophies || titleID.length == 0)
+        return @[];
+    NSMutableArray<RPCS3TrophyRecord*>* records = [NSMutableArray array];
+    const rpcs3_ios_status status = _api.enumerate_trophies(
+        titleID.UTF8String, &collect_trophy, (__bridge void*)records);
+    if (status != RPCS3_IOS_OK)
+    {
+        [self setFailure:[self coreError]];
+        return @[];
+    }
+    return [records copy];
+}
+
 - (BOOL)bootGameWithTitleID:(NSString*)titleID
+{
+    return [self bootGameWithTitleID:titleID savestateID:@""];
+}
+
+- (BOOL)bootGameWithTitleID:(NSString*)titleID savestateID:(NSString*)savestateID
 {
     if (!self.ready || !_api.boot_game || titleID.length == 0)
         return NO;
-    return [self statusOK:_api.boot_game(titleID.UTF8String, nullptr)
+    const char* state = savestateID.length ? savestateID.UTF8String : nullptr;
+    return [self statusOK:_api.boot_game(titleID.UTF8String, state)
                 operation:@"Game boot"
                     error:nullptr];
 }
