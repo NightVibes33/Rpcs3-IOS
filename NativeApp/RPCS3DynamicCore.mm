@@ -62,7 +62,7 @@ static NSString * const RPCS3DynamicCoreErrorDomain = @"com.nightvibes33.rpcs3.d
     };
     _enabled = info->enabled != 0;
     _configurableCount = info->configurable_count;
-    _hashValue = str(info->hash);
+    _patchHash = str(info->hash);
     _title = str(info->title);
     _patchDescription = str(info->description);
     _patchVersion = str(info->patch_version);
