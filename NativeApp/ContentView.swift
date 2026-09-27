@@ -15,6 +15,8 @@ struct ContentView: View {
             if controller.sessionRunning {
                 PS3TouchControllerOverlay(controller: controller)
                 sessionOverlay
+            } else if controller.state == .launching {
+                launchProgressOverlay
             } else {
                 AppShellView()
             }
@@ -30,9 +32,37 @@ struct ContentView: View {
         }
     }
 
+
+
+    private var launchProgressOverlay: some View {
+        ZStack {
+            Color.black.opacity(0.72).ignoresSafeArea()
+            VStack(spacing: 14) {
+                ProgressView(value: controller.bootFraction)
+                    .frame(maxWidth: 320)
+                    .tint(.white)
+                Text(controller.bootStage.isEmpty ? "Starting RPCS3…" : controller.bootStage)
+                    .font(.headline)
+                    .multilineTextAlignment(.center)
+                Text("RPCS3 is compiling and preparing the title.")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+            }
+            .padding(24)
+        }
+        .foregroundStyle(.white)
+    }
+
     private var sessionOverlay: some View {
         VStack {
             HStack {
+                if !controller.performanceSummary.isEmpty {
+                    Text(controller.performanceSummary)
+                        .font(.caption.monospacedDigit().weight(.semibold))
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 7)
+                        .background(.black.opacity(0.55), in: Capsule())
+                }
                 Spacer()
                 Menu {
                     Button(controller.touchControllerVisible ? "Hide Touch Controller" : "Show Touch Controller") {
