@@ -2,12 +2,6 @@ name: SwiftUI Host Smoke
 
 on:
   workflow_dispatch:
-  push:
-    branches: [xitrix-swiftui-host]
-    paths:
-      - "NativeApp/**"
-      - "scripts/build-real-ios-app.sh"
-      - ".github/workflows/swiftui-host-smoke.yml"
 
 permissions:
   contents: read
