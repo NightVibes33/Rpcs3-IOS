@@ -21,8 +21,23 @@ mkdir -p "$APP/Frameworks"
 cp -f "$CORE_DIR/libRPCS3Core.dylib" "$APP/Frameworks/libRPCS3Core.dylib"
 chmod 0755 "$APP/Frameworks/libRPCS3Core.dylib"
 
+# SideStore/SideSign uses the entitlements already present in the incoming
+# application's code signature to decide which provisioning-profile
+# entitlements it is allowed to keep. Do not ship a totally unsigned app:
+# ad-hoc sign nested code first, then sign the app with RPCS3's required
+# memory/address-space entitlements so SideStore can preserve them when it
+# replaces this signature with the user's Apple Development identity.
+codesign --force --sign - "$APP/Frameworks/libRPCS3Core.dylib"
+codesign --force --sign - --entitlements "$ROOT/NativeApp/RPCS3.entitlements" "$APP"
+
 BIN="$APP/RPCS3"
 test -s "$BIN"
+codesign --verify --deep --strict "$APP"
+codesign -d --entitlements :- "$APP" > "$BUILD/app-signed-entitlements.plist" 2>/dev/null
+grep -q 'com.apple.developer.kernel.increased-memory-limit' "$BUILD/app-signed-entitlements.plist"
+grep -q 'com.apple.developer.kernel.extended-virtual-addressing' "$BUILD/app-signed-entitlements.plist"
+grep -q 'com.apple.developer.kernel.increased-debugging-memory-limit' "$BUILD/app-signed-entitlements.plist"
+
 otool -L "$BIN" | tee "$BUILD/app-linked-libraries.txt"
 
 # XITRIX v0.9 selects the arena policy before RPCS3Core is loaded. A load-time
@@ -45,4 +60,4 @@ grep -q 'Big Picture Mode' "$BUILD/app-strings.txt"
 file "$BIN" | tee "$BUILD/app-file.txt"
 lipo -archs "$BIN" | tee "$BUILD/app-archs.txt"
 printf '%s\n' "$APP" > "$BUILD/app-path.txt"
-echo "PASS: SwiftUI host delays RPCS3Core loading until after JIT policy selection"
+echo "PASS: SwiftUI host delays RPCS3Core loading until after JIT policy selection and carries SideStore-discoverable memory entitlements"
