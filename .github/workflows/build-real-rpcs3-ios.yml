@@ -232,10 +232,17 @@ jobs:
           rm -rf Payload output
           mkdir -p Payload output
           /usr/bin/ditto "${{ steps.product.outputs.app }}" Payload/RPCS3.app
-          rm -rf Payload/RPCS3.app/_CodeSignature
+          # Preserve the ad-hoc signature. SideStore reads the incoming
+          # app signature to decide which profile entitlements to retain.
           rm -f Payload/RPCS3.app/embedded.mobileprovision
           /usr/bin/plutil -lint Payload/RPCS3.app/Info.plist
           test -s Payload/RPCS3.app/Frameworks/libRPCS3Core.dylib
+          test -d Payload/RPCS3.app/_CodeSignature
+          codesign --verify --deep --strict Payload/RPCS3.app
+          codesign -d --entitlements :- Payload/RPCS3.app > packaged-entitlements.plist 2>/dev/null
+          grep -q 'com.apple.developer.kernel.increased-memory-limit' packaged-entitlements.plist
+          grep -q 'com.apple.developer.kernel.extended-virtual-addressing' packaged-entitlements.plist
+          grep -q 'com.apple.developer.kernel.increased-debugging-memory-limit' packaged-entitlements.plist
 
           SHORT_SHA="$(printf '%s' "$GITHUB_SHA" | cut -c1-7)"
           IPA="output/RPCS3-XITRIX-iOS-${SHORT_SHA}-unsigned.ipa"
@@ -270,5 +277,7 @@ jobs:
             ipa-contents.txt
             native-ios-build/app-file.txt
             native-ios-build/app-archs.txt
+            native-ios-build/app-signed-entitlements.plist
+            packaged-entitlements.plist
           if-no-files-found: warn
           retention-days: 30
