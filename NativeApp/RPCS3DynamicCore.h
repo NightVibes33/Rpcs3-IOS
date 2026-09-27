@@ -283,6 +283,13 @@ typedef NS_OPTIONS(uint64_t, RPCS3HostPadButton) {
 - (BOOL)deleteSavestateForTitleID:(NSString *)titleID
                        identifier:(NSString *)identifier
     NS_SWIFT_NAME(deleteSavestate(titleID:identifier:));
+- (BOOL)importSavestateForTitleID:(NSString *)titleID
+                       sourcePath:(NSString *)sourcePath
+    NS_SWIFT_NAME(importSavestate(titleID:sourcePath:));
+- (BOOL)exportSavestateForTitleID:(NSString *)titleID
+                       identifier:(NSString *)identifier
+                  destinationPath:(NSString *)destinationPath
+    NS_SWIFT_NAME(exportSavestate(titleID:identifier:destinationPath:));
 - (NSArray<RPCS3TrophyRecord *> *)enumerateTrophiesForTitleID:(NSString *)titleID
     NS_SWIFT_NAME(enumerateTrophies(titleID:));
 - (BOOL)bootGameWithTitleID:(NSString *)titleID NS_SWIFT_NAME(bootGame(titleID:));
