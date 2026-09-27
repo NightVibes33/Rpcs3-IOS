@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.28)
-project(RPCS3IOSNative LANGUAGES C CXX OBJC OBJCXX)
+project(RPCS3IOSNative LANGUAGES C CXX OBJC OBJCXX Swift)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -12,14 +12,21 @@ if(NOT EXISTS "${RPCS3_CORE_DIR}/RPCS3IOS.h")
     message(FATAL_ERROR "Missing ${RPCS3_CORE_DIR}/RPCS3IOS.h")
 endif()
 
-add_library(RPCS3Core SHARED IMPORTED GLOBAL)
-set_target_properties(RPCS3Core PROPERTIES
-    IMPORTED_LOCATION "${RPCS3_CORE_DIR}/libRPCS3Core.dylib"
-    INTERFACE_INCLUDE_DIRECTORIES "${RPCS3_CORE_DIR}"
+# Match XITRIX's shipping architecture: the SwiftUI application does NOT link
+# RPCS3Core at process launch. It selects the JIT arena policy first, then the
+# Objective-C++ CoreController bridge dlopens Frameworks/libRPCS3Core.dylib.
+add_executable(RPCS3IOSNative MACOSX_BUNDLE
+    RPCS3App.swift
+    ContentView.swift
+    CoreController.swift
+    RPCS3MetalView.swift
+    RPCS3DynamicCore.h
+    RPCS3DynamicCore.mm
 )
 
-add_executable(RPCS3IOSNative MACOSX_BUNDLE
-    main.mm
+target_include_directories(RPCS3IOSNative PRIVATE
+    "${CMAKE_CURRENT_SOURCE_DIR}"
+    "${RPCS3_CORE_DIR}"
 )
 
 target_compile_options(RPCS3IOSNative PRIVATE
@@ -27,14 +34,16 @@ target_compile_options(RPCS3IOSNative PRIVATE
 )
 
 target_link_libraries(RPCS3IOSNative PRIVATE
-    RPCS3Core
-    "-framework UIKit"
     "-framework Foundation"
+    "-framework SwiftUI"
+    "-framework UIKit"
     "-framework QuartzCore"
     "-framework Metal"
     "-framework GameController"
-    "-framework AVFoundation"
+    "-framework AVFAudio"
     "-framework AudioToolbox"
+    "-framework CoreHaptics"
+    "-framework Security"
     "-framework UniformTypeIdentifiers"
 )
 
@@ -54,4 +63,8 @@ set_target_properties(RPCS3IOSNative PROPERTIES
     XCODE_ATTRIBUTE_CODE_SIGNING_REQUIRED "NO"
     XCODE_ATTRIBUTE_ENABLE_BITCODE "NO"
     XCODE_ATTRIBUTE_LD_RUNPATH_SEARCH_PATHS "@executable_path/Frameworks"
+    XCODE_ATTRIBUTE_SWIFT_VERSION "5.0"
+    XCODE_ATTRIBUTE_SWIFT_OBJC_BRIDGING_HEADER "${CMAKE_CURRENT_SOURCE_DIR}/RPCS3-Bridging-Header.h"
+    XCODE_ATTRIBUTE_CLANG_ENABLE_MODULES "YES"
+    XCODE_ATTRIBUTE_CODE_SIGN_ENTITLEMENTS "${CMAKE_CURRENT_SOURCE_DIR}/RPCS3.entitlements"
 )
