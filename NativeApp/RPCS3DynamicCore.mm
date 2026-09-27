@@ -89,10 +89,6 @@ NSError* make_error(NSInteger code, NSString* message)
 }
 
 
-@interface RPCS3GameRecord ()
-- (instancetype)initWithInfo:(const rpcs3_ios_game_info*)info;
-@end
-
 @implementation RPCS3GameRecord
 - (instancetype)initWithInfo:(const rpcs3_ios_game_info*)info
 {
