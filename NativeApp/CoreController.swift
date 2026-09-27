@@ -3,6 +3,16 @@ import SwiftUI
 import AVFAudio
 import GameController
 
+struct VirtualPadSnapshot {
+    var buttons: UInt64 = 0
+    var leftX: Float = 0
+    var leftY: Float = 0
+    var rightX: Float = 0
+    var rightY: Float = 0
+    var leftTrigger: Float = 0
+    var rightTrigger: Float = 0
+}
+
 @MainActor
 final class CoreController: ObservableObject {
     enum State: Equatable {
@@ -19,7 +29,10 @@ final class CoreController: ObservableObject {
     @Published var jitCapacityMiB: UInt32 = 1024
     @Published var showingImporter = false
     @Published var games: [RPCS3GameRecord] = []
+    @Published var hasPhysicalController = !GCController.controllers().isEmpty
+    @Published var touchControllerVisible = true
 
+    private var virtualPad = VirtualPadSnapshot()
     private let core = RPCS3DynamicCore.shared()
     private let worker = DispatchQueue(label: "com.nightvibes33.rpcs3.core", qos: .userInitiated)
     private var metalView: RPCS3MetalView?
@@ -80,7 +93,13 @@ final class CoreController: ObservableObject {
                 if ok {
                     self.state = .ready
                     self.status = "RPCS3Core startup completed"
-                    self.inputManager = GameControllerInputManager(core: core)
+                    self.inputManager = GameControllerInputManager(
+                        core: core,
+                        virtualState: { [weak self] in self?.virtualPad ?? VirtualPadSnapshot() },
+                        physicalStateChanged: { [weak self] connected in
+                            self?.hasPhysicalController = connected
+                        }
+                    )
                     self.inputManager?.start()
                     _ = self.attachCurrentSurface()
                     self.refreshGames()
@@ -183,6 +202,41 @@ final class CoreController: ObservableObject {
         }
     }
 
+    func setVirtualButton(_ mask: UInt64, pressed: Bool) {
+        if pressed {
+            virtualPad.buttons |= mask
+        } else {
+            virtualPad.buttons &= ~mask
+        }
+    }
+
+    func setVirtualStick(left: Bool, x: Float, y: Float) {
+        let clampedX = max(-1, min(1, x))
+        let clampedY = max(-1, min(1, y))
+        if left {
+            virtualPad.leftX = clampedX
+            virtualPad.leftY = clampedY
+        } else {
+            virtualPad.rightX = clampedX
+            virtualPad.rightY = clampedY
+        }
+    }
+
+    func setVirtualTrigger(left: Bool, value: Float) {
+        let clamped = max(0, min(1, value))
+        if left {
+            virtualPad.leftTrigger = clamped
+            setVirtualButton(UInt64(1 << 10), pressed: clamped > 0.05)
+        } else {
+            virtualPad.rightTrigger = clamped
+            setVirtualButton(UInt64(1 << 11), pressed: clamped > 0.05)
+        }
+    }
+
+    func clearVirtualPad() {
+        virtualPad = VirtualPadSnapshot()
+    }
+
     func stopSession() {
         guard state == .running || state == .launching else { return }
         let core = self.core
@@ -192,6 +246,7 @@ final class CoreController: ObservableObject {
             DispatchQueue.main.async {
                 guard let self else { return }
                 self.state = ok ? .ready : .failed
+                self.clearVirtualPad()
                 self.status = ok
                     ? "RPCS3 session stopped. RPCS3Core remains initialized."
                     : message
@@ -243,12 +298,21 @@ final class CoreController: ObservableObject {
     }
 }
 
+@MainActor
 final class GameControllerInputManager {
     private weak var core: RPCS3DynamicCore?
+    private let virtualState: () -> VirtualPadSnapshot
+    private let physicalStateChanged: (Bool) -> Void
     private var timer: Timer?
 
-    init(core: RPCS3DynamicCore) {
+    init(
+        core: RPCS3DynamicCore,
+        virtualState: @escaping () -> VirtualPadSnapshot,
+        physicalStateChanged: @escaping (Bool) -> Void
+    ) {
         self.core = core
+        self.virtualState = virtualState
+        self.physicalStateChanged = physicalStateChanged
     }
 
     func start() {
@@ -267,16 +331,19 @@ final class GameControllerInputManager {
     private func push() {
         guard let core else { return }
         guard let gamepad = GCController.controllers().first?.extendedGamepad else {
+            physicalStateChanged(false)
+            let pad = virtualState()
             _ = core.setPlayerOne(
-                connected: false,
-                buttons: 0,
-                leftX: 0, leftY: 0,
-                rightX: 0, rightY: 0,
-                leftTrigger: 0, rightTrigger: 0
+                connected: true,
+                buttons: pad.buttons,
+                leftX: pad.leftX, leftY: pad.leftY,
+                rightX: pad.rightX, rightY: pad.rightY,
+                leftTrigger: pad.leftTrigger, rightTrigger: pad.rightTrigger
             )
             return
         }
 
+        physicalStateChanged(true)
         var buttons: UInt64 = 0
         if gamepad.dpad.up.isPressed { buttons |= 1 << 0 }
         if gamepad.dpad.down.isPressed { buttons |= 1 << 1 }
