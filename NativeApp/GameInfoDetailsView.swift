@@ -1,4 +1,5 @@
 import SwiftUI
+import UniformTypeIdentifiers
 
 struct GameInfoDetailsView: View {
     @EnvironmentObject private var controller: CoreController
@@ -214,6 +215,7 @@ private struct TrophyRow: View {
 struct SavestateManagerView: View {
     @EnvironmentObject private var controller: CoreController
     let game: RPCS3GameRecord
+    @State private var showingImporter = false
 
     private var savestates: [RPCS3SavestateRecord] {
         (controller.savestatesByTitleID[game.titleID] ?? [])
@@ -236,6 +238,31 @@ struct SavestateManagerView: View {
         }
         .navigationTitle("Save State Manager")
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItemGroup(placement: .topBarTrailing) {
+                Button {
+                    showingImporter = true
+                } label: {
+                    Image(systemName: "square.and.arrow.down")
+                }
+                .disabled(controller.state != .ready)
+
+                if let exportURL = controller.savestateExportURL {
+                    ShareLink(item: exportURL) {
+                        Image(systemName: "square.and.arrow.up")
+                    }
+                }
+            }
+        }
+        .fileImporter(
+            isPresented: $showingImporter,
+            allowedContentTypes: [.data],
+            allowsMultipleSelection: false
+        ) { result in
+            if case let .success(urls) = result, let url = urls.first {
+                controller.importSavestate(for: game, from: url)
+            }
+        }
         .task {
             controller.refreshSavestates(for: game)
         }
@@ -286,6 +313,13 @@ private struct SavestateRow: View {
                     controller.duplicateSavestate(for: game, savestate: savestate)
                 } label: {
                     Label("Duplicate", systemImage: "plus.square.on.square")
+                }
+                .disabled(controller.state != .ready)
+
+                Button {
+                    controller.exportSavestate(for: game, savestate: savestate)
+                } label: {
+                    Label("Export", systemImage: "square.and.arrow.up")
                 }
                 .disabled(controller.state != .ready)
 
