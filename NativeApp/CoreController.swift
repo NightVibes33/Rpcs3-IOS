@@ -41,6 +41,7 @@ final class CoreController: ObservableObject {
     @Published var gameSettingsByTitleID: [String: [RPCS3SettingRecord]] = [:]
     @Published var gameHasCustomConfig: [String: Bool] = [:]
     @Published var gameSettingsPresetsByTitleID: [String: [RPCS3GameSettingsPresetRecord]] = [:]
+    @Published var gameSettingsPresetExportURL: URL?
     @Published var runtimePatchesByTitleID: [String: [RPCS3RuntimePatchRecord]] = [:]
     @Published var configDatabaseStatus = "Not synced this session"
     @Published var rpcnConfig: RPCS3RPCNConfigRecord?
@@ -866,6 +867,92 @@ final class CoreController: ObservableObject {
     func deleteGameSettingsPreset(for game: RPCS3GameRecord, name: String) {
         mutateGameSettingsPreset(game, success: "Deleted preset \(name).") {
             $0.deleteGameSettingsPreset(titleID: game.titleID, name: name)
+        }
+    }
+
+    func importGameSettingsPreset(for game: RPCS3GameRecord, from url: URL) {
+        guard coreReady, state == .ready, let cacheRoot else { return }
+        let core = self.core
+        let titleID = game.titleID
+        let baseName = url.deletingPathExtension().lastPathComponent
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !baseName.isEmpty else {
+            status = "Preset file name is invalid."
+            return
+        }
+
+        worker.async { [weak self] in
+            let scoped = url.startAccessingSecurityScopedResource()
+            defer {
+                if scoped { url.stopAccessingSecurityScopedResource() }
+            }
+
+            do {
+                let staging = cacheRoot.appendingPathComponent("settings-preset-import", isDirectory: true)
+                try FileManager.default.createDirectory(at: staging, withIntermediateDirectories: true)
+                let safeName = baseName.replacingOccurrences(
+                    of: "[^0-9A-Za-z._ -]",
+                    with: "_",
+                    options: .regularExpression
+                )
+                let staged = staging.appendingPathComponent("\(safeName).yml")
+                try? FileManager.default.removeItem(at: staged)
+                try FileManager.default.copyItem(at: url, to: staged)
+                defer { try? FileManager.default.removeItem(at: staged) }
+
+                let ok = core.importGameSettingsPreset(
+                    titleID: titleID,
+                    sourcePath: staged.path,
+                    name: safeName
+                )
+                let message = core.lastError
+                DispatchQueue.main.async {
+                    guard let self else { return }
+                    self.status = ok ? "Imported preset \(safeName)." : message
+                    if ok { self.refreshGameSettingsPresets(for: game) }
+                }
+            } catch {
+                DispatchQueue.main.async {
+                    self?.status = "Preset import failed: \(error.localizedDescription)"
+                }
+            }
+        }
+    }
+
+    func exportGameSettingsPreset(for game: RPCS3GameRecord, name: String) {
+        guard coreReady, state == .ready, let cacheRoot else { return }
+        let core = self.core
+        let titleID = game.titleID
+        let safeName = name.replacingOccurrences(
+            of: "[^0-9A-Za-z._ -]",
+            with: "_",
+            options: .regularExpression
+        )
+
+        worker.async { [weak self] in
+            do {
+                let exportRoot = cacheRoot.appendingPathComponent("settings-preset-export", isDirectory: true)
+                try FileManager.default.createDirectory(at: exportRoot, withIntermediateDirectories: true)
+                let destination = exportRoot.appendingPathComponent("\(safeName).yml")
+                try? FileManager.default.removeItem(at: destination)
+
+                let ok = core.exportGameSettingsPreset(
+                    titleID: titleID,
+                    name: name,
+                    destinationPath: destination.path
+                )
+                let message = core.lastError
+                DispatchQueue.main.async {
+                    guard let self else { return }
+                    self.gameSettingsPresetExportURL = ok ? destination : nil
+                    self.status = ok ? "Preset \(name) exported and ready to share." : message
+                }
+            } catch {
+                DispatchQueue.main.async {
+                    self?.gameSettingsPresetExportURL = nil
+                    self?.status = "Preset export failed: \(error.localizedDescription)"
+                }
+            }
         }
     }
 
