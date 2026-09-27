@@ -18,6 +18,7 @@ final class CoreController: ObservableObject {
     @Published var status = "Run RPCS3 through StikDebug, then press Start."
     @Published var jitCapacityMiB: UInt32 = 1024
     @Published var showingImporter = false
+    @Published var games: [RPCS3GameRecord] = []
 
     private let core = RPCS3DynamicCore.shared()
     private let worker = DispatchQueue(label: "com.nightvibes33.rpcs3.core", qos: .userInitiated)
@@ -82,10 +83,49 @@ final class CoreController: ObservableObject {
                     self.inputManager = GameControllerInputManager(core: core)
                     self.inputManager?.start()
                     _ = self.attachCurrentSurface()
+                    self.refreshGames()
                 } else {
                     self.fail(message.isEmpty
                         ? "Unable to load RPCS3Core. Run the app from StikDebug with its Universal JIT script."
                         : message)
+                }
+            }
+        }
+    }
+
+    func refreshGames() {
+        guard coreReady else { return }
+        let core = self.core
+        worker.async { [weak self] in
+            let records = core.enumerateGames()
+            DispatchQueue.main.async {
+                self?.games = records
+            }
+        }
+    }
+
+    func launch(game: RPCS3GameRecord) {
+        guard state == .ready, game.bootable else { return }
+        guard attachCurrentSurface() else {
+            fail(core.lastError.isEmpty ? "RPCS3Core is not ready for a video surface." : core.lastError)
+            return
+        }
+
+        state = .launching
+        status = "Starting \(game.title)…"
+        let core = self.core
+        let titleID = game.titleID
+        worker.async { [weak self] in
+            let ok = core.bootGame(titleID: titleID)
+            let message = core.lastError
+            DispatchQueue.main.async {
+                guard let self else { return }
+                if ok {
+                    self.state = .running
+                    self.status = game.title
+                } else {
+                    self.state = .ready
+                    self.status = message.isEmpty ? "RPCS3 could not boot \(game.title)." : message
                 }
             }
         }
@@ -138,6 +178,7 @@ final class CoreController: ObservableObject {
                 self.status = ok
                     ? "\(url.lastPathComponent) installed by RPCS3Core."
                     : (message.isEmpty ? "RPCS3Core installation failed." : message)
+                if ok { self.refreshGames() }
             }
         }
     }
