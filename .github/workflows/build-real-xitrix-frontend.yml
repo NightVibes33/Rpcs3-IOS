@@ -1,0 +1,268 @@
+name: Build Real XITRIX Frontend IPA
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [real-xitrix-frontend]
+    paths:
+      - ".github/workflows/build-real-xitrix-frontend.yml"
+      - "UPSTREAM_RPCS3_REVISION"
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: real-xitrix-frontend-ipa
+  cancel-in-progress: true
+
+jobs:
+  package:
+    name: Official XITRIX frontend + current source-built core
+    runs-on: macos-14
+    timeout-minutes: 25
+
+    env:
+      XITRIX_FRONTEND_VERSION: "v0.9"
+      XITRIX_FRONTEND_SHA256: "4cc11c8a0bc3be74685c2781741a7a2b559e94dac6b81df609ed43523e5cfec0"
+      EXPECTED_CORE_COMMIT: "559987e966db0f8ac983502a160b419968e2474d"
+      BASELINE_CORE_RUN_ID: "36348158249"
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download exact source-built XITRIX RPCS3Core
+        uses: actions/download-artifact@v4
+        with:
+          name: RPCS3-XITRIX-build-evidence
+          path: source-core-artifact
+          run-id: ${{ env.BASELINE_CORE_RUN_ID }}
+          github-token: ${{ github.token }}
+
+      - name: Validate source-built core identity
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          CORE_DIR="source-core-artifact/BuildSupport/RPCS3Core"
+          CORE="$CORE_DIR/libRPCS3Core.dylib"
+
+          test -s "$CORE"
+          test -s "$CORE_DIR/RPCS3IOS.h"
+          test -s "$CORE_DIR/RPCS3_SOURCE_COMMIT.txt"
+          test -s "$CORE_DIR/RPCS3_IOS_ABI.txt"
+
+          test "$(tr -d '[:space:]' < "$CORE_DIR/RPCS3_SOURCE_COMMIT.txt")" = "$EXPECTED_CORE_COMMIT"
+          test "$(tr -d '[:space:]' < "$CORE_DIR/RPCS3_IOS_ABI.txt")" = "30"
+
+          file "$CORE" | tee source-core-file.txt
+          lipo -archs "$CORE" | tee source-core-archs.txt
+          lipo -archs "$CORE" | grep -qw arm64
+
+          nm -gU "$CORE" > source-core-symbols.txt
+          for symbol in             _rpcs3_ios_abi_version             _rpcs3_ios_initialize             _rpcs3_ios_run_llvm_self_test             _rpcs3_ios_set_display_surface             _rpcs3_ios_install_firmware             _rpcs3_ios_install_package             _rpcs3_ios_install_iso             _rpcs3_ios_install_folder             _rpcs3_ios_install_rap             _rpcs3_ios_enumerate_games             _rpcs3_ios_boot_game             _rpcs3_ios_boot_big_picture_mode             _rpcs3_ios_boot_vsh             _rpcs3_ios_shutdown; do
+            grep -q " $symbol$" source-core-symbols.txt
+          done
+
+          shasum -a 256 "$CORE" | tee source-core.sha256
+
+      - name: Download and verify official XITRIX v0.9 IPA
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          URL="https://github.com/XITRIX/RPCS3-iOS-Releases/releases/download/${XITRIX_FRONTEND_VERSION}/RPCS3.ipa"
+          curl -fL --retry 4 --retry-delay 2 "$URL" -o official-xitrix.ipa
+
+          ACTUAL="$(shasum -a 256 official-xitrix.ipa | awk '{print $1}')"
+          echo "Official frontend SHA-256: $ACTUAL"
+          test "$ACTUAL" = "$XITRIX_FRONTEND_SHA256"
+
+      - name: Validate official frontend before modification
+        id: official
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          rm -rf official-stage
+          mkdir -p official-stage
+          unzip -q official-xitrix.ipa -d official-stage
+
+          APP="$(find official-stage/Payload -maxdepth 1 -type d -name '*.app' -print -quit)"
+          test -n "$APP"
+          test -f "$APP/Info.plist"
+
+          APP_NAME="$(basename "$APP")"
+          EXECUTABLE="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$APP/Info.plist")"
+          BIN="$APP/$EXECUTABLE"
+          CORE="$APP/Frameworks/libRPCS3Core.dylib"
+
+          test -s "$BIN"
+          test -s "$CORE"
+
+          plutil -lint "$APP/Info.plist"
+          file "$BIN" | tee official-frontend-file.txt
+          lipo -archs "$BIN" | tee official-frontend-archs.txt
+          otool -L "$BIN" | tee official-frontend-loads.txt
+
+          grep -q 'SwiftUI.framework/SwiftUI' official-frontend-loads.txt
+          grep -q 'UIKit.framework/UIKit' official-frontend-loads.txt
+          ! grep -Eiq 'Qt(Core|Gui|Widgets)|Flutter|RPCS3UpstreamRuntime' official-frontend-loads.txt
+
+          shasum -a 256 "$BIN" | tee official-frontend-executable.sha256
+          shasum -a 256 "$CORE" | tee official-original-core.sha256
+
+          echo "app=$APP" >> "$GITHUB_OUTPUT"
+          echo "app_name=$APP_NAME" >> "$GITHUB_OUTPUT"
+          echo "executable=$EXECUTABLE" >> "$GITHUB_OUTPUT"
+
+      - name: Replace only RPCS3Core with current source-built core
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          APP="${{ steps.official.outputs.app }}"
+          CORE_DIR="source-core-artifact/BuildSupport/RPCS3Core"
+          NEW_CORE="$CORE_DIR/libRPCS3Core.dylib"
+          DEST="$APP/Frameworks/libRPCS3Core.dylib"
+
+          cp -f "$NEW_CORE" "$DEST"
+          chmod 0755 "$DEST"
+          install_name_tool -id '@rpath/libRPCS3Core.dylib' "$DEST"
+
+          test -s "$DEST"
+          lipo -archs "$DEST" | grep -qw arm64
+          nm -gU "$DEST" > replaced-core-symbols.txt
+          grep -q ' _rpcs3_ios_initialize$' replaced-core-symbols.txt
+          grep -q ' _rpcs3_ios_boot_game$' replaced-core-symbols.txt
+          grep -q ' _rpcs3_ios_boot_big_picture_mode$' replaced-core-symbols.txt
+
+          NEW_HASH="$(shasum -a 256 "$NEW_CORE" | awk '{print $1}')"
+          DEST_HASH="$(shasum -a 256 "$DEST" | awk '{print $1}')"
+          test "$NEW_HASH" = "$DEST_HASH"
+
+          # Preserve the actual XITRIX frontend executable/resources. Only the core changes.
+          FRONTEND_BIN="$APP/${{ steps.official.outputs.executable }}"
+          shasum -a 256 "$FRONTEND_BIN" > repacked-frontend-executable.sha256
+          cmp official-frontend-executable.sha256 repacked-frontend-executable.sha256
+
+      - name: Remove stale signatures for external sideload signing
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          APP="${{ steps.official.outputs.app }}"
+          CORE="$APP/Frameworks/libRPCS3Core.dylib"
+
+          codesign --remove-signature "$CORE" 2>/dev/null || true
+          codesign --remove-signature "$APP" 2>/dev/null || true
+          rm -rf "$APP/_CodeSignature"
+          rm -f "$APP/embedded.mobileprovision"
+
+          test -f "$APP/Info.plist"
+          test -s "$APP/${{ steps.official.outputs.executable }}"
+          test -s "$CORE"
+
+      - name: Package a structurally valid unsigned IPA
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          APP="${{ steps.official.outputs.app }}"
+          APP_NAME="${{ steps.official.outputs.app_name }}"
+          EXECUTABLE="${{ steps.official.outputs.executable }}"
+
+          rm -rf final-stage output
+          mkdir -p final-stage/Payload output
+
+          /usr/bin/ditto "$APP" "final-stage/Payload/$APP_NAME"
+
+          FINAL_APP="final-stage/Payload/$APP_NAME"
+          test -f "$FINAL_APP/Info.plist"
+          test -s "$FINAL_APP/$EXECUTABLE"
+          test -s "$FINAL_APP/Frameworks/libRPCS3Core.dylib"
+          plutil -lint "$FINAL_APP/Info.plist"
+
+          IPA="output/RPCS3-REAL-XITRIX-FRONTEND-current-core-unsigned.ipa"
+          (
+            cd final-stage
+            /usr/bin/ditto -c -k --sequesterRsrc --keepParent Payload "../$IPA"
+          )
+
+          test -s "$IPA"
+          unzip -Z1 "$IPA" > final-ipa-files.txt
+
+          # Hard fail on the exact structure sideloaders require.
+          grep -Fxq "Payload/$APP_NAME/Info.plist" final-ipa-files.txt
+          grep -Fxq "Payload/$APP_NAME/$EXECUTABLE" final-ipa-files.txt
+          grep -Fxq "Payload/$APP_NAME/Frameworks/libRPCS3Core.dylib" final-ipa-files.txt
+
+          # There must be exactly one top-level Payload/*.app bundle.
+          APP_COUNT="$(unzip -Z1 "$IPA" | awk -F/ '$1=="Payload" && $2 ~ /\.app$/ {print $2}' | sort -u | wc -l | tr -d ' ')"
+          test "$APP_COUNT" = "1"
+
+          unzip -p "$IPA" "Payload/$APP_NAME/Info.plist" > packaged-Info.plist
+          plutil -lint packaged-Info.plist
+
+          shasum -a 256 "$IPA" | tee "$IPA.sha256"
+          ls -lh "$IPA"
+
+      - name: Prove frontend is official and core is current
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          APP_NAME="${{ steps.official.outputs.app_name }}"
+          EXECUTABLE="${{ steps.official.outputs.executable }}"
+          IPA="output/RPCS3-REAL-XITRIX-FRONTEND-current-core-unsigned.ipa"
+
+          rm -rf verification
+          mkdir verification
+          unzip -q "$IPA" -d verification
+
+          APP="verification/Payload/$APP_NAME"
+          FRONTEND_BIN="$APP/$EXECUTABLE"
+          CORE="$APP/Frameworks/libRPCS3Core.dylib"
+
+          shasum -a 256 "$FRONTEND_BIN" > verification-frontend.sha256
+          cmp official-frontend-executable.sha256 verification-frontend.sha256
+
+          EXPECTED_CORE_HASH="$(shasum -a 256 source-core-artifact/BuildSupport/RPCS3Core/libRPCS3Core.dylib | awk '{print $1}')"
+          FINAL_CORE_HASH="$(shasum -a 256 "$CORE" | awk '{print $1}')"
+          test "$EXPECTED_CORE_HASH" = "$FINAL_CORE_HASH"
+
+          otool -L "$FRONTEND_BIN" | tee verification-frontend-loads.txt
+          ! grep -Eiq 'Qt(Core|Gui|Widgets)|Flutter|RPCS3UpstreamRuntime' verification-frontend-loads.txt
+
+          echo "PASS: exact official XITRIX v0.9 frontend + current source-built RPCS3Core"
+          echo "PASS: Payload/*.app/Info.plist archive structure is valid"
+
+      - name: Upload real XITRIX frontend IPA
+        uses: actions/upload-artifact@v4
+        with:
+          name: RPCS3-REAL-XITRIX-FRONTEND-current-core-unsigned
+          path: output/*
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Upload packaging evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: RPCS3-real-XITRIX-frontend-evidence
+          path: |
+            official-frontend-file.txt
+            official-frontend-archs.txt
+            official-frontend-loads.txt
+            official-frontend-executable.sha256
+            official-original-core.sha256
+            source-core-file.txt
+            source-core-archs.txt
+            source-core.sha256
+            final-ipa-files.txt
+            packaged-Info.plist
+            verification-frontend.sha256
+            verification-frontend-loads.txt
+          if-no-files-found: warn
+          retention-days: 30
