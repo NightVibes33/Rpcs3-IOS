@@ -147,7 +147,7 @@ jobs:
           shasum -a 256 "$FRONTEND_BIN" > repacked-frontend-executable.sha256
           cmp official-frontend-executable.sha256 repacked-frontend-executable.sha256
 
-      - name: Remove stale signatures for external sideload signing
+      - name: Remove stale bundle signing metadata
         shell: bash
         run: |
           set -euo pipefail
@@ -155,14 +155,20 @@ jobs:
           APP="${{ steps.official.outputs.app }}"
           CORE="$APP/Frameworks/libRPCS3Core.dylib"
 
-          codesign --remove-signature "$CORE" 2>/dev/null || true
-          codesign --remove-signature "$APP" 2>/dev/null || true
+          # Do not mutate XITRIX's executable Mach-O. The external sideload signer
+          # will replace embedded code signatures when it signs the final bundle.
+          # Removing only the old bundle seal/profile preserves the real frontend
+          # executable byte-for-byte.
           rm -rf "$APP/_CodeSignature"
           rm -f "$APP/embedded.mobileprovision"
 
           test -f "$APP/Info.plist"
           test -s "$APP/${{ steps.official.outputs.executable }}"
           test -s "$CORE"
+
+          ORIGINAL_FRONTEND_HASH="$(awk '{print $1}' official-frontend-executable.sha256)"
+          CURRENT_FRONTEND_HASH="$(shasum -a 256 "$APP/${{ steps.official.outputs.executable }}" | awk '{print $1}')"
+          test "$ORIGINAL_FRONTEND_HASH" = "$CURRENT_FRONTEND_HASH"
 
       - name: Package a structurally valid unsigned IPA
         shell: bash
@@ -226,7 +232,9 @@ jobs:
           CORE="$APP/Frameworks/libRPCS3Core.dylib"
 
           shasum -a 256 "$FRONTEND_BIN" > verification-frontend.sha256
-          cmp official-frontend-executable.sha256 verification-frontend.sha256
+          ORIGINAL_FRONTEND_HASH="$(awk '{print $1}' official-frontend-executable.sha256)"
+          FINAL_FRONTEND_HASH="$(awk '{print $1}' verification-frontend.sha256)"
+          test "$ORIGINAL_FRONTEND_HASH" = "$FINAL_FRONTEND_HASH"
 
           EXPECTED_CORE_HASH="$(shasum -a 256 source-core-artifact/BuildSupport/RPCS3Core/libRPCS3Core.dylib | awk '{print $1}')"
           FINAL_CORE_HASH="$(shasum -a 256 "$CORE" | awk '{print $1}')"
