@@ -24,6 +24,8 @@ add_executable(RPCS3IOSNative MACOSX_BUNDLE
     GameInfoDetailsView.swift
     SettingsView.swift
     GamePatchesView.swift
+    RPCNCredentialVault.swift
+    RPCNView.swift
     RPCS3DynamicCore.h
     RPCS3DynamicCore.mm
 )
