@@ -359,3 +359,65 @@ struct SettingsPicker: View {
         .pickerStyle(.menu)
     }
 }
+
+
+struct DiagnosticsView: View {
+    @EnvironmentObject private var controller: CoreController
+
+    var body: some View {
+        List {
+            Section("RPCS3 Status") {
+                LabeledContent("Core state", value: stateLabel)
+                Text(controller.status)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .textSelection(.enabled)
+
+                if !controller.buildInfo.isEmpty {
+                    DisclosureGroup("RPCS3Core build information") {
+                        Text(controller.buildInfo)
+                            .font(.caption.monospaced())
+                            .textSelection(.enabled)
+                    }
+                }
+            }
+
+            Section("Persistent Device Log") {
+                if let logURL = controller.diagnosticsLogURL,
+                   controller.diagnosticsLogAvailable {
+                    ShareLink(item: logURL) {
+                        Label("Share RPCS3 Device Log", systemImage: "square.and.arrow.up")
+                    }
+
+                    Text("Files → RPCS3 → RPCS3 Logs → ios-host.log")
+                        .font(.caption.monospaced())
+                        .foregroundStyle(.secondary)
+                        .textSelection(.enabled)
+                } else {
+                    Text("No persistent log exists yet. Press Start once; the host creates the log before it attempts to load libRPCS3Core.dylib.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+
+            Section {
+                Text("The log records host startup, delayed dylib loading, ABI resolution, Emu.Init, the LLVM JIT self-test, RPCS3Core messages, and bridge failures. It rotates at 4 MiB to ios-host.previous.log.")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .navigationTitle("Diagnostics")
+        .navigationBarTitleDisplayMode(.inline)
+    }
+
+    private var stateLabel: String {
+        switch controller.state {
+        case .stopped: return "Stopped"
+        case .starting: return "Starting"
+        case .ready: return "Ready"
+        case .launching: return "Launching"
+        case .running: return "Running"
+        case .failed: return "Failed"
+        }
+    }
+}
