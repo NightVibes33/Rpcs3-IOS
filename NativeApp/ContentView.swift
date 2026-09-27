@@ -319,7 +319,7 @@ struct GameRow: View {
 
                     Spacer()
                     Image(systemName: "play.fill")
-                        .foregroundStyle(game.bootable ? Color.accentColor : .secondary)
+                        .foregroundStyle(game.bootable ? Color.accentColor : Color.secondary)
                 }
                 .contentShape(Rectangle())
             }
