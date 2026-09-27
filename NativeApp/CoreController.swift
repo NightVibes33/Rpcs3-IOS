@@ -542,6 +542,38 @@ final class CoreController: ObservableObject {
         }
     }
 
+    func duplicateSavestate(for game: RPCS3GameRecord, savestate: RPCS3SavestateRecord) {
+        guard coreReady, state == .ready else { return }
+        let core = self.core
+        let titleID = game.titleID
+        let identifier = savestate.identifier
+        worker.async { [weak self] in
+            let ok = core.duplicateSavestate(titleID: titleID, identifier: identifier)
+            let message = core.lastError
+            DispatchQueue.main.async {
+                guard let self else { return }
+                self.status = ok ? "Save state duplicated." : message
+                if ok { self.refreshSavestates(for: game) }
+            }
+        }
+    }
+
+    func deleteSavestate(for game: RPCS3GameRecord, savestate: RPCS3SavestateRecord) {
+        guard coreReady, state == .ready else { return }
+        let core = self.core
+        let titleID = game.titleID
+        let identifier = savestate.identifier
+        worker.async { [weak self] in
+            let ok = core.deleteSavestate(titleID: titleID, identifier: identifier)
+            let message = core.lastError
+            DispatchQueue.main.async {
+                guard let self else { return }
+                self.status = ok ? "Save state deleted." : message
+                if ok { self.refreshSavestates(for: game) }
+            }
+        }
+    }
+
     func launch(game: RPCS3GameRecord) {
         guard state == .ready, game.bootable else { return }
         guard attachCurrentSurface() else {
