@@ -113,7 +113,12 @@ jobs:
           </dict>
           </plist>
           PLIST
-          plutil -lint XITRIX-required-entitlements.plist
+          python3 - <<'PY'
+          import plistlib
+          with open("XITRIX-required-entitlements.plist", "rb") as f:
+              plistlib.load(f)
+          print("Validated XITRIX-required-entitlements.plist")
+          PY
 
           echo "IPA_SHA256=$(awk '{print $1}' RPCS3.ipa.sha256)" >> "$GITHUB_ENV"
 
