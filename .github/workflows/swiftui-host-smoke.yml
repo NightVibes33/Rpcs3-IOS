@@ -79,6 +79,9 @@ jobs:
             _rpcs3_ios_duplicate_savestate \
             _rpcs3_ios_delete_savestate \
             _rpcs3_ios_enumerate_trophies \
+            _rpcs3_ios_get_game_cache_info \
+            _rpcs3_ios_clear_game_cache \
+            _rpcs3_ios_delete_game \
             _rpcs3_ios_enumerate_settings \
             _rpcs3_ios_set_setting \
             _rpcs3_ios_reset_settings \
