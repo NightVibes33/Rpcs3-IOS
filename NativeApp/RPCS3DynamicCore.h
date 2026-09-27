@@ -215,6 +215,16 @@ typedef NS_OPTIONS(uint64_t, RPCS3HostPadButton) {
                           enabled:(BOOL)enabled
     NS_SWIFT_NAME(setRuntimePatch(titleID:hash:title:appVersion:description:enabled:));
 
+- (NSData * _Nullable)gameUpdateManifestForTitleID:(NSString *)titleID
+    NS_SWIFT_NAME(gameUpdateManifest(titleID:));
+- (BOOL)downloadGameUpdatePackageURL:(NSString *)packageURL
+                     destinationPath:(NSString *)destinationPath
+                        expectedSize:(uint64_t)expectedSize
+    NS_SWIFT_NAME(downloadGameUpdate(packageURL:destinationPath:expectedSize:));
+- (BOOL)installGamePatchForTitleID:(NSString *)titleID
+                       packagePath:(NSString *)packagePath
+    NS_SWIFT_NAME(installGamePatch(titleID:packagePath:));
+
 - (RPCS3RPCNConfigRecord *)rpcnConfig;
 - (NSArray<RPCS3RPCNServerRecord *> *)rpcnServers;
 - (BOOL)setRPCNServerHost:(NSString *)host NS_SWIFT_NAME(setRPCNServer(host:));
