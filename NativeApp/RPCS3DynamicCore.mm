@@ -13,6 +13,32 @@ static NSString * const RPCS3DynamicCoreErrorDomain = @"com.nightvibes33.rpcs3.d
 
 
 
+
+@interface RPCS3RuntimePatchRecord ()
+- (instancetype)initWithInfo:(const rpcs3_ios_runtime_patch_info*)info;
+@end
+@implementation RPCS3RuntimePatchRecord
+- (instancetype)initWithInfo:(const rpcs3_ios_runtime_patch_info*)info
+{
+    self = [super init];
+    if (!self) return nil;
+    auto str = [](const char* value) -> NSString* {
+        return value ? ([NSString stringWithUTF8String:value] ?: @"") : @"";
+    };
+    _enabled = info->enabled != 0;
+    _configurableCount = info->configurable_count;
+    _hashValue = str(info->hash);
+    _title = str(info->title);
+    _patchDescription = str(info->description);
+    _patchVersion = str(info->patch_version);
+    _author = str(info->author);
+    _notes = str(info->notes);
+    _patchGroup = str(info->patch_group);
+    _appVersion = str(info->app_version);
+    return self;
+}
+@end
+
 @interface RPCS3SettingOptionRecord ()
 @property(nonatomic, readwrite) NSString *value;
 @property(nonatomic, readwrite) NSString *label;
@@ -187,6 +213,8 @@ struct RPCS3API
     decltype(&rpcs3_ios_get_emulation_state) get_emulation_state = nullptr;
     decltype(&rpcs3_ios_get_boot_progress) get_boot_progress = nullptr;
     decltype(&rpcs3_ios_get_performance_metrics) get_performance_metrics = nullptr;
+    decltype(&rpcs3_ios_enumerate_runtime_patches) enumerate_runtime_patches = nullptr;
+    decltype(&rpcs3_ios_set_runtime_patch_enabled) set_runtime_patch_enabled = nullptr;
     decltype(&rpcs3_ios_enumerate_settings) enumerate_settings = nullptr;
     decltype(&rpcs3_ios_set_setting) set_setting = nullptr;
     decltype(&rpcs3_ios_reset_settings) reset_settings = nullptr;
@@ -231,6 +259,17 @@ bool load_symbol(void* handle, const char* name, T& output)
 
 
 
+
+
+static void collect_runtime_patch(void* user_context, const rpcs3_ios_runtime_patch_info* info)
+{
+    if (!user_context || !info || info->struct_size < sizeof(rpcs3_ios_runtime_patch_info))
+        return;
+    NSMutableArray<RPCS3RuntimePatchRecord*>* records =
+        (__bridge NSMutableArray<RPCS3RuntimePatchRecord*>*)user_context;
+    RPCS3RuntimePatchRecord* record = [[RPCS3RuntimePatchRecord alloc] initWithInfo:info];
+    if (record) [records addObject:record];
+}
 
 static void collect_setting(void* user_context, const rpcs3_ios_setting_info* info)
 {
@@ -427,6 +466,8 @@ NSError* make_error(NSInteger code, NSString* message)
     LOAD_API(rpcs3_ios_get_emulation_state, get_emulation_state);
     LOAD_API(rpcs3_ios_get_boot_progress, get_boot_progress);
     LOAD_API(rpcs3_ios_get_performance_metrics, get_performance_metrics);
+    LOAD_API(rpcs3_ios_enumerate_runtime_patches, enumerate_runtime_patches);
+    LOAD_API(rpcs3_ios_set_runtime_patch_enabled, set_runtime_patch_enabled);
     LOAD_API(rpcs3_ios_enumerate_settings, enumerate_settings);
     LOAD_API(rpcs3_ios_set_setting, set_setting);
     LOAD_API(rpcs3_ios_reset_settings, reset_settings);
@@ -739,6 +780,47 @@ NSError* make_error(NSInteger code, NSString* message)
 
 
 
+
+
+- (NSArray<RPCS3RuntimePatchRecord*>*)runtimePatchesForTitleID:(NSString*)titleID
+                                                    appVersion:(NSString*)appVersion
+{
+    if (!self.ready || !_api.enumerate_runtime_patches || titleID.length == 0)
+        return @[];
+    NSMutableArray<RPCS3RuntimePatchRecord*>* records = [NSMutableArray array];
+    const char* version = appVersion.length ? appVersion.UTF8String : nullptr;
+    const rpcs3_ios_status status = _api.enumerate_runtime_patches(
+        titleID.UTF8String, version, &collect_runtime_patch, (__bridge void*)records);
+    if (status != RPCS3_IOS_OK)
+    {
+        [self setFailure:[self coreError]];
+        return @[];
+    }
+    return [records copy];
+}
+
+- (BOOL)setRuntimePatchForTitleID:(NSString*)titleID
+                             hash:(NSString*)hashValue
+                            title:(NSString*)title
+                       appVersion:(NSString*)appVersion
+                      description:(NSString*)description
+                          enabled:(BOOL)enabled
+{
+    if (!self.ready || !_api.set_runtime_patch_enabled ||
+        titleID.length == 0 || hashValue.length == 0 || title.length == 0 ||
+        appVersion.length == 0 || description.length == 0)
+        return NO;
+
+    return [self statusOK:_api.set_runtime_patch_enabled(
+                titleID.UTF8String,
+                hashValue.UTF8String,
+                title.UTF8String,
+                appVersion.UTF8String,
+                description.UTF8String,
+                enabled ? 1u : 0u)
+                operation:@"Game patch update"
+                    error:nullptr];
+}
 
 - (RPCS3SettingsSnapshot*)globalSettings
 {
