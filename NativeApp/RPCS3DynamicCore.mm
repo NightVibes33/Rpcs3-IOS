@@ -1091,13 +1091,13 @@ NSError* make_error(NSInteger code, NSString* message)
 }
 
 
-- (BOOL)installGamePatchForTitleID:(NSString*)titleID path:(NSString*)path
+- (BOOL)installGamePatchForTitleID:(NSString*)titleID packagePath:(NSString*)packagePath
 {
-    if (!self.ready || !_api.install_game_patch || titleID.length == 0 || path.length == 0)
+    if (!self.ready || !_api.install_game_patch || titleID.length == 0 || packagePath.length == 0)
         return NO;
     return [self statusOK:_api.install_game_patch(
-                titleID.UTF8String, path.fileSystemRepresentation, nullptr, nullptr)
-                operation:@"Game update installation"
+                titleID.UTF8String, packagePath.fileSystemRepresentation, nullptr, nullptr)
+                operation:@"Game-update installation"
                     error:nullptr];
 }
 
