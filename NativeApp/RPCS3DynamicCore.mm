@@ -195,6 +195,7 @@ struct RPCS3API
     decltype(&rpcs3_ios_build_info) build_info = nullptr;
     decltype(&rpcs3_ios_initialize) initialize = nullptr;
     decltype(&rpcs3_ios_run_llvm_self_test) run_llvm_self_test = nullptr;
+    decltype(&rpcs3_ios_update_config_database) update_config_database = nullptr;
     decltype(&rpcs3_ios_firmware_version) firmware_version = nullptr;
     decltype(&rpcs3_ios_install_firmware) install_firmware = nullptr;
     decltype(&rpcs3_ios_install_package) install_package = nullptr;
@@ -448,6 +449,7 @@ NSError* make_error(NSInteger code, NSString* message)
     LOAD_API(rpcs3_ios_build_info, build_info);
     LOAD_API(rpcs3_ios_initialize, initialize);
     LOAD_API(rpcs3_ios_run_llvm_self_test, run_llvm_self_test);
+    LOAD_API(rpcs3_ios_update_config_database, update_config_database);
     LOAD_API(rpcs3_ios_firmware_version, firmware_version);
     LOAD_API(rpcs3_ios_install_firmware, install_firmware);
     LOAD_API(rpcs3_ios_install_package, install_package);
@@ -781,6 +783,16 @@ NSError* make_error(NSInteger code, NSString* message)
 
 
 
+
+
+- (BOOL)updateConfigDatabaseData:(NSData*)data
+{
+    if (!self.ready || !_api.update_config_database || data.length == 0)
+        return NO;
+    return [self statusOK:_api.update_config_database(data.bytes, data.length)
+                operation:@"RPCS3 configuration database update"
+                    error:nullptr];
+}
 
 - (NSArray<RPCS3RuntimePatchRecord*>*)runtimePatchesForTitleID:(NSString*)titleID
                                                     appVersion:(NSString*)appVersion
