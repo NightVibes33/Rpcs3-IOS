@@ -60,6 +60,8 @@ struct AppShellView: View {
                     CoreLaunchView()
 
                     if controller.coreReady {
+                        GamesView()
+
                         VStack(spacing: 12) {
                             Button {
                                 controller.launchBigPicture()
@@ -178,5 +180,106 @@ struct StatusCard: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(20)
         .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 20))
+    }
+}
+
+
+struct GamesView: View {
+    @EnvironmentObject private var controller: CoreController
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Text("Games")
+                    .font(.title2.bold())
+                Spacer()
+                Button {
+                    controller.refreshGames()
+                } label: {
+                    Image(systemName: "arrow.clockwise")
+                }
+                .buttonStyle(.borderless)
+                .disabled(controller.state != .ready)
+            }
+
+            if controller.games.isEmpty {
+                ContentUnavailableView(
+                    "No Games Installed",
+                    systemImage: "gamecontroller",
+                    description: Text("Install a PKG, ISO, or ZIP with RPCS3Core, then refresh the library.")
+                )
+                .frame(minHeight: 180)
+            } else {
+                LazyVStack(spacing: 10) {
+                    ForEach(controller.games, id: \.titleID) { game in
+                        GameRow(game: game)
+                    }
+                }
+            }
+        }
+        .padding(20)
+        .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 20))
+    }
+}
+
+struct GameRow: View {
+    @EnvironmentObject private var controller: CoreController
+    let game: RPCS3GameRecord
+
+    var body: some View {
+        Button {
+            controller.launch(game: game)
+        } label: {
+            HStack(spacing: 14) {
+                gameIcon
+                    .frame(width: 72, height: 72)
+                    .clipShape(RoundedRectangle(cornerRadius: 12))
+
+                VStack(alignment: .leading, spacing: 5) {
+                    Text(game.title.isEmpty ? game.titleID : game.title)
+                        .font(.headline)
+                        .foregroundStyle(.primary)
+                        .lineLimit(2)
+                    HStack(spacing: 8) {
+                        Text(game.titleID)
+                        if !game.version.isEmpty {
+                            Text("v\(game.version)")
+                        }
+                    }
+                    .font(.caption.monospaced())
+                    .foregroundStyle(.secondary)
+
+                    if game.sizeOnDisk > 0 {
+                        Text(ByteCountFormatter.string(fromByteCount: Int64(clamping: game.sizeOnDisk), countStyle: .file))
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+
+                Spacer()
+                Image(systemName: "play.fill")
+                    .foregroundStyle(game.bootable ? Color.accentColor : .secondary)
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .disabled(!game.bootable || controller.state != .ready)
+    }
+
+    @ViewBuilder
+    private var gameIcon: some View {
+        if !game.iconPath.isEmpty, let image = UIImage(contentsOfFile: game.iconPath) {
+            Image(uiImage: image)
+                .resizable()
+                .scaledToFill()
+        } else {
+            ZStack {
+                RoundedRectangle(cornerRadius: 12)
+                    .fill(.quaternary)
+                Image(systemName: "gamecontroller.fill")
+                    .font(.title2)
+                    .foregroundStyle(.secondary)
+            }
+        }
     }
 }
