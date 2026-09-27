@@ -10,6 +10,10 @@ on:
         description: "Successful Build Real RPCS3 iOS run ID"
         required: true
         type: string
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/publish-direct-ipa.yml"
 
 permissions:
   contents: write
@@ -17,7 +21,7 @@ permissions:
 
 jobs:
   publish:
-    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
+    if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
     runs-on: ubuntu-latest
     steps:
       - name: Resolve source run
@@ -33,11 +37,14 @@ jobs:
           if [[ "$EVENT_NAME" == "workflow_run" ]]; then
             RUN_ID="$EVENT_RUN_ID"
             RUN_SHA="$EVENT_RUN_SHA"
-          else
+          elif [[ "$EVENT_NAME" == "workflow_dispatch" ]]; then
             RUN_ID="$INPUT_RUN_ID"
             RUN_SHA="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$RUN_ID" --jq .head_sha)"
             CONCLUSION="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$RUN_ID" --jq .conclusion)"
             test "$CONCLUSION" = "success"
+          else
+            RUN_ID="$(gh run list --repo "$GITHUB_REPOSITORY" --workflow build-real-rpcs3-ios.yml --branch main --status success --limit 1 --json databaseId --jq '.[0].databaseId')"
+            RUN_SHA="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$RUN_ID" --jq .head_sha)"
           fi
           test -n "$RUN_ID"
           test -n "$RUN_SHA"
@@ -85,23 +92,68 @@ jobs:
           print("Validated installable IPA:", app)
           PY
 
-          OUT="RPCS3-iOS-XITRIX-Core-${SHORT_SHA}-unsigned.ipa"
-          cp "$IPA" "$OUT"
-          sha256sum "$OUT" > "$OUT.sha256"
-          echo "DIRECT_IPA=$OUT" >> "$GITHUB_ENV"
+          cp "$IPA" RPCS3.ipa
+          sha256sum RPCS3.ipa > RPCS3.ipa.sha256
+          echo "IPA_SHA256=$(awk '{print $1}' RPCS3.ipa.sha256)" >> "$GITHUB_ENV"
 
-      - name: Publish direct IPA release asset
+      - name: Try GitHub Release
+        continue-on-error: true
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           TAG="ios-dev-${SHORT_SHA}"
-          TITLE="RPCS3 iOS — XITRIX Core ${SHORT_SHA}"
-          NOTES="Installer-ready unsigned IPA from canonical green main build run ${RUN_ID}. This asset is the IPA itself, not the GitHub Actions artifact wrapper ZIP. XITRIX RPCS3 iOS ABI v30 core; native SwiftUI host."
-
           if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            gh release upload "$TAG" "$DIRECT_IPA" "$DIRECT_IPA.sha256" --clobber --repo "$GITHUB_REPOSITORY"
+            gh release upload "$TAG" RPCS3.ipa RPCS3.ipa.sha256 --clobber --repo "$GITHUB_REPOSITORY"
           else
-            gh release create "$TAG"               "$DIRECT_IPA"               "$DIRECT_IPA.sha256"               --title "$TITLE"               --notes "$NOTES"               --prerelease               --target "$RUN_SHA"               --repo "$GITHUB_REPOSITORY"
+            gh release create "$TAG" RPCS3.ipa RPCS3.ipa.sha256               --title "RPCS3 iOS — XITRIX Core ${SHORT_SHA}"               --notes "Installer-ready unsigned IPA from canonical green build run ${RUN_ID}."               --prerelease               --target "$RUN_SHA"               --repo "$GITHUB_REPOSITORY"
           fi
+
+      - name: Publish stable direct-download branch
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          rm -rf direct-publish
+          mkdir direct-publish
+          cp RPCS3.ipa RPCS3.ipa.sha256 direct-publish/
+          cat > direct-publish/README.md <<EOF
+          # RPCS3 iOS direct build
+
+          Source build run: ${RUN_ID}
+          Source commit: ${RUN_SHA}
+          IPA SHA-256: ${IPA_SHA256}
+
+          `RPCS3.ipa` is the validated unsigned IPA itself, not a GitHub Actions artifact wrapper.
+          EOF
+
+          cd direct-publish
+          git init
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout -b downloads
+          git add RPCS3.ipa RPCS3.ipa.sha256 README.md
+          git commit -m "Publish validated RPCS3 IPA from ${RUN_SHA}"
+          git remote add origin "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          git push --force origin downloads
+
+      - name: Verify stable raw IPA download
+        shell: bash
+        run: |
+          set -euo pipefail
+          URL="https://raw.githubusercontent.com/${GITHUB_REPOSITORY}/downloads/RPCS3.ipa"
+          for attempt in 1 2 3 4 5; do
+            rm -f raw-RPCS3.ipa
+            if curl -fL --retry 2 "$URL" -o raw-RPCS3.ipa; then
+              ACTUAL="$(sha256sum raw-RPCS3.ipa | awk '{print $1}')"
+              if [[ "$ACTUAL" == "$IPA_SHA256" ]]; then
+                echo "Direct IPA verified: $URL"
+                exit 0
+              fi
+            fi
+            sleep 3
+          done
+          echo "Direct raw IPA did not match expected SHA-256." >&2
+          exit 1
