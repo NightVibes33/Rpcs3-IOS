@@ -47,9 +47,9 @@ jobs:
           curl -fL --retry 4             https://raw.githubusercontent.com/XITRIX/rpcs3/559987e966db0f8ac983502a160b419968e2474d/rpcs3/ios/RPCS3IOS.exports             -o BuildSupport/RPCS3Core/RPCS3IOS.exports
 
           nm -gU BuildSupport/RPCS3Core/libRPCS3Core.dylib > "$RUNNER_TEMP/core-symbols.txt"
-          grep -q '_rpcs3_ios_abi_version' "$RUNNER_TEMP/core-symbols.txt"
-          grep -q '_rpcs3_ios_initialize' "$RUNNER_TEMP/core-symbols.txt"
-          grep -q '_rpcs3_ios_boot_big_picture_mode' "$RUNNER_TEMP/core-symbols.txt"
+          for symbol in             _rpcs3_ios_abi_version             _rpcs3_ios_initialize             _rpcs3_ios_install_rap             _rpcs3_ios_install_folder             _rpcs3_ios_enumerate_games             _rpcs3_ios_boot_game             _rpcs3_ios_boot_big_picture_mode             _rpcs3_ios_boot_vsh             _rpcs3_ios_get_boot_progress             _rpcs3_ios_get_performance_metrics; do
+            grep -q " $symbol$" "$RUNNER_TEMP/core-symbols.txt"
+          done
 
       - name: Compile SwiftUI host
         shell: bash
