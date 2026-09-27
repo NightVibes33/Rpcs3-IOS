@@ -2,21 +2,6 @@ name: Launch Full RPCS3 in iOS Simulator
 
 on:
   workflow_dispatch:
-  push:
-    branches: [main]
-    paths:
-      - ".github/workflows/full-upstream-simulator-launch.yml"
-      - "scripts/build-upstream-full-qt-ios.sh"
-      - "scripts/build-ffmpeg-ios.sh"
-      - "scripts/build-moltenvk-ios.sh"
-      - "scripts/patch-upstream-ios-emu-graph.py"
-      - "scripts/patch-upstream-ios-full-qt-blockers.py"
-      - "scripts/patch-upstream-ios-full-qt-blockers-base.py"
-      - "scripts/patch-upstream-ios-runtime-blockers.py"
-      - "scripts/apply-upstream-ios-overlay.py"
-      - "cmake/toolchains/ios-simulator-x86_64.cmake"
-      - "Port/iOS/**"
-      - "UPSTREAM_RPCS3_REVISION"
 
 permissions:
   contents: read
