@@ -20,6 +20,7 @@ add_executable(RPCS3IOSNative MACOSX_BUNDLE
     ContentView.swift
     CoreController.swift
     RPCS3MetalView.swift
+    PS3TouchControllerOverlay.swift
     RPCS3DynamicCore.h
     RPCS3DynamicCore.mm
 )
