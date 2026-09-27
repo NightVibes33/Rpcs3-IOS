@@ -21,7 +21,7 @@ struct ContentView: View {
         }
         .fileImporter(
             isPresented: $controller.showingImporter,
-            allowedContentTypes: [.data, .archive, .diskImage],
+            allowedContentTypes: [.data, .archive, .diskImage, .folder],
             allowsMultipleSelection: false
         ) { result in
             if case let .success(urls) = result, let url = urls.first {
@@ -213,7 +213,7 @@ struct GamesView: View {
                 ContentUnavailableView(
                     "No Games Installed",
                     systemImage: "gamecontroller",
-                    description: Text("Install a PKG, ISO, or ZIP with RPCS3Core, then refresh the library.")
+                    description: Text("Install a PKG, ISO, ZIP, or extracted PS3 game folder with RPCS3Core, then refresh the library.")
                 )
                 .frame(minHeight: 180)
             } else {
