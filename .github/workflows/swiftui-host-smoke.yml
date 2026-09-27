@@ -13,8 +13,8 @@ permissions:
   contents: read
 
 concurrency:
-  group: rpcs3-swiftui-host-smoke
-  cancel-in-progress: true
+  group: rpcs3-swiftui-host-smoke-${{ github.sha }}
+  cancel-in-progress: false
 
 jobs:
   build:
