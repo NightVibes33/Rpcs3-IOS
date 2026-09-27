@@ -41,6 +41,9 @@ final class CoreController: ObservableObject {
     @Published var gameHasCustomConfig: [String: Bool] = [:]
     @Published var runtimePatchesByTitleID: [String: [RPCS3RuntimePatchRecord]] = [:]
     @Published var configDatabaseStatus = "Not synced this session"
+    @Published var rpcnConfig: RPCS3RPCNConfigRecord?
+    @Published var rpcnServers: [RPCS3RPCNServerRecord] = []
+    @Published var rpcnStatus = "RPCN not loaded"
 
     private var virtualPad = VirtualPadSnapshot()
     private let core = RPCS3DynamicCore.shared()
@@ -115,6 +118,7 @@ final class CoreController: ObservableObject {
                     self.startTelemetry()
                     _ = self.attachCurrentSurface()
                     self.refreshGames()
+                    self.restoreRPCNCredentialsFromKeychain()
                 } else {
                     self.fail(message.isEmpty
                         ? "Unable to load RPCS3Core. Run the app from StikDebug with its Universal JIT script."
@@ -131,6 +135,174 @@ final class CoreController: ObservableObject {
             let records = core.enumerateGames()
             DispatchQueue.main.async {
                 self?.games = records
+            }
+        }
+    }
+
+    func refreshRPCN() {
+        guard coreReady else { return }
+        let core = self.core
+        worker.async { [weak self] in
+            let config = core.rpcnConfig()
+            let servers = core.rpcnServers()
+            let message = core.lastError
+            DispatchQueue.main.async {
+                guard let self else { return }
+                self.rpcnConfig = config
+                self.rpcnServers = servers
+                if config.authenticated {
+                    self.rpcnStatus = "Authenticated as \(config.onlineName.isEmpty ? config.username : config.onlineName)"
+                } else if config.connected {
+                    self.rpcnStatus = "Connected to \(config.host)"
+                } else if !config.username.isEmpty {
+                    self.rpcnStatus = "Configured as \(config.username)"
+                } else {
+                    self.rpcnStatus = message.isEmpty ? "RPCN not configured" : message
+                }
+            }
+        }
+    }
+
+    func restoreRPCNCredentialsFromKeychain() {
+        guard coreReady, state == .ready else { return }
+        guard let stored = RPCNCredentialVault.load(),
+              !stored.username.isEmpty,
+              !stored.password.isEmpty else {
+            refreshRPCN()
+            return
+        }
+
+        rpcnStatus = "Restoring RPCN credentials from Keychain…"
+        let core = self.core
+        worker.async { [weak self] in
+            let ok = core.setRPCNCredentials(
+                username: stored.username,
+                password: stored.password,
+                token: stored.token,
+                ipv6: stored.ipv6
+            )
+            let message = core.lastError
+            DispatchQueue.main.async {
+                guard let self else { return }
+                self.rpcnStatus = ok
+                    ? "RPCN credentials restored from Keychain."
+                    : (message.isEmpty ? "RPCN credential restore failed." : message)
+                self.refreshRPCN()
+            }
+        }
+    }
+
+    func saveRPCNCredentials(username: String, password: String, token: String, ipv6: Bool) {
+        guard coreReady, state == .ready else { return }
+
+        let normalizedUser = username.trimmingCharacters(in: .whitespacesAndNewlines)
+        let normalizedToken = token.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
+        guard !normalizedUser.isEmpty, !password.isEmpty else {
+            rpcnStatus = "RPCN username and password are required."
+            return
+        }
+
+        rpcnStatus = "Saving RPCN credentials…"
+        let core = self.core
+        worker.async { [weak self] in
+            let ok = core.setRPCNCredentials(
+                username: normalizedUser,
+                password: password,
+                token: normalizedToken,
+                ipv6: ipv6
+            )
+            let message = core.lastError
+
+            if ok {
+                do {
+                    try RPCNCredentialVault.save(RPCNStoredCredentials(
+                        username: normalizedUser,
+                        password: password,
+                        token: normalizedToken,
+                        ipv6: ipv6
+                    ))
+                } catch {
+                    DispatchQueue.main.async {
+                        self?.rpcnStatus = "RPCN saved in the core, but Keychain save failed: \(error.localizedDescription)"
+                        self?.refreshRPCN()
+                    }
+                    return
+                }
+            }
+
+            DispatchQueue.main.async {
+                guard let self else { return }
+                self.rpcnStatus = ok
+                    ? "RPCN credentials saved."
+                    : (message.isEmpty ? "RPCN credential update failed." : message)
+                self.refreshRPCN()
+            }
+        }
+    }
+
+    func selectRPCNServer(_ server: RPCS3RPCNServerRecord) {
+        guard coreReady, state == .ready else { return }
+        let core = self.core
+        let host = server.host
+        worker.async { [weak self] in
+            let ok = core.setRPCNServer(host: host)
+            let message = core.lastError
+            DispatchQueue.main.async {
+                guard let self else { return }
+                self.rpcnStatus = ok ? "Selected RPCN server \(host)." : message
+                self.refreshRPCN()
+            }
+        }
+    }
+
+    func addRPCNServer(description: String, host: String) {
+        guard coreReady, state == .ready else { return }
+        let name = description.trimmingCharacters(in: .whitespacesAndNewlines)
+        let serverHost = host.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !name.isEmpty, !serverHost.isEmpty else {
+            rpcnStatus = "RPCN server name and host are required."
+            return
+        }
+
+        let core = self.core
+        worker.async { [weak self] in
+            let ok = core.addRPCNServer(description: name, host: serverHost)
+            let message = core.lastError
+            DispatchQueue.main.async {
+                guard let self else { return }
+                self.rpcnStatus = ok ? "Added RPCN server \(serverHost)." : message
+                self.refreshRPCN()
+            }
+        }
+    }
+
+    func removeRPCNServer(_ server: RPCS3RPCNServerRecord) {
+        guard coreReady, state == .ready, server.removable else { return }
+        let core = self.core
+        let description = server.serverDescription
+        let host = server.host
+        worker.async { [weak self] in
+            let ok = core.removeRPCNServer(description: description, host: host)
+            let message = core.lastError
+            DispatchQueue.main.async {
+                guard let self else { return }
+                self.rpcnStatus = ok ? "Removed RPCN server \(host)." : message
+                self.refreshRPCN()
+            }
+        }
+    }
+
+    func testRPCNAccount() {
+        guard coreReady, state == .ready else { return }
+        rpcnStatus = "Testing RPCN account…"
+        let core = self.core
+        worker.async { [weak self] in
+            let ok = core.testRPCNAccount()
+            let message = core.lastError
+            DispatchQueue.main.async {
+                guard let self else { return }
+                self.rpcnStatus = ok ? "RPCN authentication succeeded." : message
+                self.refreshRPCN()
             }
         }
     }
