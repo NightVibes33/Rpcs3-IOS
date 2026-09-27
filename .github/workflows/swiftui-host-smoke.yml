@@ -60,6 +60,8 @@ jobs:
             _rpcs3_ios_install_folder \
             _rpcs3_ios_install_rap \
             _rpcs3_ios_enumerate_games \
+            _rpcs3_ios_enumerate_savestates \
+            _rpcs3_ios_enumerate_trophies \
             _rpcs3_ios_boot_big_picture_mode \
             _rpcs3_ios_boot_vsh \
             _rpcs3_ios_boot_game \
