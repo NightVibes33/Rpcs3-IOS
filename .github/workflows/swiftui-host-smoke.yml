@@ -62,6 +62,8 @@ jobs:
             _rpcs3_ios_install_rap \
             _rpcs3_ios_enumerate_games \
             _rpcs3_ios_enumerate_savestates \
+            _rpcs3_ios_duplicate_savestate \
+            _rpcs3_ios_delete_savestate \
             _rpcs3_ios_enumerate_trophies \
             _rpcs3_ios_enumerate_settings \
             _rpcs3_ios_set_setting \
