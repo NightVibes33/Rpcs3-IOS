@@ -1,3 +1,8 @@
+> [!NOTE]
+> This document is retained as historical planning material. The repository has moved beyond the original Qt/interpreter-first plan.
+>
+> The canonical implementation is now the native SwiftUI/UIKit host plus XITRIX `rpcs3` `ios-port` RPCS3Core, ABI v30. See [README.md](README.md), [ROADMAP_STATUS.md](ROADMAP_STATUS.md), and [RPCS3_PARITY_AUDIT.md](RPCS3_PARITY_AUDIT.md) for current status.
+
 # Real RPCS3 iOS Port Build Plan
 
 ## Goal
