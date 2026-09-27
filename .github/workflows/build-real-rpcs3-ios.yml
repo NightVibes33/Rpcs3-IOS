@@ -14,7 +14,6 @@ on:
 permissions:
   contents: read
   actions: read
-  actions: read
 
 concurrency:
   group: real-rpcs3-ios-${{ github.ref }}
