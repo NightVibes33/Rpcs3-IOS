@@ -144,43 +144,38 @@ final class CoreController: ObservableObject {
             return
         }
 
-        URLSession.shared.dataTask(with: url) { [weak self] data, response, error in
-            if let error {
-                DispatchQueue.main.async {
-                    self?.configDatabaseStatus = "Config database download failed: \(error.localizedDescription)"
-                }
-                return
-            }
-
-            guard let http = response as? HTTPURLResponse,
-                  (200..<300).contains(http.statusCode),
-                  let data,
-                  !data.isEmpty else {
-                DispatchQueue.main.async {
-                    self?.configDatabaseStatus = "RPCS3 configuration database returned an invalid response."
-                }
-                return
-            }
-
+        Task { [weak self] in
             guard let self else { return }
-            let core = self.core
-            self.worker.async { [weak self] in
-                let ok = core.updateConfigDatabase(data: data)
-                let message = core.lastError
-                DispatchQueue.main.async {
-                    guard let self else { return }
-                    self.configDatabaseStatus = ok
-                        ? "RPCS3 configuration database synced."
-                        : (message.isEmpty ? "RPCS3 rejected the configuration database." : message)
-                    if ok {
-                        self.refreshGlobalSettings()
-                        for game in self.games {
-                            self.refreshGameSettings(for: game)
+            do {
+                let (data, response) = try await URLSession.shared.data(from: url)
+                guard let http = response as? HTTPURLResponse,
+                      (200..<300).contains(http.statusCode),
+                      !data.isEmpty else {
+                    self.configDatabaseStatus = "RPCS3 configuration database returned an invalid response."
+                    return
+                }
+
+                let core = self.core
+                self.worker.async { [weak self] in
+                    let ok = core.updateConfigDatabase(data: data)
+                    let message = core.lastError
+                    DispatchQueue.main.async {
+                        guard let self else { return }
+                        self.configDatabaseStatus = ok
+                            ? "RPCS3 configuration database synced."
+                            : (message.isEmpty ? "RPCS3 rejected the configuration database." : message)
+                        if ok {
+                            self.refreshGlobalSettings()
+                            for game in self.games {
+                                self.refreshGameSettings(for: game)
+                            }
                         }
                     }
                 }
+            } catch {
+                self.configDatabaseStatus = "Config database download failed: \(error.localizedDescription)"
             }
-        }.resume()
+        }
     }
 
     func refreshRuntimePatches(for game: RPCS3GameRecord) {
