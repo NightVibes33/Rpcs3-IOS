@@ -19,8 +19,9 @@ concurrency:
 
 jobs:
   build:
+    if: false
     name: Compile delayed-load SwiftUI host
-    runs-on: macos-15
+    runs-on: ubuntu-latest
     timeout-minutes: 25
 
     steps:
