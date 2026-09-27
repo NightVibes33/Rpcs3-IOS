@@ -69,6 +69,8 @@ jobs:
             _rpcs3_ios_set_game_setting \
             _rpcs3_ios_reset_game_settings \
             _rpcs3_ios_remove_game_settings \
+            _rpcs3_ios_enumerate_runtime_patches \
+            _rpcs3_ios_set_runtime_patch_enabled \
             _rpcs3_ios_boot_big_picture_mode \
             _rpcs3_ios_boot_vsh \
             _rpcs3_ios_boot_game \
