@@ -1,0 +1,99 @@
+name: SwiftUI Host Smoke
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [xitrix-swiftui-host]
+    paths:
+      - "NativeApp/**"
+      - "scripts/build-real-ios-app.sh"
+      - ".github/workflows/swiftui-host-smoke.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: rpcs3-swiftui-host-smoke
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Compile delayed-load SwiftUI host
+    runs-on: macos-15
+    timeout-minutes: 25
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Select Xcode 16.4
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: "16.4"
+
+      - name: Materialize verified ABI v30 test core
+        shell: bash
+        run: |
+          set -euo pipefail
+          IPA="$RUNNER_TEMP/RPCS3-v0.9.ipa"
+          curl -fL --retry 4             https://github.com/XITRIX/RPCS3-iOS-Releases/releases/download/v0.9/RPCS3.ipa             -o "$IPA"
+          echo "4cc11c8a0bc3be74685c2781741a7a2b559e94dac6b81df609ed43523e5cfec0  $IPA" | shasum -a 256 -c -
+
+          mkdir -p "$RUNNER_TEMP/official" BuildSupport/RPCS3Core
+          unzip -q "$IPA" -d "$RUNNER_TEMP/official"
+          cp "$RUNNER_TEMP/official/Payload/RPCS3.app/Frameworks/libRPCS3Core.dylib" BuildSupport/RPCS3Core/
+
+          curl -fL --retry 4             https://raw.githubusercontent.com/XITRIX/rpcs3/559987e966db0f8ac983502a160b419968e2474d/rpcs3/ios/RPCS3IOS.h             -o BuildSupport/RPCS3Core/RPCS3IOS.h
+          curl -fL --retry 4             https://raw.githubusercontent.com/XITRIX/rpcs3/559987e966db0f8ac983502a160b419968e2474d/rpcs3/ios/RPCS3IOS.exports             -o BuildSupport/RPCS3Core/RPCS3IOS.exports
+
+          nm -gU BuildSupport/RPCS3Core/libRPCS3Core.dylib > "$RUNNER_TEMP/core-symbols.txt"
+          grep -q '_rpcs3_ios_abi_version' "$RUNNER_TEMP/core-symbols.txt"
+          grep -q '_rpcs3_ios_initialize' "$RUNNER_TEMP/core-symbols.txt"
+          grep -q '_rpcs3_ios_boot_big_picture_mode' "$RUNNER_TEMP/core-symbols.txt"
+
+      - name: Compile SwiftUI host
+        shell: bash
+        run: |
+          set -o pipefail
+          bash scripts/build-real-ios-app.sh 2>&1 | tee swiftui-host-build.log
+
+      - name: Validate official-style process boundary
+        shell: bash
+        run: |
+          set -euo pipefail
+          APP="$(cat native-ios-build/app-path.txt)"
+          BIN="$APP/RPCS3"
+          CORE="$APP/Frameworks/libRPCS3Core.dylib"
+
+          test -s "$BIN"
+          test -s "$CORE"
+
+          otool -L "$BIN" | tee swiftui-host-loads.txt
+          ! grep -q 'libRPCS3Core.dylib' swiftui-host-loads.txt
+          grep -q 'SwiftUI.framework/SwiftUI' swiftui-host-loads.txt
+          grep -q 'UIKit.framework/UIKit' swiftui-host-loads.txt
+          ! grep -Eiq 'Qt(Core|Gui|Widgets)|Flutter|RPCS3UpstreamRuntime' swiftui-host-loads.txt
+
+          strings "$BIN" > swiftui-host-strings.txt
+          grep -q 'RPCS3_IOS_EXPANDED_JIT_ARENA' swiftui-host-strings.txt
+          grep -q 'Start: loading libRPCS3Core.dylib' swiftui-host-strings.txt
+          grep -q 'Big Picture Mode' swiftui-host-strings.txt
+
+          plutil -lint "$APP/Info.plist"
+          plutil -p "$APP/Info.plist" | tee swiftui-host-plist.txt
+          grep -q '17.4' swiftui-host-plist.txt
+
+      - name: Upload compile evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: RPCS3-SwiftUI-host-smoke
+          path: |
+            swiftui-host-build.log
+            swiftui-host-loads.txt
+            swiftui-host-strings.txt
+            swiftui-host-plist.txt
+            native-ios-build/app-file.txt
+            native-ios-build/app-archs.txt
+          if-no-files-found: warn
+          retention-days: 7
