@@ -5,6 +5,26 @@
 
 NS_ASSUME_NONNULL_BEGIN
 
+typedef NS_OPTIONS(uint64_t, RPCS3HostPadButton) {
+    RPCS3HostPadUp       = UINT64_C(1) << 0,
+    RPCS3HostPadDown     = UINT64_C(1) << 1,
+    RPCS3HostPadLeft     = UINT64_C(1) << 2,
+    RPCS3HostPadRight    = UINT64_C(1) << 3,
+    RPCS3HostPadCross    = UINT64_C(1) << 4,
+    RPCS3HostPadCircle   = UINT64_C(1) << 5,
+    RPCS3HostPadSquare   = UINT64_C(1) << 6,
+    RPCS3HostPadTriangle = UINT64_C(1) << 7,
+    RPCS3HostPadL1       = UINT64_C(1) << 8,
+    RPCS3HostPadR1       = UINT64_C(1) << 9,
+    RPCS3HostPadL2       = UINT64_C(1) << 10,
+    RPCS3HostPadR2       = UINT64_C(1) << 11,
+    RPCS3HostPadL3       = UINT64_C(1) << 12,
+    RPCS3HostPadR3       = UINT64_C(1) << 13,
+    RPCS3HostPadStart    = UINT64_C(1) << 14,
+    RPCS3HostPadSelect   = UINT64_C(1) << 15,
+    RPCS3HostPadPS       = UINT64_C(1) << 16,
+};
+
 @interface RPCS3DynamicCore : NSObject
 
 @property(nonatomic, readonly, getter=isLoaded) BOOL loaded;
