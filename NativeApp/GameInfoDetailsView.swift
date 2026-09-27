@@ -70,6 +70,8 @@ struct GameInfoDetailsView: View {
                 }
             }
 
+            GameStorageSection(game: game)
+
             Section("Installation") {
                 LabeledContent("Category", value: game.category.isEmpty ? "Unknown" : game.category)
                 LabeledContent("Size", value: ByteCountFormatter.string(
@@ -304,5 +306,63 @@ private struct SavestateRow: View {
         guard savestate.modifiedTime > 0 else { return savestate.identifier }
         let date = Date(timeIntervalSince1970: TimeInterval(savestate.modifiedTime))
         return date.formatted(date: .abbreviated, time: .shortened)
+    }
+}
+
+
+private struct GameStorageSection: View {
+    @EnvironmentObject private var controller: CoreController
+    let game: RPCS3GameRecord
+    @State private var confirmDelete = false
+
+    private var cache: RPCS3GameCacheRecord? {
+        controller.gameCacheByTitleID[game.titleID]
+    }
+
+    var body: some View {
+        Section("Storage & Cache") {
+            if let cache {
+                LabeledContent("Shader cache", value: size(cache.shaderBytes))
+                LabeledContent("PPU cache", value: size(cache.ppuBytes))
+                LabeledContent("SPU cache", value: size(cache.spuBytes))
+                LabeledContent("HDD1 cache", value: size(cache.hdd1Bytes))
+                LabeledContent("Total cache", value: size(cache.totalBytes))
+            }
+
+            Menu {
+                Button("Clear Shader Cache") { controller.clearGameCache(for: game, type: 1) }
+                Button("Clear PPU Cache") { controller.clearGameCache(for: game, type: 2) }
+                Button("Clear SPU Cache") { controller.clearGameCache(for: game, type: 3) }
+                Button("Clear HDD1 Cache") { controller.clearGameCache(for: game, type: 4) }
+                Button("Clear All Caches", role: .destructive) { controller.clearGameCache(for: game, type: 5) }
+            } label: {
+                Label("Clear Game Cache", systemImage: "trash.slash")
+            }
+            .disabled(controller.state != .ready)
+
+            Button("Delete Installed Game", role: .destructive) {
+                confirmDelete = true
+            }
+            .disabled(controller.state != .ready)
+        }
+        .task {
+            controller.refreshGameCache(for: game)
+        }
+        .confirmationDialog(
+            "Delete \(game.title.isEmpty ? game.titleID : game.title)?",
+            isPresented: $confirmDelete,
+            titleVisibility: .visible
+        ) {
+            Button("Delete Installed Game", role: .destructive) {
+                controller.deleteInstalledGame(game)
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("RPCS3 will remove the installed title, game/update data, caches, and custom configuration. Save data and save states are retained.")
+        }
+    }
+
+    private func size(_ bytes: UInt64) -> String {
+        ByteCountFormatter.string(fromByteCount: Int64(clamping: bytes), countStyle: .file)
     }
 }
