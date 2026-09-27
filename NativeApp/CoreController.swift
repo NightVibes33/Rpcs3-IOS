@@ -45,6 +45,7 @@ final class CoreController: ObservableObject {
     @Published var rpcnConfig: RPCS3RPCNConfigRecord?
     @Published var rpcnServers: [RPCS3RPCNServerRecord] = []
     @Published var rpcnStatus = "RPCN not loaded"
+    @Published var rpcnSocial: [RPCS3RPCNSocialRecord] = []
     @Published var gameUpdatesByTitleID: [String: [PS3GameUpdatePackage]] = [:]
     @Published var gameUpdateStatusByTitleID: [String: String] = [:]
     @Published var gameCacheByTitleID: [String: RPCS3GameCacheRecord] = [:]
@@ -345,6 +346,38 @@ final class CoreController: ObservableObject {
         }
     }
 
+    func refreshRPCNSocial() {
+        guard coreReady, state == .ready else { return }
+        let core = self.core
+        worker.async { [weak self] in
+            let records = core.rpcnSocial()
+            let message = core.lastError
+            DispatchQueue.main.async {
+                guard let self else { return }
+                self.rpcnSocial = records
+                if records.isEmpty && !message.isEmpty {
+                    self.rpcnStatus = message
+                }
+            }
+        }
+    }
+
+    func performRPCNSocialAction(_ action: UInt32, username: String) {
+        guard coreReady, state == .ready else { return }
+        let normalized = username.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalized.isEmpty else { return }
+        let core = self.core
+        worker.async { [weak self] in
+            let ok = core.performRPCNSocialAction(action, username: normalized)
+            let message = core.lastError
+            DispatchQueue.main.async {
+                guard let self else { return }
+                self.rpcnStatus = ok ? "RPCN social action completed for \(normalized)." : message
+                if ok { self.refreshRPCNSocial() }
+            }
+        }
+    }
+
     func refreshRPCN() {
         guard coreReady else { return }
         let core = self.core
@@ -356,6 +389,9 @@ final class CoreController: ObservableObject {
                 guard let self else { return }
                 self.rpcnConfig = config
                 self.rpcnServers = servers
+                if config.authenticated {
+                    self.refreshRPCNSocial()
+                }
                 if config.authenticated {
                     self.rpcnStatus = "Authenticated as \(config.onlineName.isEmpty ? config.username : config.onlineName)"
                 } else if config.connected {
