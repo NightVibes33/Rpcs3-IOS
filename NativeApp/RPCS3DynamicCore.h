@@ -64,6 +64,17 @@ typedef NS_OPTIONS(uint64_t, RPCS3HostPadButton) {
 - (BOOL)installISOAtPath:(NSString *)path error:(NSError * _Nullable * _Nullable)error;
 - (BOOL)installZIPAtPath:(NSString *)path error:(NSError * _Nullable * _Nullable)error;
 
+- (BOOL)setPlayerIndex:(uint32_t)playerIndex
+              connected:(BOOL)connected
+                buttons:(uint64_t)buttons
+                  leftX:(float)leftX
+                  leftY:(float)leftY
+                 rightX:(float)rightX
+                 rightY:(float)rightY
+            leftTrigger:(float)leftTrigger
+           rightTrigger:(float)rightTrigger
+    NS_SWIFT_NAME(setPlayer(index:connected:buttons:leftX:leftY:rightX:rightY:leftTrigger:rightTrigger:));
+
 - (BOOL)setPlayerOneConnected:(BOOL)connected
                       buttons:(uint64_t)buttons
                         leftX:(float)leftX
