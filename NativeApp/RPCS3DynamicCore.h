@@ -70,14 +70,16 @@ typedef NS_OPTIONS(uint64_t, RPCS3HostPadButton) {
 /* SwiftUI convenience surface. Detailed failure text is always available via lastError. */
 - (BOOL)startWithSupportPath:(NSString *)supportPath
                   cachePath:(NSString *)cachePath
-             jitCapacityMiB:(uint32_t)jitCapacityMiB;
+             jitCapacityMiB:(uint32_t)jitCapacityMiB
+    NS_SWIFT_NAME(start(supportPath:cachePath:jitCapacityMiB:));
 - (BOOL)attachMetalLayer:(CAMetalLayer *)layer
                    width:(uint32_t)width
                   height:(uint32_t)height
-             refreshRate:(float)refreshRate;
+             refreshRate:(float)refreshRate
+    NS_SWIFT_NAME(attach(metalLayer:width:height:refreshRate:));
 - (BOOL)detachDisplay;
 - (BOOL)bootBigPicture;
-- (BOOL)installContentAtPath:(NSString *)path;
+- (BOOL)installContentAtPath:(NSString *)path NS_SWIFT_NAME(installContent(atPath:));
 - (BOOL)pause;
 - (BOOL)resume;
 - (BOOL)stop;
