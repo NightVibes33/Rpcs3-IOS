@@ -397,6 +397,25 @@ jobs:
           unzip -l "$IPA" | tee ipa-contents.txt
           ! grep -Eiq 'Qt(Core|Gui|Widgets)|RPCS3UpstreamRuntime' ipa-contents.txt
           grep -q 'Payload/RPCS3.app/Frameworks/libRPCS3Core.dylib' ipa-contents.txt
+
+          rm -rf ipa-verify
+          mkdir ipa-verify
+          unzip -q "$IPA" -d ipa-verify
+          python3 - <<'PY'
+          import pathlib, plistlib
+          apps = list(pathlib.Path("ipa-verify/Payload").glob("*.app"))
+          assert len(apps) == 1, apps
+          app = apps[0]
+          with (app / "Info.plist").open("rb") as f:
+              info = plistlib.load(f)
+          assert info.get("CFBundleExecutable") == "RPCS3", info
+          assert info.get("CFBundlePackageType") == "APPL", info
+          assert info.get("CFBundleIdentifier") == "com.nightvibes33.rpcs3ios", info
+          assert (app / "RPCS3").is_file(), app
+          assert (app / "Frameworks" / "libRPCS3Core.dylib").is_file(), app
+          print("Installable IPA structure verified:", app)
+          PY
+
           ls -lh output
 
       - name: Upload unsigned IPA
