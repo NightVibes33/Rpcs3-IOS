@@ -59,7 +59,8 @@ typedef NS_OPTIONS(uint64_t, RPCS3HostPadButton) {
                        rightX:(float)rightX
                        rightY:(float)rightY
                   leftTrigger:(float)leftTrigger
-                 rightTrigger:(float)rightTrigger;
+                 rightTrigger:(float)rightTrigger
+    NS_SWIFT_NAME(setPlayerOne(connected:buttons:leftX:leftY:rightX:rightY:leftTrigger:rightTrigger:));
 
 - (BOOL)pauseWithError:(NSError * _Nullable * _Nullable)error;
 - (BOOL)resumeWithError:(NSError * _Nullable * _Nullable)error;
