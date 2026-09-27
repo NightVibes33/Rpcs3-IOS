@@ -50,6 +50,12 @@ struct GameInfoDetailsView: View {
                 } label: {
                     Label("Save State Manager", systemImage: "clock.arrow.circlepath")
                 }
+
+                NavigationLink {
+                    GameSettingsView(game: game)
+                } label: {
+                    Label("Game Settings", systemImage: "slider.horizontal.3")
+                }
             }
 
             Section("Installation") {
