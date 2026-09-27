@@ -60,6 +60,7 @@ jobs:
           grep -q 'dlopen' NativeApp/RPCS3DynamicCore.mm
           grep -q 'RPCS3_IOS_EXPANDED_JIT_ARENA' NativeApp/RPCS3DynamicCore.mm
           grep -q 'rpcs3_ios_boot_big_picture_mode' NativeApp/RPCS3DynamicCore.mm
+          grep -q 'rpcs3_ios_install_folder' NativeApp/RPCS3DynamicCore.mm
           grep -q 'rpcs3_ios_enumerate_games' NativeApp/RPCS3DynamicCore.mm
           grep -q 'rpcs3_ios_boot_game' NativeApp/RPCS3DynamicCore.mm
           grep -q '@main' NativeApp/RPCS3App.swift
@@ -173,7 +174,7 @@ jobs:
           grep -q '<key>get-task-allow</key>' NativeApp/RPCS3.entitlements
 
           nm -gU "$CORE" > core-exports.txt
-          for symbol in             _rpcs3_ios_initialize             _rpcs3_ios_run_llvm_self_test             _rpcs3_ios_set_display_surface             _rpcs3_ios_set_pad_state             _rpcs3_ios_install_firmware             _rpcs3_ios_install_package             _rpcs3_ios_install_iso             _rpcs3_ios_install_zip             _rpcs3_ios_boot_big_picture_mode             _rpcs3_ios_boot_game             _rpcs3_ios_get_performance_metrics             _rpcs3_ios_stop_emulation             _rpcs3_ios_shutdown; do
+          for symbol in             _rpcs3_ios_initialize             _rpcs3_ios_run_llvm_self_test             _rpcs3_ios_set_display_surface             _rpcs3_ios_set_pad_state             _rpcs3_ios_install_firmware             _rpcs3_ios_install_package             _rpcs3_ios_install_iso             _rpcs3_ios_install_zip             _rpcs3_ios_install_folder             _rpcs3_ios_boot_big_picture_mode             _rpcs3_ios_boot_game             _rpcs3_ios_get_performance_metrics             _rpcs3_ios_stop_emulation             _rpcs3_ios_shutdown; do
             grep -q " $symbol$" core-exports.txt
           done
 
