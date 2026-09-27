@@ -346,6 +346,134 @@ final class CoreController: ObservableObject {
         }
     }
 
+    func createRPCNAccount(username: String, password: String, email: String, ipv6: Bool) {
+        guard coreReady, state == .ready else { return }
+        let user = username.trimmingCharacters(in: .whitespacesAndNewlines)
+        let address = email.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !user.isEmpty, !password.isEmpty, !address.isEmpty else {
+            rpcnStatus = "RPCN username, password, and email are required."
+            return
+        }
+
+        rpcnStatus = "Creating RPCN account…"
+        let core = self.core
+        worker.async { [weak self] in
+            let ok = core.createRPCNAccount(username: user, password: password, email: address)
+            let message = core.lastError
+            if ok {
+                try? RPCNCredentialVault.save(RPCNStoredCredentials(
+                    username: user,
+                    password: password,
+                    token: "",
+                    ipv6: ipv6
+                ))
+            }
+            DispatchQueue.main.async {
+                guard let self else { return }
+                self.rpcnStatus = ok
+                    ? "RPCN account created. Check your email for the verification token."
+                    : message
+                if ok { self.refreshRPCN() }
+            }
+        }
+    }
+
+    func resendRPCNVerificationToken() {
+        guard coreReady, state == .ready else { return }
+        rpcnStatus = "Requesting a new RPCN verification token…"
+        let core = self.core
+        worker.async { [weak self] in
+            let ok = core.resendRPCNToken()
+            let message = core.lastError
+            DispatchQueue.main.async {
+                guard let self else { return }
+                self.rpcnStatus = ok
+                    ? "RPCN verification token requested. Check your email."
+                    : message
+            }
+        }
+    }
+
+    func requestRPCNPasswordReset(username: String, email: String) {
+        guard coreReady, state == .ready else { return }
+        let user = username.trimmingCharacters(in: .whitespacesAndNewlines)
+        let address = email.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !user.isEmpty, !address.isEmpty else {
+            rpcnStatus = "RPCN username and email are required."
+            return
+        }
+
+        rpcnStatus = "Requesting RPCN password-reset token…"
+        let core = self.core
+        worker.async { [weak self] in
+            let ok = core.requestRPCNPasswordReset(username: user, email: address)
+            let message = core.lastError
+            DispatchQueue.main.async {
+                guard let self else { return }
+                self.rpcnStatus = ok
+                    ? "RPCN password-reset token requested. Check your email."
+                    : message
+            }
+        }
+    }
+
+    func resetRPCNPassword(username: String, token: String, newPassword: String) {
+        guard coreReady, state == .ready else { return }
+        let user = username.trimmingCharacters(in: .whitespacesAndNewlines)
+        let normalizedToken = token.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
+        guard !user.isEmpty, normalizedToken.count == 16, !newPassword.isEmpty else {
+            rpcnStatus = "RPCN reset requires a username, 16-character token, and new password."
+            return
+        }
+
+        rpcnStatus = "Resetting RPCN password…"
+        let core = self.core
+        worker.async { [weak self] in
+            let ok = core.resetRPCNPassword(
+                username: user,
+                resetToken: normalizedToken,
+                newPassword: newPassword
+            )
+            let message = core.lastError
+
+            if ok, let stored = RPCNCredentialVault.load(), stored.username == user {
+                try? RPCNCredentialVault.save(RPCNStoredCredentials(
+                    username: stored.username,
+                    password: newPassword,
+                    token: stored.token,
+                    ipv6: stored.ipv6
+                ))
+            }
+
+            DispatchQueue.main.async {
+                guard let self else { return }
+                self.rpcnStatus = ok ? "RPCN password reset completed." : message
+                if ok { self.refreshRPCN() }
+            }
+        }
+    }
+
+    func deleteRPCNAccount() {
+        guard coreReady, state == .ready else { return }
+        rpcnStatus = "Deleting RPCN account…"
+        let core = self.core
+        worker.async { [weak self] in
+            let ok = core.deleteRPCNAccount()
+            let message = core.lastError
+            if ok {
+                try? RPCNCredentialVault.delete()
+            }
+            DispatchQueue.main.async {
+                guard let self else { return }
+                self.rpcnStatus = ok ? "RPCN account deleted." : message
+                if ok {
+                    self.rpcnSocial = []
+                    self.refreshRPCN()
+                }
+            }
+        }
+    }
+
     func refreshRPCNSocial() {
         guard coreReady, state == .ready else { return }
         let core = self.core
