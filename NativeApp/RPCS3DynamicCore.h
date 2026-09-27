@@ -122,6 +122,7 @@ typedef NS_OPTIONS(uint64_t, RPCS3HostPadButton) {
     NS_SWIFT_NAME(attach(metalLayer:width:height:refreshRate:));
 - (BOOL)detachDisplay;
 - (BOOL)bootBigPicture;
+- (BOOL)bootXMB;
 - (RPCS3BootProgressRecord *)bootProgress;
 - (RPCS3PerformanceRecord *)performanceMetrics;
 - (NSArray<RPCS3GameRecord *> *)enumerateGames;
