@@ -226,6 +226,63 @@ static NSString * const RPCS3DynamicCoreErrorDomain = @"com.nightvibes33.rpcs3.d
 }
 @end
 
+
+@interface RPCS3GameSettingsPresetRecord ()
+@property(nonatomic, readwrite) NSString *name;
+@property(nonatomic, readwrite) uint64_t size;
+@property(nonatomic, readwrite) int64_t modifiedTime;
+- (instancetype)initWithInfo:(const rpcs3_ios_game_settings_preset_info*)info;
+@end
+@implementation RPCS3GameSettingsPresetRecord
+- (instancetype)initWithInfo:(const rpcs3_ios_game_settings_preset_info*)info
+{
+    self = [super init];
+    if (!self) return nil;
+    _name = info->name ? ([NSString stringWithUTF8String:info->name] ?: @"") : @"";
+    _size = info->size;
+    _modifiedTime = info->modified_time;
+    return self;
+}
+@end
+
+@interface RPCS3RPCNSocialRecord ()
+@property(nonatomic, readwrite) uint32_t kind;
+@property(nonatomic, readwrite, getter=isOnline) BOOL online;
+@property(nonatomic, readwrite) uint64_t timestamp;
+@property(nonatomic, readwrite) NSString *username;
+@property(nonatomic, readwrite) NSString *presenceTitle;
+@property(nonatomic, readwrite) NSString *presenceStatus;
+@property(nonatomic, readwrite) NSString *presenceComment;
+@property(nonatomic, readwrite) NSString *historyDescriptionText;
+- (instancetype)initWithInfo:(const rpcs3_ios_rpcn_social_info*)info;
+@end
+@implementation RPCS3RPCNSocialRecord
+- (instancetype)initWithInfo:(const rpcs3_ios_rpcn_social_info*)info
+{
+    self = [super init];
+    if (!self) return nil;
+    auto str = [](const char* value) -> NSString* {
+        return value ? ([NSString stringWithUTF8String:value] ?: @"") : @"";
+    };
+    _kind = info->kind;
+    _online = info->online != 0;
+    _timestamp = info->timestamp;
+    _username = str(info->username);
+    _presenceTitle = str(info->presence_title);
+    _presenceStatus = str(info->presence_status);
+    _presenceComment = str(info->presence_comment);
+    _historyDescriptionText = str(info->history_description);
+    return self;
+}
+@end
+
+@interface RPCS3PadFeedbackRecord ()
+@property(nonatomic, readwrite) uint32_t largeMotor;
+@property(nonatomic, readwrite) uint32_t smallMotor;
+@end
+@implementation RPCS3PadFeedbackRecord
+@end
+
 @interface RPCS3GameCacheRecord ()
 @property(nonatomic, readwrite) uint64_t shaderBytes;
 @property(nonatomic, readwrite) uint64_t ppuBytes;
@@ -352,6 +409,27 @@ bool load_symbol(void* handle, const char* name, T& output)
 
 
 
+
+
+static void collect_game_settings_preset(void* user_context, const rpcs3_ios_game_settings_preset_info* info)
+{
+    if (!user_context || !info || info->struct_size < sizeof(rpcs3_ios_game_settings_preset_info))
+        return;
+    NSMutableArray<RPCS3GameSettingsPresetRecord*>* records =
+        (__bridge NSMutableArray<RPCS3GameSettingsPresetRecord*>*)user_context;
+    RPCS3GameSettingsPresetRecord* record = [[RPCS3GameSettingsPresetRecord alloc] initWithInfo:info];
+    if (record) [records addObject:record];
+}
+
+static void collect_rpcn_social(void* user_context, const rpcs3_ios_rpcn_social_info* info)
+{
+    if (!user_context || !info || info->struct_size < sizeof(rpcs3_ios_rpcn_social_info))
+        return;
+    NSMutableArray<RPCS3RPCNSocialRecord*>* records =
+        (__bridge NSMutableArray<RPCS3RPCNSocialRecord*>*)user_context;
+    RPCS3RPCNSocialRecord* record = [[RPCS3RPCNSocialRecord alloc] initWithInfo:info];
+    if (record) [records addObject:record];
+}
 
 static void collect_rpcn_config(void* user_context, const rpcs3_ios_rpcn_config_info* info)
 {
@@ -1266,6 +1344,193 @@ NSError* make_error(NSInteger code, NSString* message)
     return [self statusOK:_api.install_patch_repository(
                 version.UTF8String, sha256.UTF8String, data.bytes, data.length)
                 operation:@"Patch repository installation" error:nullptr];
+}
+
+
+- (NSArray<RPCS3GameSettingsPresetRecord*>*)gameSettingsPresetsForTitleID:(NSString*)titleID
+{
+    if (!self.ready || !_api.enumerate_game_settings_presets || titleID.length == 0)
+        return @[];
+    NSMutableArray<RPCS3GameSettingsPresetRecord*>* records = [NSMutableArray array];
+    const rpcs3_ios_status status = _api.enumerate_game_settings_presets(
+        titleID.UTF8String, &collect_game_settings_preset, (__bridge void*)records);
+    if (status != RPCS3_IOS_OK)
+    {
+        [self setFailure:[self coreError]];
+        return @[];
+    }
+    return [records copy];
+}
+
+- (BOOL)saveGameSettingsPresetForTitleID:(NSString*)titleID name:(NSString*)name
+{
+    if (!self.ready || !_api.save_game_settings_preset || titleID.length == 0 || name.length == 0)
+        return NO;
+    return [self statusOK:_api.save_game_settings_preset(titleID.UTF8String, name.UTF8String)
+                operation:@"Save game settings preset" error:nullptr];
+}
+
+- (BOOL)applyGameSettingsPresetForTitleID:(NSString*)titleID name:(NSString*)name
+{
+    if (!self.ready || !_api.apply_game_settings_preset || titleID.length == 0 || name.length == 0)
+        return NO;
+    return [self statusOK:_api.apply_game_settings_preset(titleID.UTF8String, name.UTF8String)
+                operation:@"Apply game settings preset" error:nullptr];
+}
+
+- (BOOL)duplicateGameSettingsPresetForTitleID:(NSString*)titleID
+                                    sourceName:(NSString*)sourceName
+                               destinationName:(NSString*)destinationName
+{
+    if (!self.ready || !_api.duplicate_game_settings_preset || titleID.length == 0 ||
+        sourceName.length == 0 || destinationName.length == 0)
+        return NO;
+    return [self statusOK:_api.duplicate_game_settings_preset(
+                titleID.UTF8String, sourceName.UTF8String, destinationName.UTF8String)
+                operation:@"Duplicate game settings preset" error:nullptr];
+}
+
+- (BOOL)renameGameSettingsPresetForTitleID:(NSString*)titleID
+                                 sourceName:(NSString*)sourceName
+                            destinationName:(NSString*)destinationName
+{
+    if (!self.ready || !_api.rename_game_settings_preset || titleID.length == 0 ||
+        sourceName.length == 0 || destinationName.length == 0)
+        return NO;
+    return [self statusOK:_api.rename_game_settings_preset(
+                titleID.UTF8String, sourceName.UTF8String, destinationName.UTF8String)
+                operation:@"Rename game settings preset" error:nullptr];
+}
+
+- (BOOL)deleteGameSettingsPresetForTitleID:(NSString*)titleID name:(NSString*)name
+{
+    if (!self.ready || !_api.delete_game_settings_preset || titleID.length == 0 || name.length == 0)
+        return NO;
+    return [self statusOK:_api.delete_game_settings_preset(titleID.UTF8String, name.UTF8String)
+                operation:@"Delete game settings preset" error:nullptr];
+}
+
+- (BOOL)importGameSettingsPresetForTitleID:(NSString*)titleID
+                                sourcePath:(NSString*)sourcePath
+                                      name:(NSString*)name
+{
+    if (!self.ready || !_api.import_game_settings_preset || titleID.length == 0 ||
+        sourcePath.length == 0 || name.length == 0)
+        return NO;
+    return [self statusOK:_api.import_game_settings_preset(
+                titleID.UTF8String, sourcePath.fileSystemRepresentation, name.UTF8String)
+                operation:@"Import game settings preset" error:nullptr];
+}
+
+- (BOOL)exportGameSettingsPresetForTitleID:(NSString*)titleID
+                                      name:(NSString*)name
+                           destinationPath:(NSString*)destinationPath
+{
+    if (!self.ready || !_api.export_game_settings_preset || titleID.length == 0 ||
+        name.length == 0 || destinationPath.length == 0)
+        return NO;
+    return [self statusOK:_api.export_game_settings_preset(
+                titleID.UTF8String, name.UTF8String, destinationPath.fileSystemRepresentation)
+                operation:@"Export game settings preset" error:nullptr];
+}
+
+- (BOOL)createRPCNAccountUsername:(NSString*)username password:(NSString*)password email:(NSString*)email
+{
+    if (!self.ready || !_api.create_rpcn_account ||
+        username.length == 0 || password.length == 0 || email.length == 0)
+        return NO;
+    return [self statusOK:_api.create_rpcn_account(
+                username.UTF8String, password.UTF8String, email.UTF8String)
+                operation:@"Create RPCN account" error:nullptr];
+}
+
+- (BOOL)resendRPCNToken
+{
+    if (!self.ready || !_api.resend_rpcn_token)
+        return NO;
+    return [self statusOK:_api.resend_rpcn_token()
+                operation:@"Resend RPCN token" error:nullptr];
+}
+
+- (BOOL)requestRPCNPasswordResetUsername:(NSString*)username email:(NSString*)email
+{
+    if (!self.ready || !_api.request_rpcn_password_reset || username.length == 0 || email.length == 0)
+        return NO;
+    return [self statusOK:_api.request_rpcn_password_reset(username.UTF8String, email.UTF8String)
+                operation:@"Request RPCN password reset" error:nullptr];
+}
+
+- (BOOL)resetRPCNPasswordUsername:(NSString*)username
+                       resetToken:(NSString*)resetToken
+                      newPassword:(NSString*)newPassword
+{
+    if (!self.ready || !_api.reset_rpcn_password ||
+        username.length == 0 || resetToken.length == 0 || newPassword.length == 0)
+        return NO;
+    return [self statusOK:_api.reset_rpcn_password(
+                username.UTF8String, resetToken.UTF8String, newPassword.UTF8String)
+                operation:@"Reset RPCN password" error:nullptr];
+}
+
+- (BOOL)deleteRPCNAccount
+{
+    if (!self.ready || !_api.delete_rpcn_account)
+        return NO;
+    return [self statusOK:_api.delete_rpcn_account()
+                operation:@"Delete RPCN account" error:nullptr];
+}
+
+- (NSArray<RPCS3RPCNSocialRecord*>*)rpcnSocial
+{
+    if (!self.ready || !_api.enumerate_rpcn_social)
+        return @[];
+    NSMutableArray<RPCS3RPCNSocialRecord*>* records = [NSMutableArray array];
+    const rpcs3_ios_status status = _api.enumerate_rpcn_social(
+        &collect_rpcn_social, (__bridge void*)records);
+    if (status != RPCS3_IOS_OK)
+    {
+        [self setFailure:[self coreError]];
+        return @[];
+    }
+    return [records copy];
+}
+
+- (BOOL)performRPCNSocialAction:(uint32_t)action username:(NSString*)username
+{
+    if (!self.ready || !_api.perform_rpcn_social_action || username.length == 0 ||
+        action > RPCS3_IOS_RPCN_SOCIAL_UNBLOCK_USER)
+        return NO;
+    return [self statusOK:_api.perform_rpcn_social_action(action, username.UTF8String)
+                operation:@"RPCN social action" error:nullptr];
+}
+
+- (RPCS3PadFeedbackRecord*)padFeedbackForPlayerIndex:(uint32_t)playerIndex
+{
+    if (!self.ready || !_api.get_pad_feedback || playerIndex > 6)
+        return nil;
+    rpcs3_ios_pad_feedback feedback = {};
+    feedback.struct_size = sizeof(feedback);
+    if (_api.get_pad_feedback(playerIndex, &feedback) != RPCS3_IOS_OK)
+    {
+        [self setFailure:[self coreError]];
+        return nil;
+    }
+    RPCS3PadFeedbackRecord* record = [[RPCS3PadFeedbackRecord alloc] init];
+    record.largeMotor = feedback.large_motor;
+    record.smallMotor = feedback.small_motor;
+    return record;
+}
+
+- (uint32_t)coreState
+{
+    return _api.get_state ? (uint32_t)_api.get_state() : (uint32_t)RPCS3_IOS_STATE_UNINITIALIZED;
+}
+
+- (uint32_t)emulationState
+{
+    return _api.get_emulation_state
+        ? (uint32_t)_api.get_emulation_state()
+        : (uint32_t)RPCS3_IOS_EMULATION_STATE_UNKNOWN;
 }
 
 - (RPCS3SettingsSnapshot*)globalSettings
