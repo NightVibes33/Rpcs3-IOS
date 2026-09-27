@@ -123,6 +123,7 @@ jobs:
           echo "IPA_SHA256=$(awk '{print $1}' RPCS3.ipa.sha256)" >> "$GITHUB_ENV"
 
       - name: Try GitHub Release
+        if: ${{ false }}
         continue-on-error: true
         shell: bash
         env:
