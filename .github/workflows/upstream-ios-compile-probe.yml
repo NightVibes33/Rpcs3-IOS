@@ -2,16 +2,6 @@ name: Upstream RPCS3 iOS Compile Probe
 
 on:
   workflow_dispatch:
-  push:
-    branches: [main]
-    paths:
-      - "CoreBridge/**"
-      - "Port/**"
-      - "cmake/toolchains/**"
-      - "scripts/compile-upstream-probe.sh"
-      - "scripts/configure-upstream-ios.sh"
-      - "scripts/apply-upstream-ios-overlay.py"
-      - ".github/workflows/upstream-ios-compile-probe.yml"
 
 permissions:
   contents: read
