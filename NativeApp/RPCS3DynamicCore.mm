@@ -227,6 +227,9 @@ struct RPCS3API
     decltype(&rpcs3_ios_install_iso) install_iso = nullptr;
     decltype(&rpcs3_ios_install_zip) install_zip = nullptr;
     decltype(&rpcs3_ios_install_folder) install_folder = nullptr;
+    decltype(&rpcs3_ios_install_game_patch) install_game_patch = nullptr;
+    decltype(&rpcs3_ios_fetch_game_update_manifest) fetch_game_update_manifest = nullptr;
+    decltype(&rpcs3_ios_download_game_update_package) download_game_update_package = nullptr;
     decltype(&rpcs3_ios_enumerate_games) enumerate_games = nullptr;
     decltype(&rpcs3_ios_enumerate_savestates) enumerate_savestates = nullptr;
     decltype(&rpcs3_ios_enumerate_trophies) enumerate_trophies = nullptr;
@@ -522,6 +525,9 @@ NSError* make_error(NSInteger code, NSString* message)
     LOAD_API(rpcs3_ios_install_iso, install_iso);
     LOAD_API(rpcs3_ios_install_zip, install_zip);
     LOAD_API(rpcs3_ios_install_folder, install_folder);
+    LOAD_API(rpcs3_ios_install_game_patch, install_game_patch);
+    LOAD_API(rpcs3_ios_fetch_game_update_manifest, fetch_game_update_manifest);
+    LOAD_API(rpcs3_ios_download_game_update_package, download_game_update_package);
     LOAD_API(rpcs3_ios_enumerate_games, enumerate_games);
     LOAD_API(rpcs3_ios_enumerate_savestates, enumerate_savestates);
     LOAD_API(rpcs3_ios_enumerate_trophies, enumerate_trophies);
@@ -857,6 +863,64 @@ NSError* make_error(NSInteger code, NSString* message)
 
 
 
+
+
+- (NSData*)gameUpdateManifestForTitleID:(NSString*)titleID
+{
+    if (!self.ready || !_api.fetch_game_update_manifest || titleID.length == 0)
+        return nil;
+
+    constexpr size_t capacity = 2u * 1024u * 1024u;
+    NSMutableData* data = [NSMutableData dataWithLength:capacity];
+    size_t written = 0;
+    const rpcs3_ios_status status = _api.fetch_game_update_manifest(
+        titleID.UTF8String, data.mutableBytes, data.length, &written);
+    if (status != RPCS3_IOS_OK)
+    {
+        [self setFailure:[self coreError]];
+        return nil;
+    }
+    if (written > data.length)
+    {
+        [self setFailure:@"RPCS3Core returned an oversized game-update manifest."];
+        return nil;
+    }
+    [data setLength:written];
+    return [data copy];
+}
+
+- (BOOL)downloadGameUpdatePackageURL:(NSString*)packageURL
+                     destinationPath:(NSString*)destinationPath
+                        expectedSize:(uint64_t)expectedSize
+{
+    if (!self.ready || !_api.download_game_update_package ||
+        packageURL.length == 0 || destinationPath.length == 0 || expectedSize == 0)
+        return NO;
+
+    return [self statusOK:_api.download_game_update_package(
+                packageURL.UTF8String,
+                destinationPath.fileSystemRepresentation,
+                expectedSize,
+                nullptr,
+                nullptr)
+                operation:@"Game-update package download"
+                    error:nullptr];
+}
+
+- (BOOL)installGamePatchForTitleID:(NSString*)titleID packagePath:(NSString*)packagePath
+{
+    if (!self.ready || !_api.install_game_patch ||
+        titleID.length == 0 || packagePath.length == 0)
+        return NO;
+
+    return [self statusOK:_api.install_game_patch(
+                titleID.UTF8String,
+                packagePath.fileSystemRepresentation,
+                nullptr,
+                nullptr)
+                operation:@"Game-update installation"
+                    error:nullptr];
+}
 
 - (RPCS3RPCNConfigRecord*)rpcnConfig
 {
