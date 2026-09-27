@@ -24,6 +24,19 @@ NS_ASSUME_NONNULL_BEGIN
 @property(nonatomic, readonly) uint64_t memoryTotalBytes;
 @end
 
+@interface RPCS3RuntimePatchRecord : NSObject
+@property(nonatomic, readonly) BOOL enabled;
+@property(nonatomic, readonly) uint32_t configurableCount;
+@property(nonatomic, readonly) NSString *hashValue;
+@property(nonatomic, readonly) NSString *title;
+@property(nonatomic, readonly) NSString *patchDescription;
+@property(nonatomic, readonly) NSString *patchVersion;
+@property(nonatomic, readonly) NSString *author;
+@property(nonatomic, readonly) NSString *notes;
+@property(nonatomic, readonly) NSString *patchGroup;
+@property(nonatomic, readonly) NSString *appVersion;
+@end
+
 @interface RPCS3SettingOptionRecord : NSObject
 @property(nonatomic, readonly) NSString *value;
 @property(nonatomic, readonly) NSString *label;
@@ -172,6 +185,17 @@ typedef NS_OPTIONS(uint64_t, RPCS3HostPadButton) {
 - (BOOL)bootXMB;
 - (RPCS3BootProgressRecord *)bootProgress;
 - (RPCS3PerformanceRecord *)performanceMetrics;
+- (NSArray<RPCS3RuntimePatchRecord *> *)runtimePatchesForTitleID:(NSString *)titleID
+                                                    appVersion:(NSString *)appVersion
+    NS_SWIFT_NAME(runtimePatches(titleID:appVersion:));
+- (BOOL)setRuntimePatchForTitleID:(NSString *)titleID
+                             hash:(NSString *)hashValue
+                            title:(NSString *)title
+                       appVersion:(NSString *)appVersion
+                      description:(NSString *)description
+                          enabled:(BOOL)enabled
+    NS_SWIFT_NAME(setRuntimePatch(titleID:hash:title:appVersion:description:enabled:));
+
 - (RPCS3SettingsSnapshot *)globalSettings;
 - (RPCS3SettingsSnapshot *)gameSettingsForTitleID:(NSString *)titleID
     NS_SWIFT_NAME(gameSettings(titleID:));
