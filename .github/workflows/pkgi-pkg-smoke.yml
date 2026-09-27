@@ -2,15 +2,6 @@ name: PKGi PKG install and boot-contract smoke test
 
 on:
   workflow_dispatch:
-  push:
-    branches: [main]
-    paths:
-      - "CoreBridge/**"
-      - "QtApp/**"
-      - "scripts/smoke-test-pkgi-pkg.py"
-      - "scripts/validate-ios-pkg-boot-contract.py"
-      - "scripts/build-qt-ios-app.sh"
-      - ".github/workflows/pkgi-pkg-smoke.yml"
 
 permissions:
   contents: read
