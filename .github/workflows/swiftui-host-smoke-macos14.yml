@@ -107,6 +107,28 @@ jobs:
             _rpcs3_ios_resume_emulation \
             _rpcs3_ios_stop_emulation \
             _rpcs3_ios_shutdown \
+            _rpcs3_ios_import_savestate \
+            _rpcs3_ios_export_savestate \
+            _rpcs3_ios_enumerate_game_patches \
+            _rpcs3_ios_get_patch_repository_url \
+            _rpcs3_ios_install_patch_repository \
+            _rpcs3_ios_enumerate_game_settings_presets \
+            _rpcs3_ios_save_game_settings_preset \
+            _rpcs3_ios_apply_game_settings_preset \
+            _rpcs3_ios_duplicate_game_settings_preset \
+            _rpcs3_ios_rename_game_settings_preset \
+            _rpcs3_ios_delete_game_settings_preset \
+            _rpcs3_ios_import_game_settings_preset \
+            _rpcs3_ios_export_game_settings_preset \
+            _rpcs3_ios_create_rpcn_account \
+            _rpcs3_ios_resend_rpcn_token \
+            _rpcs3_ios_request_rpcn_password_reset \
+            _rpcs3_ios_reset_rpcn_password \
+            _rpcs3_ios_delete_rpcn_account \
+            _rpcs3_ios_enumerate_rpcn_social \
+            _rpcs3_ios_perform_rpcn_social_action \
+            _rpcs3_ios_get_pad_feedback \
+            _rpcs3_ios_get_state \
             _rpcs3_ios_last_error; do
             grep -q " $symbol$" "$RUNNER_TEMP/core-symbols.txt"
           done
