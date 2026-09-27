@@ -2,16 +2,6 @@ name: Build RPCS3 Qt iOS Unsigned IPA
 
 on:
   workflow_dispatch:
-  push:
-    branches: [main]
-    paths:
-      - "QtApp/**"
-      - "CoreBridge/**"
-      - "Port/**"
-      - "cmake/**"
-      - "scripts/**"
-      - "UPSTREAM_RPCS3_REVISION"
-      - ".github/workflows/build-ios.yml"
 
 permissions:
   contents: read
