@@ -54,7 +54,7 @@ NS_ASSUME_NONNULL_BEGIN
 @interface RPCS3RuntimePatchRecord : NSObject
 @property(nonatomic, readonly) BOOL enabled;
 @property(nonatomic, readonly) uint32_t configurableCount;
-@property(nonatomic, readonly) NSString *hashValue;
+@property(nonatomic, readonly) NSString *patchHash;
 @property(nonatomic, readonly) NSString *title;
 @property(nonatomic, readonly) NSString *patchDescription;
 @property(nonatomic, readonly) NSString *patchVersion;
