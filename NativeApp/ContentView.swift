@@ -130,6 +130,16 @@ struct AppShellView: View {
                             .buttonStyle(.bordered)
                             .controlSize(.large)
                             .disabled(controller.state != .ready)
+
+                            NavigationLink {
+                                SettingsView()
+                            } label: {
+                                Label("RPCS3 Settings", systemImage: "slider.horizontal.3")
+                                    .frame(maxWidth: .infinity)
+                            }
+                            .buttonStyle(.bordered)
+                            .controlSize(.large)
+                            .disabled(controller.state != .ready)
                         }
                     }
 
