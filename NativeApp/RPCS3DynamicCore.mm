@@ -50,6 +50,7 @@ struct RPCS3API
     decltype(&rpcs3_ios_firmware_version) firmware_version = nullptr;
     decltype(&rpcs3_ios_install_firmware) install_firmware = nullptr;
     decltype(&rpcs3_ios_install_package) install_package = nullptr;
+    decltype(&rpcs3_ios_install_rap) install_rap = nullptr;
     decltype(&rpcs3_ios_install_iso) install_iso = nullptr;
     decltype(&rpcs3_ios_install_zip) install_zip = nullptr;
     decltype(&rpcs3_ios_install_folder) install_folder = nullptr;
@@ -57,6 +58,7 @@ struct RPCS3API
     decltype(&rpcs3_ios_set_display_surface) set_display_surface = nullptr;
     decltype(&rpcs3_ios_set_pad_state) set_pad_state = nullptr;
     decltype(&rpcs3_ios_boot_big_picture_mode) boot_big_picture_mode = nullptr;
+    decltype(&rpcs3_ios_boot_vsh) boot_vsh = nullptr;
     decltype(&rpcs3_ios_boot_game) boot_game = nullptr;
     decltype(&rpcs3_ios_get_emulation_state) get_emulation_state = nullptr;
     decltype(&rpcs3_ios_get_boot_progress) get_boot_progress = nullptr;
@@ -221,6 +223,7 @@ NSError* make_error(NSInteger code, NSString* message)
     LOAD_API(rpcs3_ios_firmware_version, firmware_version);
     LOAD_API(rpcs3_ios_install_firmware, install_firmware);
     LOAD_API(rpcs3_ios_install_package, install_package);
+    LOAD_API(rpcs3_ios_install_rap, install_rap);
     LOAD_API(rpcs3_ios_install_iso, install_iso);
     LOAD_API(rpcs3_ios_install_zip, install_zip);
     LOAD_API(rpcs3_ios_install_folder, install_folder);
@@ -228,6 +231,7 @@ NSError* make_error(NSInteger code, NSString* message)
     LOAD_API(rpcs3_ios_set_display_surface, set_display_surface);
     LOAD_API(rpcs3_ios_set_pad_state, set_pad_state);
     LOAD_API(rpcs3_ios_boot_big_picture_mode, boot_big_picture_mode);
+    LOAD_API(rpcs3_ios_boot_vsh, boot_vsh);
     LOAD_API(rpcs3_ios_boot_game, boot_game);
     LOAD_API(rpcs3_ios_get_emulation_state, get_emulation_state);
     LOAD_API(rpcs3_ios_get_boot_progress, get_boot_progress);
@@ -502,6 +506,13 @@ NSError* make_error(NSInteger code, NSString* message)
     return [self bootBigPictureWithError:nullptr];
 }
 
+- (BOOL)bootXMB
+{
+    if (!self.ready || !_api.boot_vsh)
+        return NO;
+    return [self statusOK:_api.boot_vsh() operation:@"PlayStation 3 XMB" error:nullptr];
+}
+
 - (BOOL)installContentAtPath:(NSString*)path
 {
     NSString* ext = path.pathExtension.lowercaseString;
@@ -509,6 +520,10 @@ NSError* make_error(NSInteger code, NSString* message)
         return [self installFirmwareAtPath:path error:nullptr];
     if ([ext isEqualToString:@"pkg"])
         return [self installPackageAtPath:path error:nullptr];
+    if ([ext isEqualToString:@"rap"])
+        return [self statusOK:_api.install_rap(path.fileSystemRepresentation)
+                    operation:@"RAP license installation"
+                        error:nullptr];
     if ([ext isEqualToString:@"iso"])
         return [self installISOAtPath:path error:nullptr];
     if ([ext isEqualToString:@"zip"])
