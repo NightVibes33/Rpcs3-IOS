@@ -60,6 +60,9 @@ jobs:
             _rpcs3_ios_install_zip \
             _rpcs3_ios_install_folder \
             _rpcs3_ios_install_rap \
+            _rpcs3_ios_install_game_patch \
+            _rpcs3_ios_fetch_game_update_manifest \
+            _rpcs3_ios_download_game_update_package \
             _rpcs3_ios_enumerate_games \
             _rpcs3_ios_enumerate_savestates \
             _rpcs3_ios_duplicate_savestate \
