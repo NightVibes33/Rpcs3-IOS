@@ -40,6 +40,14 @@ struct EmuSettingsView: View {
                             .foregroundStyle(.secondary)
                     }
 
+                    Section("Network") {
+                        NavigationLink {
+                            RPCNView()
+                        } label: {
+                            Label("RPCN", systemImage: "network")
+                        }
+                    }
+
                     ForEach(grouped, id: \.0) { category, settings in
                         SettingsCategoryView(
                             title: category,
