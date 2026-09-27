@@ -12,6 +12,85 @@
 static NSString * const RPCS3DynamicCoreErrorDomain = @"com.nightvibes33.rpcs3.dynamiccore";
 
 
+
+@interface RPCS3SettingOptionRecord ()
+@property(nonatomic, readwrite) NSString *value;
+@property(nonatomic, readwrite) NSString *label;
+@end
+@implementation RPCS3SettingOptionRecord
+@end
+
+@interface RPCS3SettingRecord ()
+@property(nonatomic, readwrite) uint32_t kind;
+@property(nonatomic, readwrite) NSString *key;
+@property(nonatomic, readwrite) NSString *category;
+@property(nonatomic, readwrite) NSString *section;
+@property(nonatomic, readwrite) NSString *name;
+@property(nonatomic, readwrite) NSString *settingDescription;
+@property(nonatomic, readwrite) NSString *value;
+@property(nonatomic, readwrite) NSString *defaultValue;
+@property(nonatomic, readwrite) double minimum;
+@property(nonatomic, readwrite) double maximum;
+@property(nonatomic, readwrite) double step;
+@property(nonatomic, readwrite) NSString *recommendedValue;
+@property(nonatomic, readwrite) NSArray<RPCS3SettingOptionRecord *> *options;
+@property(nonatomic, strong) NSMutableArray<RPCS3SettingOptionRecord *> *mutableOptions;
+- (instancetype)initWithInfo:(const rpcs3_ios_setting_info*)info;
+@end
+@implementation RPCS3SettingRecord
+- (instancetype)initWithInfo:(const rpcs3_ios_setting_info*)info
+{
+    self = [super init];
+    if (!self) return nil;
+    auto str = [](const char* value) -> NSString* {
+        return value ? ([NSString stringWithUTF8String:value] ?: @"") : @"";
+    };
+    _kind = info->kind;
+    _key = str(info->key);
+    _category = str(info->category);
+    _section = str(info->section);
+    _name = str(info->name);
+    _settingDescription = str(info->description);
+    _value = str(info->value);
+    _defaultValue = str(info->default_value);
+    _minimum = info->minimum;
+    _maximum = info->maximum;
+    _step = info->step;
+    _recommendedValue = str(info->recommended_value);
+    _mutableOptions = [NSMutableArray array];
+    _options = @[];
+    return self;
+}
+- (void)freezeOptions
+{
+    self.options = [self.mutableOptions copy];
+}
+@end
+
+@interface RPCS3SettingsSnapshot ()
+@property(nonatomic, readwrite) NSArray<RPCS3SettingRecord *> *settings;
+@property(nonatomic, readwrite) BOOL hasCustomConfig;
+@end
+@implementation RPCS3SettingsSnapshot
+@end
+
+@interface RPCS3SettingsCollector : NSObject
+@property(nonatomic, strong) NSMutableArray<RPCS3SettingRecord *> *records;
+@property(nonatomic, strong) NSMutableDictionary<NSString*, RPCS3SettingRecord*> *byKey;
+@end
+@implementation RPCS3SettingsCollector
+- (instancetype)init
+{
+    self = [super init];
+    if (self)
+    {
+        _records = [NSMutableArray array];
+        _byKey = [NSMutableDictionary dictionary];
+    }
+    return self;
+}
+@end
+
 @interface RPCS3BootProgressRecord ()
 @property(nonatomic, readwrite) BOOL valid;
 @property(nonatomic, readwrite) uint32_t completed;
@@ -108,6 +187,13 @@ struct RPCS3API
     decltype(&rpcs3_ios_get_emulation_state) get_emulation_state = nullptr;
     decltype(&rpcs3_ios_get_boot_progress) get_boot_progress = nullptr;
     decltype(&rpcs3_ios_get_performance_metrics) get_performance_metrics = nullptr;
+    decltype(&rpcs3_ios_enumerate_settings) enumerate_settings = nullptr;
+    decltype(&rpcs3_ios_set_setting) set_setting = nullptr;
+    decltype(&rpcs3_ios_reset_settings) reset_settings = nullptr;
+    decltype(&rpcs3_ios_enumerate_game_settings) enumerate_game_settings = nullptr;
+    decltype(&rpcs3_ios_set_game_setting) set_game_setting = nullptr;
+    decltype(&rpcs3_ios_reset_game_settings) reset_game_settings = nullptr;
+    decltype(&rpcs3_ios_remove_game_settings) remove_game_settings = nullptr;
     decltype(&rpcs3_ios_pause_emulation) pause_emulation = nullptr;
     decltype(&rpcs3_ios_resume_emulation) resume_emulation = nullptr;
     decltype(&rpcs3_ios_stop_emulation) stop_emulation = nullptr;
@@ -144,6 +230,43 @@ bool load_symbol(void* handle, const char* name, T& output)
 }
 
 
+
+
+static void collect_setting(void* user_context, const rpcs3_ios_setting_info* info)
+{
+    if (!user_context || !info || info->struct_size < sizeof(rpcs3_ios_setting_info))
+        return;
+    RPCS3SettingsCollector* collector = (__bridge RPCS3SettingsCollector*)user_context;
+    RPCS3SettingRecord* record = [[RPCS3SettingRecord alloc] initWithInfo:info];
+    if (!record || record.key.length == 0) return;
+    [collector.records addObject:record];
+    collector.byKey[record.key] = record;
+}
+
+static void collect_setting_option(void* user_context, const rpcs3_ios_setting_option* info)
+{
+    if (!user_context || !info || info->struct_size < sizeof(rpcs3_ios_setting_option) || !info->setting_key)
+        return;
+    RPCS3SettingsCollector* collector = (__bridge RPCS3SettingsCollector*)user_context;
+    NSString* key = [NSString stringWithUTF8String:info->setting_key] ?: @"";
+    RPCS3SettingRecord* setting = collector.byKey[key];
+    if (!setting) return;
+
+    RPCS3SettingOptionRecord* option = [[RPCS3SettingOptionRecord alloc] init];
+    option.value = info->value ? ([NSString stringWithUTF8String:info->value] ?: @"") : @"";
+    option.label = info->label ? ([NSString stringWithUTF8String:info->label] ?: option.value) : option.value;
+    [setting.mutableOptions addObject:option];
+}
+
+static RPCS3SettingsSnapshot* finish_settings_snapshot(RPCS3SettingsCollector* collector, BOOL hasCustomConfig)
+{
+    for (RPCS3SettingRecord* record in collector.records)
+        [record freezeOptions];
+    RPCS3SettingsSnapshot* snapshot = [[RPCS3SettingsSnapshot alloc] init];
+    snapshot.settings = [collector.records copy];
+    snapshot.hasCustomConfig = hasCustomConfig;
+    return snapshot;
+}
 
 static void collect_savestate(void* user_context, const rpcs3_ios_savestate_info* info)
 {
@@ -304,6 +427,13 @@ NSError* make_error(NSInteger code, NSString* message)
     LOAD_API(rpcs3_ios_get_emulation_state, get_emulation_state);
     LOAD_API(rpcs3_ios_get_boot_progress, get_boot_progress);
     LOAD_API(rpcs3_ios_get_performance_metrics, get_performance_metrics);
+    LOAD_API(rpcs3_ios_enumerate_settings, enumerate_settings);
+    LOAD_API(rpcs3_ios_set_setting, set_setting);
+    LOAD_API(rpcs3_ios_reset_settings, reset_settings);
+    LOAD_API(rpcs3_ios_enumerate_game_settings, enumerate_game_settings);
+    LOAD_API(rpcs3_ios_set_game_setting, set_game_setting);
+    LOAD_API(rpcs3_ios_reset_game_settings, reset_game_settings);
+    LOAD_API(rpcs3_ios_remove_game_settings, remove_game_settings);
     LOAD_API(rpcs3_ios_pause_emulation, pause_emulation);
     LOAD_API(rpcs3_ios_resume_emulation, resume_emulation);
     LOAD_API(rpcs3_ios_stop_emulation, stop_emulation);
@@ -608,6 +738,81 @@ NSError* make_error(NSInteger code, NSString* message)
 }
 
 
+
+
+- (RPCS3SettingsSnapshot*)globalSettings
+{
+    RPCS3SettingsCollector* collector = [[RPCS3SettingsCollector alloc] init];
+    if (!self.ready || !_api.enumerate_settings)
+        return finish_settings_snapshot(collector, NO);
+    const rpcs3_ios_status status = _api.enumerate_settings(
+        &collect_setting, &collect_setting_option, (__bridge void*)collector);
+    if (status != RPCS3_IOS_OK)
+        [self setFailure:[self coreError]];
+    return finish_settings_snapshot(collector, NO);
+}
+
+- (RPCS3SettingsSnapshot*)gameSettingsForTitleID:(NSString*)titleID
+{
+    RPCS3SettingsCollector* collector = [[RPCS3SettingsCollector alloc] init];
+    if (!self.ready || !_api.enumerate_game_settings || titleID.length == 0)
+        return finish_settings_snapshot(collector, NO);
+    uint32_t custom = 0;
+    const rpcs3_ios_status status = _api.enumerate_game_settings(
+        titleID.UTF8String,
+        &collect_setting,
+        &collect_setting_option,
+        (__bridge void*)collector,
+        &custom);
+    if (status != RPCS3_IOS_OK)
+        [self setFailure:[self coreError]];
+    return finish_settings_snapshot(collector, custom != 0);
+}
+
+- (BOOL)setGlobalSettingKey:(NSString*)key value:(NSString*)value
+{
+    if (!self.ready || !_api.set_setting || key.length == 0)
+        return NO;
+    return [self statusOK:_api.set_setting(key.UTF8String, value.UTF8String)
+                operation:@"Global setting update"
+                    error:nullptr];
+}
+
+- (BOOL)resetGlobalSettings
+{
+    if (!self.ready || !_api.reset_settings)
+        return NO;
+    return [self statusOK:_api.reset_settings()
+                operation:@"Reset global settings"
+                    error:nullptr];
+}
+
+- (BOOL)setGameSettingForTitleID:(NSString*)titleID key:(NSString*)key value:(NSString*)value
+{
+    if (!self.ready || !_api.set_game_setting || titleID.length == 0 || key.length == 0)
+        return NO;
+    return [self statusOK:_api.set_game_setting(titleID.UTF8String, key.UTF8String, value.UTF8String)
+                operation:@"Game setting update"
+                    error:nullptr];
+}
+
+- (BOOL)resetGameSettingsForTitleID:(NSString*)titleID
+{
+    if (!self.ready || !_api.reset_game_settings || titleID.length == 0)
+        return NO;
+    return [self statusOK:_api.reset_game_settings(titleID.UTF8String)
+                operation:@"Reset game settings"
+                    error:nullptr];
+}
+
+- (BOOL)removeGameSettingsForTitleID:(NSString*)titleID
+{
+    if (!self.ready || !_api.remove_game_settings || titleID.length == 0)
+        return NO;
+    return [self statusOK:_api.remove_game_settings(titleID.UTF8String)
+                operation:@"Remove game settings"
+                    error:nullptr];
+}
 
 - (RPCS3BootProgressRecord*)bootProgress
 {
