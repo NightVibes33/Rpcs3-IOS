@@ -24,6 +24,25 @@ NS_ASSUME_NONNULL_BEGIN
 @property(nonatomic, readonly) uint64_t memoryTotalBytes;
 @end
 
+@interface RPCS3RPCNConfigRecord : NSObject
+@property(nonatomic, readonly) BOOL hasPassword;
+@property(nonatomic, readonly) BOOL hasToken;
+@property(nonatomic, readonly) BOOL ipv6Support;
+@property(nonatomic, readonly) BOOL connected;
+@property(nonatomic, readonly) BOOL authenticated;
+@property(nonatomic, readonly) NSString *username;
+@property(nonatomic, readonly) NSString *host;
+@property(nonatomic, readonly) NSString *onlineName;
+@property(nonatomic, readonly) NSString *avatarURL;
+@end
+
+@interface RPCS3RPCNServerRecord : NSObject
+@property(nonatomic, readonly) BOOL selected;
+@property(nonatomic, readonly) BOOL removable;
+@property(nonatomic, readonly) NSString *serverDescription;
+@property(nonatomic, readonly) NSString *host;
+@end
+
 @interface RPCS3RuntimePatchRecord : NSObject
 @property(nonatomic, readonly) BOOL enabled;
 @property(nonatomic, readonly) uint32_t configurableCount;
@@ -195,6 +214,22 @@ typedef NS_OPTIONS(uint64_t, RPCS3HostPadButton) {
                       description:(NSString *)description
                           enabled:(BOOL)enabled
     NS_SWIFT_NAME(setRuntimePatch(titleID:hash:title:appVersion:description:enabled:));
+
+- (RPCS3RPCNConfigRecord *)rpcnConfig;
+- (NSArray<RPCS3RPCNServerRecord *> *)rpcnServers;
+- (BOOL)setRPCNServerHost:(NSString *)host NS_SWIFT_NAME(setRPCNServer(host:));
+- (BOOL)addRPCNServerDescription:(NSString *)description
+                            host:(NSString *)host
+    NS_SWIFT_NAME(addRPCNServer(description:host:));
+- (BOOL)removeRPCNServerDescription:(NSString *)description
+                               host:(NSString *)host
+    NS_SWIFT_NAME(removeRPCNServer(description:host:));
+- (BOOL)setRPCNCredentialsUsername:(NSString *)username
+                          password:(NSString *)password
+                             token:(NSString *)token
+                              ipv6:(BOOL)ipv6
+    NS_SWIFT_NAME(setRPCNCredentials(username:password:token:ipv6:));
+- (BOOL)testRPCNAccount;
 
 - (BOOL)updateConfigDatabaseData:(NSData *)data NS_SWIFT_NAME(updateConfigDatabase(data:));
 
