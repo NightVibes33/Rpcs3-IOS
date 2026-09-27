@@ -31,12 +31,16 @@ final class CoreController: ObservableObject {
     @Published var games: [RPCS3GameRecord] = []
     @Published var hasPhysicalController = !GCController.controllers().isEmpty
     @Published var touchControllerVisible = true
+    @Published var bootStage = ""
+    @Published var bootFraction: Double?
+    @Published var performanceSummary = ""
 
     private var virtualPad = VirtualPadSnapshot()
     private let core = RPCS3DynamicCore.shared()
     private let worker = DispatchQueue(label: "com.nightvibes33.rpcs3.core", qos: .userInitiated)
     private var metalView: RPCS3MetalView?
     private var inputManager: GameControllerInputManager?
+    private var telemetryTimer: Timer?
 
     var coreReady: Bool { state == .ready || state == .launching || state == .running }
     var sessionRunning: Bool { state == .running }
@@ -101,6 +105,7 @@ final class CoreController: ObservableObject {
                         }
                     )
                     self.inputManager?.start()
+                    self.startTelemetry()
                     _ = self.attachCurrentSurface()
                     self.refreshGames()
                 } else {
@@ -131,6 +136,8 @@ final class CoreController: ObservableObject {
         }
 
         state = .launching
+        bootStage = "Starting \(game.title)"
+        bootFraction = nil
         status = "Starting \(game.title)…"
         let core = self.core
         let titleID = game.titleID
@@ -141,6 +148,8 @@ final class CoreController: ObservableObject {
                 guard let self else { return }
                 if ok {
                     self.state = .running
+                    self.bootStage = ""
+                    self.bootFraction = nil
                     self.status = game.title
                 } else {
                     self.state = .ready
@@ -158,6 +167,8 @@ final class CoreController: ObservableObject {
         }
 
         state = .launching
+        bootStage = "Starting RPCS3 Big Picture Mode"
+        bootFraction = nil
         status = "Starting RPCS3 Big Picture Mode"
         let core = self.core
         worker.async { [weak self] in
@@ -167,6 +178,8 @@ final class CoreController: ObservableObject {
                 guard let self else { return }
                 if ok {
                     self.state = .running
+                    self.bootStage = ""
+                    self.bootFraction = nil
                     self.status = "Big Picture Mode"
                 } else {
                     self.state = .ready
@@ -246,11 +259,58 @@ final class CoreController: ObservableObject {
             DispatchQueue.main.async {
                 guard let self else { return }
                 self.state = ok ? .ready : .failed
+                self.bootStage = ""
+                self.bootFraction = nil
+                self.performanceSummary = ""
                 self.clearVirtualPad()
                 self.status = ok
                     ? "RPCS3 session stopped. RPCS3Core remains initialized."
                     : message
             }
+        }
+    }
+
+    private func startTelemetry() {
+        guard telemetryTimer == nil else { return }
+        telemetryTimer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [weak self] _ in
+            guard let self else { return }
+
+            if self.state == .launching {
+                let progress = self.core.bootProgress()
+                if progress.valid {
+                    self.bootStage = progress.stage
+                    self.bootFraction = progress.total > 0
+                        ? Double(progress.completed) / Double(progress.total)
+                        : nil
+                }
+            }
+
+            if self.state == .running {
+                let metrics = self.core.performanceMetrics()
+                var parts: [String] = []
+                if metrics.fpsValid {
+                    parts.append(String(format: "%.1f FPS", metrics.framesPerSecond))
+                }
+                if metrics.cpuValid {
+                    parts.append(String(format: "CPU %.0f%%", metrics.cpuUsagePercent))
+                }
+                if metrics.gpuValid {
+                    parts.append(String(format: "RSX %.0f%%", metrics.gpuUsagePercent))
+                }
+                if metrics.memoryValid {
+                    let used = ByteCountFormatter.string(
+                        fromByteCount: Int64(clamping: metrics.memoryUsedBytes),
+                        countStyle: .memory
+                    )
+                    parts.append("RAM \(used)")
+                }
+                self.performanceSummary = parts.joined(separator: "  •  ")
+            } else if self.state != .launching {
+                self.performanceSummary = ""
+            }
+        }
+        if let telemetryTimer {
+            RunLoop.main.add(telemetryTimer, forMode: .common)
         }
     }
 
