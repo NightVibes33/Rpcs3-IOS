@@ -2,12 +2,12 @@ name: Publish Direct RPCS3 IPA
 
 on:
   workflow_run:
-    workflows: ["Build Real XITRIX Frontend IPA"]
+    workflows: ["SwiftUI Host Smoke"]
     types: [completed]
   workflow_dispatch:
     inputs:
       run_id:
-        description: "Successful Build Real RPCS3 iOS run ID"
+        description: "Successful SwiftUI Host Smoke run ID"
         required: true
         type: string
   push:
@@ -21,10 +21,14 @@ permissions:
 
 jobs:
   publish:
-    if: github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success'
+    if: >-
+      github.event_name != 'workflow_run' ||
+      (github.event.workflow_run.conclusion == 'success' &&
+       github.event.workflow_run.head_branch == 'xitrix-swiftui-host')
     runs-on: ubuntu-latest
+
     steps:
-      - name: Resolve source run
+      - name: Resolve new SwiftUI source run
         shell: bash
         env:
           EVENT_NAME: ${{ github.event_name }}
@@ -34,6 +38,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
+
           if [[ "$EVENT_NAME" == "workflow_run" ]]; then
             RUN_ID="$EVENT_RUN_ID"
             RUN_SHA="$EVENT_RUN_SHA"
@@ -41,103 +46,106 @@ jobs:
             RUN_ID="$INPUT_RUN_ID"
             RUN_SHA="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$RUN_ID" --jq .head_sha)"
             CONCLUSION="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$RUN_ID" --jq .conclusion)"
+            NAME="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$RUN_ID" --jq .name)"
             test "$CONCLUSION" = "success"
+            test "$NAME" = "SwiftUI Host Smoke"
           else
-            RUN_ID="$(gh run list --repo "$GITHUB_REPOSITORY" --workflow build-real-xitrix-frontend.yml --branch real-xitrix-frontend --status success --limit 1 --json databaseId --jq '.[0].databaseId')"
+            RUN_ID="$(gh run list               --repo "$GITHUB_REPOSITORY"               --workflow swiftui-host-smoke.yml               --branch xitrix-swiftui-host               --status success               --limit 1               --json databaseId               --jq '.[0].databaseId')"
             RUN_SHA="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$RUN_ID" --jq .head_sha)"
           fi
+
           test -n "$RUN_ID"
           test -n "$RUN_SHA"
           echo "RUN_ID=$RUN_ID" >> "$GITHUB_ENV"
           echo "RUN_SHA=$RUN_SHA" >> "$GITHUB_ENV"
           echo "SHORT_SHA=$(printf '%s' "$RUN_SHA" | cut -c1-7)" >> "$GITHUB_ENV"
 
-      - name: Download successful IPA artifact
+      - name: Download new SwiftUI IPA artifact
         uses: actions/download-artifact@v4
         with:
-          name: RPCS3-REAL-XITRIX-FRONTEND-current-core-unsigned
+          name: RPCS3-XITRIX-currentcore-SwiftUI-unsigned
           path: downloaded
           run-id: ${{ env.RUN_ID }}
           github-token: ${{ github.token }}
 
-      - name: Validate actual IPA payload
+      - name: Validate new frontend and valid IPA bundle
         shell: bash
         run: |
           set -euo pipefail
-          IPA="$(find downloaded -maxdepth 2 -type f -name '*.ipa' -print -quit)"
+
+          IPA="$(find downloaded -maxdepth 3 -type f -name '*.ipa' -print -quit)"
           test -n "$IPA"
 
           rm -rf verify
           mkdir verify
           unzip -q "$IPA" -d verify
 
-          APP="$(find verify/Payload -maxdepth 1 -type d -name '*.app' -print -quit)"
+          test -d verify/Payload
+          APP="$(find verify/Payload -mindepth 1 -maxdepth 1 -type d -name '*.app' -print -quit)"
           test -n "$APP"
           test -f "$APP/Info.plist"
-          test -s "$APP/RPCS3"
+
+          EXECUTABLE="$(python3 - "$APP/Info.plist" <<'PY'
+          import plistlib,sys
+          with open(sys.argv[1],"rb") as f:
+              p=plistlib.load(f)
+          print(p["CFBundleExecutable"])
+          PY
+          )"
+          BIN="$APP/$EXECUTABLE"
+
+          test -s "$BIN"
           test -s "$APP/Frameworks/libRPCS3Core.dylib"
 
-          python3 - <<'PY'
-          import plistlib, pathlib
-          apps=list(pathlib.Path("verify/Payload").glob("*.app"))
-          assert len(apps)==1, apps
-          app=apps[0]
-          with (app/"Info.plist").open("rb") as f:
-              info=plistlib.load(f)
-          assert info.get("CFBundleExecutable")=="RPCS3", info
-          assert info.get("CFBundlePackageType")=="APPL", info
-          assert info.get("CFBundleIdentifier")=="com.xitrix.RPCS3", info
-          assert info.get("CFBundleDisplayName")=="RPCS3", info
-          assert info.get("MinimumOSVersion")=="17.4", info
-          assert (app/"RPCS3").is_file()
-          assert (app/"Frameworks"/"libRPCS3Core.dylib").is_file()
-          print("Validated installable IPA:", app)
+          python3 - "$APP/Info.plist" <<'PY'
+          import plistlib,sys
+          with open(sys.argv[1],"rb") as f:
+              p=plistlib.load(f)
+
+          required = {
+              "CFBundlePackageType": "APPL",
+              "CFBundleDisplayName": "RPCS3",
+          }
+          for key,value in required.items():
+              assert p.get(key) == value, (key,p.get(key))
+
+          bid=p.get("CFBundleIdentifier","")
+          assert bid.startswith("com."), bid
+          assert p.get("CFBundleExecutable"), p
+          minimum=p.get("MinimumOSVersion","")
+          assert minimum, p
+          print("Validated app metadata:", bid, p["CFBundleExecutable"], minimum)
           PY
+
+          strings "$BIN" > app-strings.txt
+          grep -q 'Start: loading libRPCS3Core.dylib' app-strings.txt
+          grep -q 'RPCS3_IOS_EXPANDED_JIT_ARENA' app-strings.txt
+          grep -q 'Big Picture Mode' app-strings.txt
+          grep -q 'RPCN' app-strings.txt
+          grep -q 'Save State Manager' app-strings.txt
+          grep -q 'Game Patches' app-strings.txt
+
+          ! grep -q 'RPCS3 Qt iOS upstream main_window.ui' app-strings.txt
+          ! grep -q 'RPCS3UpstreamRuntime.framework' app-strings.txt
+          ! find "$APP" -path '*Qt*.framework*' -o -name 'RPCS3UpstreamRuntime.framework' | grep -q .
+
+          if command -v llvm-objdump >/dev/null 2>&1; then
+            llvm-objdump -p "$BIN" > app-loads.txt || true
+            ! grep -q 'libRPCS3Core.dylib' app-loads.txt
+          else
+            : > app-loads.txt
+          fi
+
+          unzip -l "$IPA" > ipa-contents.txt
+          grep -Eq 'Payload/[^/]+\.app/Info\.plist$' ipa-contents.txt
+          grep -Eq 'Payload/[^/]+\.app/[^/]+$' ipa-contents.txt
+          grep -Eq 'Payload/[^/]+\.app/Frameworks/libRPCS3Core\.dylib$' ipa-contents.txt
 
           cp "$IPA" RPCS3.ipa
           sha256sum RPCS3.ipa > RPCS3.ipa.sha256
-
-          cat > XITRIX-required-entitlements.plist <<'PLIST'
-          <?xml version="1.0" encoding="UTF-8"?>
-          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "https://www.apple.com/DTDs/PropertyList-1.0.dtd">
-          <plist version="1.0">
-          <dict>
-            <key>com.apple.developer.kernel.extended-virtual-addressing</key>
-            <true/>
-            <key>com.apple.developer.kernel.increased-debugging-memory-limit</key>
-            <true/>
-            <key>com.apple.developer.kernel.increased-memory-limit</key>
-            <true/>
-            <key>get-task-allow</key>
-            <true/>
-          </dict>
-          </plist>
-          PLIST
-          python3 - <<'PY'
-          import plistlib
-          with open("XITRIX-required-entitlements.plist", "rb") as f:
-              plistlib.load(f)
-          print("Validated XITRIX-required-entitlements.plist")
-          PY
-
           echo "IPA_SHA256=$(awk '{print $1}' RPCS3.ipa.sha256)" >> "$GITHUB_ENV"
 
-      - name: Try GitHub Release
-        if: ${{ false }}
-        continue-on-error: true
-        shell: bash
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-          TAG="ios-dev-${SHORT_SHA}"
-          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            gh release upload "$TAG" RPCS3.ipa RPCS3.ipa.sha256 XITRIX-required-entitlements.plist --clobber --repo "$GITHUB_REPOSITORY"
-          else
-            gh release create "$TAG" RPCS3.ipa RPCS3.ipa.sha256 XITRIX-required-entitlements.plist --title "RPCS3 iOS — Official XITRIX frontend + current core ${SHORT_SHA}" --notes "Unsigned IPA preserving the byte-for-byte official XITRIX v0.9 frontend and replacing only libRPCS3Core.dylib with the current source-built iOS core. Sign the app and nested dylib with the required entitlements before launch." --prerelease --target "$RUN_SHA" --repo "$GITHUB_REPOSITORY"
-          fi
-
-      - name: Publish stable direct-download branch
+      - name: Publish only the new SwiftUI IPA
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
@@ -145,19 +153,18 @@ jobs:
           set -euo pipefail
           rm -rf direct-publish
           mkdir direct-publish
-          cp RPCS3.ipa RPCS3.ipa.sha256 XITRIX-required-entitlements.plist direct-publish/
-          cat > direct-publish/README.md <<'EOF'
+          cp RPCS3.ipa RPCS3.ipa.sha256 direct-publish/
+
+          cat > direct-publish/README.md <<EOF
           # RPCS3 iOS direct build
 
-          Source build run: ${RUN_ID}
-          Source commit: ${RUN_SHA}
-          IPA SHA-256: ${IPA_SHA256}
+          Source workflow: SwiftUI Host Smoke
+          Source run: $RUN_ID
+          Source commit: $RUN_SHA
+          IPA SHA-256: $IPA_SHA256
 
-          `RPCS3.ipa` preserves the byte-for-byte official XITRIX v0.9 frontend and uses the current source-built RPCS3 iOS core.
-
-          Before launch, your signer must sign both `Payload/RPCS3.app/RPCS3` and `Payload/RPCS3.app/Frameworks/libRPCS3Core.dylib`.
-          The required executable entitlements are included as `XITRIX-required-entitlements.plist`.
-          On iOS 26/27, launch RPCS3 from StikDebug with XITRIX's Universal JIT script before pressing Start.
+          This is the current native SwiftUI/UIKit frontend backed by the current XITRIX RPCS3 iOS core.
+          It is NOT the retired Qt frontend and NOT the byte-for-byte XITRIX v0.9 frontend repack.
           EOF
 
           cd direct-publish
@@ -165,26 +172,34 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git checkout -b downloads
-          git add RPCS3.ipa RPCS3.ipa.sha256 XITRIX-required-entitlements.plist README.md
-          git commit -m "Publish validated RPCS3 IPA from ${RUN_SHA}"
+          git add RPCS3.ipa RPCS3.ipa.sha256 README.md
+          git commit -m "Publish current SwiftUI RPCS3 IPA from $RUN_SHA"
           git remote add origin "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
           git push --force origin downloads
 
-      - name: Verify stable raw IPA download
+      - name: Verify stable raw IPA
         shell: bash
         run: |
           set -euo pipefail
           URL="https://raw.githubusercontent.com/${GITHUB_REPOSITORY}/downloads/RPCS3.ipa"
+
           for attempt in 1 2 3 4 5; do
             rm -f raw-RPCS3.ipa
             if curl -fL --retry 2 "$URL" -o raw-RPCS3.ipa; then
               ACTUAL="$(sha256sum raw-RPCS3.ipa | awk '{print $1}')"
               if [[ "$ACTUAL" == "$IPA_SHA256" ]]; then
-                echo "Direct IPA verified: $URL"
+                rm -rf raw-verify
+                mkdir raw-verify
+                unzip -q raw-RPCS3.ipa -d raw-verify
+                APP="$(find raw-verify/Payload -mindepth 1 -maxdepth 1 -type d -name '*.app' -print -quit)"
+                test -n "$APP"
+                test -f "$APP/Info.plist"
+                echo "Direct new-UI IPA verified: $URL"
                 exit 0
               fi
             fi
             sleep 3
           done
-          echo "Direct raw IPA did not match expected SHA-256." >&2
+
+          echo "Stable raw IPA did not match or was structurally invalid." >&2
           exit 1
