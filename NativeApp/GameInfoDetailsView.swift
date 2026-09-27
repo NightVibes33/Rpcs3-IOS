@@ -62,6 +62,12 @@ struct GameInfoDetailsView: View {
                 } label: {
                     Label("Manage Game Patches", systemImage: "wrench.and.screwdriver")
                 }
+
+                NavigationLink {
+                    GameUpdatesView(game: game)
+                } label: {
+                    Label("Game Updates", systemImage: "arrow.down.circle")
+                }
             }
 
             Section("Installation") {
