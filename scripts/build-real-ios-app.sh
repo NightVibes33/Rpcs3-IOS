@@ -24,15 +24,25 @@ chmod 0755 "$APP/Frameworks/libRPCS3Core.dylib"
 BIN="$APP/RPCS3"
 test -s "$BIN"
 otool -L "$BIN" | tee "$BUILD/app-linked-libraries.txt"
-grep -q '@rpath/libRPCS3Core.dylib' "$BUILD/app-linked-libraries.txt"
-! grep -qi 'Qt.*framework' "$BUILD/app-linked-libraries.txt"
+
+# XITRIX v0.9 selects the arena policy before RPCS3Core is loaded. A load-time
+# dependency here would make that ordering impossible.
+! grep -q 'libRPCS3Core.dylib' "$BUILD/app-linked-libraries.txt"
+! grep -Eiq 'Qt(Core|Gui|Widgets)|RPCS3UpstreamRuntime|Flutter' "$BUILD/app-linked-libraries.txt"
+grep -q 'SwiftUI.framework/SwiftUI' "$BUILD/app-linked-libraries.txt"
+grep -q 'UIKit.framework/UIKit' "$BUILD/app-linked-libraries.txt"
 
 nm -gU "$APP/Frameworks/libRPCS3Core.dylib" > "$BUILD/core-exports.txt"
 grep -q '_rpcs3_ios_boot_big_picture_mode' "$BUILD/core-exports.txt"
 grep -q '_rpcs3_ios_run_llvm_self_test' "$BUILD/core-exports.txt"
 grep -q '_rpcs3_ios_set_display_surface' "$BUILD/core-exports.txt"
 
+strings "$BIN" > "$BUILD/app-strings.txt"
+grep -q 'RPCS3_IOS_EXPANDED_JIT_ARENA' "$BUILD/app-strings.txt"
+grep -q 'libRPCS3Core.dylib' "$BUILD/app-strings.txt"
+grep -q 'Big Picture Mode' "$BUILD/app-strings.txt"
+
 file "$BIN" | tee "$BUILD/app-file.txt"
 lipo -archs "$BIN" | tee "$BUILD/app-archs.txt"
 printf '%s\n' "$APP" > "$BUILD/app-path.txt"
-echo "PASS: native host links directly to XITRIX RPCS3Core; Qt is absent"
+echo "PASS: SwiftUI host delays RPCS3Core loading until after JIT policy selection"
