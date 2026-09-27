@@ -245,6 +245,8 @@ struct RPCS3API
     decltype(&rpcs3_ios_enumerate_savestates) enumerate_savestates = nullptr;
     decltype(&rpcs3_ios_duplicate_savestate) duplicate_savestate = nullptr;
     decltype(&rpcs3_ios_delete_savestate) delete_savestate = nullptr;
+    decltype(&rpcs3_ios_import_savestate) import_savestate = nullptr;
+    decltype(&rpcs3_ios_export_savestate) export_savestate = nullptr;
     decltype(&rpcs3_ios_enumerate_trophies) enumerate_trophies = nullptr;
     decltype(&rpcs3_ios_set_display_surface) set_display_surface = nullptr;
     decltype(&rpcs3_ios_set_pad_state) set_pad_state = nullptr;
@@ -548,6 +550,8 @@ NSError* make_error(NSInteger code, NSString* message)
     LOAD_API(rpcs3_ios_enumerate_savestates, enumerate_savestates);
     LOAD_API(rpcs3_ios_duplicate_savestate, duplicate_savestate);
     LOAD_API(rpcs3_ios_delete_savestate, delete_savestate);
+    LOAD_API(rpcs3_ios_import_savestate, import_savestate);
+    LOAD_API(rpcs3_ios_export_savestate, export_savestate);
     LOAD_API(rpcs3_ios_enumerate_trophies, enumerate_trophies);
     LOAD_API(rpcs3_ios_set_display_surface, set_display_surface);
     LOAD_API(rpcs3_ios_set_pad_state, set_pad_state);
@@ -1291,6 +1295,31 @@ NSError* make_error(NSInteger code, NSString* message)
         return NO;
     return [self statusOK:_api.delete_savestate(titleID.UTF8String, identifier.UTF8String)
                 operation:@"Delete save state"
+                    error:nullptr];
+}
+
+
+- (BOOL)importSavestateForTitleID:(NSString*)titleID sourcePath:(NSString*)sourcePath
+{
+    if (!self.ready || !_api.import_savestate || titleID.length == 0 || sourcePath.length == 0)
+        return NO;
+    return [self statusOK:_api.import_savestate(titleID.UTF8String, sourcePath.fileSystemRepresentation)
+                operation:@"Import save state"
+                    error:nullptr];
+}
+
+- (BOOL)exportSavestateForTitleID:(NSString*)titleID
+                       identifier:(NSString*)identifier
+                  destinationPath:(NSString*)destinationPath
+{
+    if (!self.ready || !_api.export_savestate ||
+        titleID.length == 0 || identifier.length == 0 || destinationPath.length == 0)
+        return NO;
+    return [self statusOK:_api.export_savestate(
+                titleID.UTF8String,
+                identifier.UTF8String,
+                destinationPath.fileSystemRepresentation)
+                operation:@"Export save state"
                     error:nullptr];
 }
 
