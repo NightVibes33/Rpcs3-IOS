@@ -2,7 +2,7 @@ name: Publish Direct RPCS3 IPA
 
 on:
   workflow_run:
-    workflows: ["Build Real RPCS3 iOS"]
+    workflows: ["Build Real XITRIX Frontend IPA"]
     types: [completed]
   workflow_dispatch:
     inputs:
@@ -43,7 +43,7 @@ jobs:
             CONCLUSION="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$RUN_ID" --jq .conclusion)"
             test "$CONCLUSION" = "success"
           else
-            RUN_ID="$(gh run list --repo "$GITHUB_REPOSITORY" --workflow build-real-rpcs3-ios.yml --branch main --status success --limit 1 --json databaseId --jq '.[0].databaseId')"
+            RUN_ID="$(gh run list --repo "$GITHUB_REPOSITORY" --workflow build-real-xitrix-frontend.yml --branch real-xitrix-frontend --status success --limit 1 --json databaseId --jq '.[0].databaseId')"
             RUN_SHA="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$RUN_ID" --jq .head_sha)"
           fi
           test -n "$RUN_ID"
@@ -55,7 +55,7 @@ jobs:
       - name: Download successful IPA artifact
         uses: actions/download-artifact@v4
         with:
-          name: RPCS3-XITRIX-iOS-unsigned
+          name: RPCS3-REAL-XITRIX-FRONTEND-current-core-unsigned
           path: downloaded
           run-id: ${{ env.RUN_ID }}
           github-token: ${{ github.token }}
@@ -86,7 +86,9 @@ jobs:
               info=plistlib.load(f)
           assert info.get("CFBundleExecutable")=="RPCS3", info
           assert info.get("CFBundlePackageType")=="APPL", info
-          assert info.get("CFBundleIdentifier")=="com.nightvibes33.rpcs3ios", info
+          assert info.get("CFBundleIdentifier")=="com.xitrix.RPCS3", info
+          assert info.get("CFBundleDisplayName")=="RPCS3", info
+          assert info.get("MinimumOSVersion")=="17.4", info
           assert (app/"RPCS3").is_file()
           assert (app/"Frameworks"/"libRPCS3Core.dylib").is_file()
           print("Validated installable IPA:", app)
@@ -94,6 +96,25 @@ jobs:
 
           cp "$IPA" RPCS3.ipa
           sha256sum RPCS3.ipa > RPCS3.ipa.sha256
+
+          cat > XITRIX-required-entitlements.plist <<'PLIST'
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "https://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+            <key>com.apple.developer.kernel.extended-virtual-addressing</key>
+            <true/>
+            <key>com.apple.developer.kernel.increased-debugging-memory-limit</key>
+            <true/>
+            <key>com.apple.developer.kernel.increased-memory-limit</key>
+            <true/>
+            <key>get-task-allow</key>
+            <true/>
+          </dict>
+          </plist>
+          PLIST
+          plutil -lint XITRIX-required-entitlements.plist
+
           echo "IPA_SHA256=$(awk '{print $1}' RPCS3.ipa.sha256)" >> "$GITHUB_ENV"
 
       - name: Try GitHub Release
@@ -105,9 +126,9 @@ jobs:
           set -euo pipefail
           TAG="ios-dev-${SHORT_SHA}"
           if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            gh release upload "$TAG" RPCS3.ipa RPCS3.ipa.sha256 --clobber --repo "$GITHUB_REPOSITORY"
+            gh release upload "$TAG" RPCS3.ipa RPCS3.ipa.sha256 XITRIX-required-entitlements.plist --clobber --repo "$GITHUB_REPOSITORY"
           else
-            gh release create "$TAG" RPCS3.ipa RPCS3.ipa.sha256               --title "RPCS3 iOS — XITRIX Core ${SHORT_SHA}"               --notes "Installer-ready unsigned IPA from canonical green build run ${RUN_ID}."               --prerelease               --target "$RUN_SHA"               --repo "$GITHUB_REPOSITORY"
+            gh release create "$TAG" RPCS3.ipa RPCS3.ipa.sha256 XITRIX-required-entitlements.plist --title "RPCS3 iOS — Official XITRIX frontend + current core ${SHORT_SHA}" --notes "Unsigned IPA preserving the byte-for-byte official XITRIX v0.9 frontend and replacing only libRPCS3Core.dylib with the current source-built iOS core. Sign the app and nested dylib with the required entitlements before launch." --prerelease --target "$RUN_SHA" --repo "$GITHUB_REPOSITORY"
           fi
 
       - name: Publish stable direct-download branch
@@ -118,7 +139,7 @@ jobs:
           set -euo pipefail
           rm -rf direct-publish
           mkdir direct-publish
-          cp RPCS3.ipa RPCS3.ipa.sha256 direct-publish/
+          cp RPCS3.ipa RPCS3.ipa.sha256 XITRIX-required-entitlements.plist direct-publish/
           cat > direct-publish/README.md <<EOF
           # RPCS3 iOS direct build
 
@@ -126,7 +147,11 @@ jobs:
           Source commit: ${RUN_SHA}
           IPA SHA-256: ${IPA_SHA256}
 
-          `RPCS3.ipa` is the validated unsigned IPA itself, not a GitHub Actions artifact wrapper.
+          `RPCS3.ipa` preserves the byte-for-byte official XITRIX v0.9 frontend and uses the current source-built RPCS3 iOS core.
+
+          Before launch, your signer must sign both `Payload/RPCS3.app/RPCS3` and `Payload/RPCS3.app/Frameworks/libRPCS3Core.dylib`.
+          The required executable entitlements are included as `XITRIX-required-entitlements.plist`.
+          On iOS 26/27, launch RPCS3 from StikDebug with XITRIX's Universal JIT script before pressing Start.
           EOF
 
           cd direct-publish
@@ -134,7 +159,7 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git checkout -b downloads
-          git add RPCS3.ipa RPCS3.ipa.sha256 README.md
+          git add RPCS3.ipa RPCS3.ipa.sha256 XITRIX-required-entitlements.plist README.md
           git commit -m "Publish validated RPCS3 IPA from ${RUN_SHA}"
           git remote add origin "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
           git push --force origin downloads
