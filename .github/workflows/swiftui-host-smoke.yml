@@ -83,6 +83,35 @@ jobs:
           plutil -p "$APP/Info.plist" | tee swiftui-host-plist.txt
           grep -q '17.4' swiftui-host-plist.txt
 
+      - name: Package unsigned official-core test IPA
+        shell: bash
+        run: |
+          set -euo pipefail
+          APP="$(cat native-ios-build/app-path.txt)"
+          rm -rf Payload smoke-output
+          mkdir -p Payload smoke-output
+          /usr/bin/ditto "$APP" Payload/RPCS3.app
+          rm -rf Payload/RPCS3.app/_CodeSignature
+          rm -f Payload/RPCS3.app/embedded.mobileprovision
+          test -s Payload/RPCS3.app/RPCS3
+          test -s Payload/RPCS3.app/Frameworks/libRPCS3Core.dylib
+          /usr/bin/plutil -lint Payload/RPCS3.app/Info.plist
+
+          SHORT_SHA="$(printf '%s' "$GITHUB_SHA" | cut -c1-7)"
+          IPA="smoke-output/RPCS3-XITRIX-v0.9core-SwiftUI-${SHORT_SHA}-unsigned.ipa"
+          /usr/bin/ditto -c -k --sequesterRsrc --keepParent Payload "$IPA"
+          shasum -a 256 "$IPA" > "$IPA.sha256"
+          unzip -l "$IPA" | tee swiftui-host-ipa-contents.txt
+          grep -q 'Payload/RPCS3.app/Frameworks/libRPCS3Core.dylib' swiftui-host-ipa-contents.txt
+
+      - name: Upload unsigned official-core test IPA
+        uses: actions/upload-artifact@v4
+        with:
+          name: RPCS3-XITRIX-v0.9core-SwiftUI-unsigned
+          path: smoke-output/*
+          if-no-files-found: error
+          retention-days: 14
+
       - name: Upload compile evidence
         if: always()
         uses: actions/upload-artifact@v4
@@ -93,6 +122,7 @@ jobs:
             swiftui-host-loads.txt
             swiftui-host-strings.txt
             swiftui-host-plist.txt
+            swiftui-host-ipa-contents.txt
             native-ios-build/app-file.txt
             native-ios-build/app-archs.txt
           if-no-files-found: warn
