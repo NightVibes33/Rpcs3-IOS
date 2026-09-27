@@ -36,6 +36,7 @@ final class CoreController: ObservableObject {
     @Published var performanceSummary = ""
     @Published var trophiesByTitleID: [String: [RPCS3TrophyRecord]] = [:]
     @Published var savestatesByTitleID: [String: [RPCS3SavestateRecord]] = [:]
+    @Published var savestateExportURL: URL?
     @Published var globalSettings: [RPCS3SettingRecord] = []
     @Published var gameSettingsByTitleID: [String: [RPCS3SettingRecord]] = [:]
     @Published var gameHasCustomConfig: [String: Bool] = [:]
@@ -984,6 +985,97 @@ final class CoreController: ObservableObject {
                 self.savestatesByTitleID[titleID] = records
                 if records.isEmpty && !message.isEmpty {
                     self.status = message
+                }
+            }
+        }
+    }
+
+    func importSavestate(for game: RPCS3GameRecord, from url: URL) {
+        guard coreReady, state == .ready, let cacheRoot else { return }
+        let core = self.core
+        let titleID = game.titleID
+        status = "Importing save state…"
+
+        worker.async { [weak self] in
+            let scoped = url.startAccessingSecurityScopedResource()
+            defer {
+                if scoped { url.stopAccessingSecurityScopedResource() }
+            }
+
+            do {
+                let staging = cacheRoot.appendingPathComponent("savestate-import", isDirectory: true)
+                try FileManager.default.createDirectory(at: staging, withIntermediateDirectories: true)
+                let safeName = url.lastPathComponent.replacingOccurrences(
+                    of: "[^0-9A-Za-z._-]",
+                    with: "_",
+                    options: .regularExpression
+                )
+                let staged = staging.appendingPathComponent(safeName)
+                try? FileManager.default.removeItem(at: staged)
+                try FileManager.default.copyItem(at: url, to: staged)
+                defer { try? FileManager.default.removeItem(at: staged) }
+
+                let ok = core.importSavestate(titleID: titleID, sourcePath: staged.path)
+                let message = core.lastError
+                DispatchQueue.main.async {
+                    guard let self else { return }
+                    self.status = ok ? "Save state imported." : message
+                    if ok { self.refreshSavestates(for: game) }
+                }
+            } catch {
+                DispatchQueue.main.async {
+                    self?.status = "Save-state import failed: \(error.localizedDescription)"
+                }
+            }
+        }
+    }
+
+    func exportSavestate(for game: RPCS3GameRecord, savestate: RPCS3SavestateRecord) {
+        guard coreReady, state == .ready, let cacheRoot else { return }
+        let core = self.core
+        let titleID = game.titleID
+        let identifier = savestate.identifier
+        status = "Exporting save state…"
+
+        worker.async { [weak self] in
+            do {
+                let exportRoot = cacheRoot.appendingPathComponent("savestate-export", isDirectory: true)
+                try FileManager.default.createDirectory(at: exportRoot, withIntermediateDirectories: true)
+
+                let lower = identifier.lowercased()
+                let suffix: String
+                if lower.hasSuffix(".savestat.zst") {
+                    suffix = ".SAVESTAT.zst"
+                } else if lower.hasSuffix(".savestat.gz") {
+                    suffix = ".SAVESTAT.gz"
+                } else {
+                    suffix = ".SAVESTAT"
+                }
+
+                let cleanTitle = titleID.replacingOccurrences(
+                    of: "[^0-9A-Za-z._-]",
+                    with: "_",
+                    options: .regularExpression
+                )
+                let stamp = Int(Date().timeIntervalSince1970)
+                let destination = exportRoot.appendingPathComponent("\(cleanTitle)-\(stamp)\(suffix)")
+                try? FileManager.default.removeItem(at: destination)
+
+                let ok = core.exportSavestate(
+                    titleID: titleID,
+                    savestateID: identifier,
+                    destinationPath: destination.path
+                )
+                let message = core.lastError
+                DispatchQueue.main.async {
+                    guard let self else { return }
+                    self.savestateExportURL = ok ? destination : nil
+                    self.status = ok ? "Save state exported and ready to share." : message
+                }
+            } catch {
+                DispatchQueue.main.async {
+                    self?.savestateExportURL = nil
+                    self?.status = "Save-state export failed: \(error.localizedDescription)"
                 }
             }
         }
