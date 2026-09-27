@@ -2,15 +2,6 @@ name: Probe Real RPCS3 iOS Graph
 
 on:
   workflow_dispatch:
-  push:
-    branches: [main]
-    paths:
-      - "Port/**"
-      - "CoreBridge/**"
-      - "cmake/**"
-      - "scripts/**"
-      - "UPSTREAM_RPCS3_REVISION"
-      - ".github/workflows/upstream-graph-probe.yml"
 
 permissions:
   contents: read
