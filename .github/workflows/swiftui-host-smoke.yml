@@ -11,6 +11,7 @@ on:
 
 permissions:
   contents: read
+  actions: read
 
 concurrency:
   group: rpcs3-swiftui-host-smoke-${{ github.ref }}
@@ -31,20 +32,30 @@ jobs:
         with:
           xcode-version: "16.4"
 
-      - name: Materialize verified ABI v30 test core
+      - name: Materialize exact source-built XITRIX core
+        uses: actions/download-artifact@v4
+        with:
+          name: RPCS3-XITRIX-build-evidence
+          path: baseline-current
+          run-id: 36348158249
+          github-token: ${{ github.token }}
+
+      - name: Validate exact source core
         shell: bash
         run: |
           set -euo pipefail
-          IPA="$RUNNER_TEMP/RPCS3-v0.9.ipa"
-          curl -fL --retry 4             https://github.com/XITRIX/RPCS3-iOS-Releases/releases/download/v0.9/RPCS3.ipa             -o "$IPA"
-          echo "4cc11c8a0bc3be74685c2781741a7a2b559e94dac6b81df609ed43523e5cfec0  $IPA" | shasum -a 256 -c -
+          SOURCE="baseline-current/BuildSupport/RPCS3Core"
+          test -s "$SOURCE/libRPCS3Core.dylib"
+          test -s "$SOURCE/RPCS3IOS.h"
+          test -s "$SOURCE/RPCS3IOS.exports"
 
-          mkdir -p "$RUNNER_TEMP/official" BuildSupport/RPCS3Core
-          unzip -q "$IPA" -d "$RUNNER_TEMP/official"
-          cp "$RUNNER_TEMP/official/Payload/RPCS3.app/Frameworks/libRPCS3Core.dylib" BuildSupport/RPCS3Core/
+          test "$(tr -d '[:space:]' < "$SOURCE/RPCS3_SOURCE_COMMIT.txt")" = "559987e966db0f8ac983502a160b419968e2474d"
+          test "$(tr -d '[:space:]' < "$SOURCE/RPCS3_IOS_ABI.txt")" = "30"
+          test "$(shasum -a 256 "$SOURCE/libRPCS3Core.dylib" | awk '{print $1}')" = "fee47f0b090bb3c8f1dcf6ba0ee825bd9ca93d00a263a8b90b463cc04a7b6891"
 
-          curl -fL --retry 4             https://raw.githubusercontent.com/XITRIX/rpcs3/559987e966db0f8ac983502a160b419968e2474d/rpcs3/ios/RPCS3IOS.h             -o BuildSupport/RPCS3Core/RPCS3IOS.h
-          curl -fL --retry 4             https://raw.githubusercontent.com/XITRIX/rpcs3/559987e966db0f8ac983502a160b419968e2474d/rpcs3/ios/RPCS3IOS.exports             -o BuildSupport/RPCS3Core/RPCS3IOS.exports
+          rm -rf BuildSupport/RPCS3Core
+          mkdir -p BuildSupport
+          cp -R "$SOURCE" BuildSupport/RPCS3Core
 
           nm -gU BuildSupport/RPCS3Core/libRPCS3Core.dylib > "$RUNNER_TEMP/core-symbols.txt"
           for symbol in \
@@ -129,7 +140,7 @@ jobs:
           plutil -p "$APP/Info.plist" | tee swiftui-host-plist.txt
           grep -q '17.4' swiftui-host-plist.txt
 
-      - name: Package unsigned official-core test IPA
+      - name: Package unsigned current-core test IPA
         shell: bash
         run: |
           set -euo pipefail
@@ -144,16 +155,16 @@ jobs:
           /usr/bin/plutil -lint Payload/RPCS3.app/Info.plist
 
           SHORT_SHA="$(printf '%s' "$GITHUB_SHA" | cut -c1-7)"
-          IPA="smoke-output/RPCS3-XITRIX-v0.9core-SwiftUI-${SHORT_SHA}-unsigned.ipa"
+          IPA="smoke-output/RPCS3-XITRIX-currentcore-SwiftUI-${SHORT_SHA}-unsigned.ipa"
           /usr/bin/ditto -c -k --sequesterRsrc --keepParent Payload "$IPA"
           shasum -a 256 "$IPA" > "$IPA.sha256"
           unzip -l "$IPA" | tee swiftui-host-ipa-contents.txt
           grep -q 'Payload/RPCS3.app/Frameworks/libRPCS3Core.dylib' swiftui-host-ipa-contents.txt
 
-      - name: Upload unsigned official-core test IPA
+      - name: Upload unsigned current-core test IPA
         uses: actions/upload-artifact@v4
         with:
-          name: RPCS3-XITRIX-v0.9core-SwiftUI-unsigned
+          name: RPCS3-XITRIX-currentcore-SwiftUI-unsigned
           path: smoke-output/*
           if-no-files-found: error
           retention-days: 14
