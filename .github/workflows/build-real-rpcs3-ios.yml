@@ -28,6 +28,7 @@ jobs:
       HOMEBREW_NO_AUTO_UPDATE: "1"
       IOS_DEPLOYMENT_TARGET: "17.4"
       BUILD_JOBS: "3"
+      CCACHE_DIR: ${{ github.workspace }}/.ccache
 
     steps:
       - name: Checkout
@@ -54,7 +55,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: |
-            ~/.cache/ccache
+            .ccache
           key: rpcs3-ios-ccache-${{ runner.os }}-xcode16.4-${{ hashFiles('UPSTREAM_RPCS3_REVISION', 'scripts/build-real-xitrix-core.sh') }}
           restore-keys: |
             rpcs3-ios-ccache-${{ runner.os }}-xcode16.4-
