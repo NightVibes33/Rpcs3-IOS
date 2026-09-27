@@ -5,6 +5,25 @@
 
 NS_ASSUME_NONNULL_BEGIN
 
+@interface RPCS3BootProgressRecord : NSObject
+@property(nonatomic, readonly) BOOL valid;
+@property(nonatomic, readonly) uint32_t completed;
+@property(nonatomic, readonly) uint32_t total;
+@property(nonatomic, readonly) NSString *stage;
+@end
+
+@interface RPCS3PerformanceRecord : NSObject
+@property(nonatomic, readonly) BOOL fpsValid;
+@property(nonatomic, readonly) BOOL cpuValid;
+@property(nonatomic, readonly) BOOL gpuValid;
+@property(nonatomic, readonly) BOOL memoryValid;
+@property(nonatomic, readonly) double framesPerSecond;
+@property(nonatomic, readonly) double cpuUsagePercent;
+@property(nonatomic, readonly) double gpuUsagePercent;
+@property(nonatomic, readonly) uint64_t memoryUsedBytes;
+@property(nonatomic, readonly) uint64_t memoryTotalBytes;
+@end
+
 @interface RPCS3GameRecord : NSObject
 @property(nonatomic, readonly) NSString *titleID;
 @property(nonatomic, readonly) NSString *title;
@@ -103,6 +122,8 @@ typedef NS_OPTIONS(uint64_t, RPCS3HostPadButton) {
     NS_SWIFT_NAME(attach(metalLayer:width:height:refreshRate:));
 - (BOOL)detachDisplay;
 - (BOOL)bootBigPicture;
+- (RPCS3BootProgressRecord *)bootProgress;
+- (RPCS3PerformanceRecord *)performanceMetrics;
 - (NSArray<RPCS3GameRecord *> *)enumerateGames;
 - (BOOL)bootGameWithTitleID:(NSString *)titleID NS_SWIFT_NAME(bootGame(titleID:));
 - (BOOL)installContentAtPath:(NSString *)path NS_SWIFT_NAME(installContent(atPath:));
