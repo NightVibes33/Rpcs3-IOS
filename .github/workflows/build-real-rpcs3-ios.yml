@@ -17,7 +17,7 @@ permissions:
 
 concurrency:
   group: real-rpcs3-ios-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   build:
