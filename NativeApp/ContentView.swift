@@ -274,43 +274,57 @@ struct GameRow: View {
     let game: RPCS3GameRecord
 
     var body: some View {
-        Button {
-            controller.launch(game: game)
-        } label: {
-            HStack(spacing: 14) {
-                gameIcon
-                    .frame(width: 72, height: 72)
-                    .clipShape(RoundedRectangle(cornerRadius: 12))
+        HStack(spacing: 10) {
+            Button {
+                controller.launch(game: game)
+            } label: {
+                HStack(spacing: 14) {
+                    gameIcon
+                        .frame(width: 72, height: 72)
+                        .clipShape(RoundedRectangle(cornerRadius: 12))
 
-                VStack(alignment: .leading, spacing: 5) {
-                    Text(game.title.isEmpty ? game.titleID : game.title)
-                        .font(.headline)
-                        .foregroundStyle(.primary)
-                        .lineLimit(2)
-                    HStack(spacing: 8) {
-                        Text(game.titleID)
-                        if !game.version.isEmpty {
-                            Text("v\(game.version)")
+                    VStack(alignment: .leading, spacing: 5) {
+                        Text(game.title.isEmpty ? game.titleID : game.title)
+                            .font(.headline)
+                            .foregroundStyle(.primary)
+                            .lineLimit(2)
+                        HStack(spacing: 8) {
+                            Text(game.titleID)
+                            if !game.version.isEmpty {
+                                Text("v\(game.version)")
+                            }
                         }
-                    }
-                    .font(.caption.monospaced())
-                    .foregroundStyle(.secondary)
+                        .font(.caption.monospaced())
+                        .foregroundStyle(.secondary)
 
-                    if game.sizeOnDisk > 0 {
-                        Text(ByteCountFormatter.string(fromByteCount: Int64(clamping: game.sizeOnDisk), countStyle: .file))
+                        if game.sizeOnDisk > 0 {
+                            Text(ByteCountFormatter.string(
+                                fromByteCount: Int64(clamping: game.sizeOnDisk),
+                                countStyle: .file
+                            ))
                             .font(.caption)
                             .foregroundStyle(.secondary)
+                        }
                     }
-                }
 
-                Spacer()
-                Image(systemName: "play.fill")
-                    .foregroundStyle(game.bootable ? Color.accentColor : .secondary)
+                    Spacer()
+                    Image(systemName: "play.fill")
+                        .foregroundStyle(game.bootable ? Color.accentColor : .secondary)
+                }
+                .contentShape(Rectangle())
             }
-            .contentShape(Rectangle())
+            .buttonStyle(.plain)
+            .disabled(!game.bootable || controller.state != .ready)
+
+            NavigationLink {
+                GameInfoDetailsView(game: game)
+            } label: {
+                Image(systemName: "info.circle")
+                    .font(.title3)
+                    .frame(width: 40, height: 40)
+            }
+            .buttonStyle(.plain)
         }
-        .buttonStyle(.plain)
-        .disabled(!game.bootable || controller.state != .ready)
     }
 
     @ViewBuilder
