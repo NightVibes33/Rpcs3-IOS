@@ -61,6 +61,17 @@ final class CoreController: ObservableObject {
     var canStart: Bool { state == .stopped || state == .failed }
     var buildInfo: String { core.buildInfo }
 
+    var diagnosticsLogURL: URL? {
+        FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first?
+            .appendingPathComponent("RPCS3 Logs", isDirectory: true)
+            .appendingPathComponent("ios-host.log", isDirectory: false)
+    }
+
+    var diagnosticsLogAvailable: Bool {
+        guard let diagnosticsLogURL else { return false }
+        return FileManager.default.fileExists(atPath: diagnosticsLogURL.path)
+    }
+
     func registerMetalView(_ view: RPCS3MetalView) {
         metalView = view
         if coreReady {
