@@ -330,48 +330,78 @@ final class GameControllerInputManager {
 
     private func push() {
         guard let core else { return }
-        guard let gamepad = GCController.controllers().first?.extendedGamepad else {
+
+        let controllers = Array(GCController.controllers().prefix(7))
+        if controllers.isEmpty {
             physicalStateChanged(false)
             let pad = virtualState()
-            _ = core.setPlayerOne(
+            _ = core.setPlayer(
+                index: 0,
                 connected: true,
                 buttons: pad.buttons,
                 leftX: pad.leftX, leftY: pad.leftY,
                 rightX: pad.rightX, rightY: pad.rightY,
                 leftTrigger: pad.leftTrigger, rightTrigger: pad.rightTrigger
             )
+            for player in 1..<7 {
+                _ = core.setPlayer(
+                    index: UInt32(player),
+                    connected: false,
+                    buttons: 0,
+                    leftX: 0, leftY: 0,
+                    rightX: 0, rightY: 0,
+                    leftTrigger: 0, rightTrigger: 0
+                )
+            }
             return
         }
 
         physicalStateChanged(true)
-        var buttons: UInt64 = 0
-        if gamepad.dpad.up.isPressed { buttons |= 1 << 0 }
-        if gamepad.dpad.down.isPressed { buttons |= 1 << 1 }
-        if gamepad.dpad.left.isPressed { buttons |= 1 << 2 }
-        if gamepad.dpad.right.isPressed { buttons |= 1 << 3 }
-        if gamepad.buttonA.isPressed { buttons |= 1 << 4 }
-        if gamepad.buttonB.isPressed { buttons |= 1 << 5 }
-        if gamepad.buttonX.isPressed { buttons |= 1 << 6 }
-        if gamepad.buttonY.isPressed { buttons |= 1 << 7 }
-        if gamepad.leftShoulder.isPressed { buttons |= 1 << 8 }
-        if gamepad.rightShoulder.isPressed { buttons |= 1 << 9 }
-        if gamepad.leftTrigger.isPressed { buttons |= 1 << 10 }
-        if gamepad.rightTrigger.isPressed { buttons |= 1 << 11 }
-        if gamepad.leftThumbstickButton?.isPressed == true { buttons |= 1 << 12 }
-        if gamepad.rightThumbstickButton?.isPressed == true { buttons |= 1 << 13 }
-        if gamepad.buttonMenu.isPressed { buttons |= 1 << 14 }
-        if gamepad.buttonOptions?.isPressed == true { buttons |= 1 << 15 }
-        if #available(iOS 14.0, *), gamepad.buttonHome?.isPressed == true { buttons |= 1 << 16 }
 
-        _ = core.setPlayerOne(
-            connected: true,
-            buttons: buttons,
-            leftX: gamepad.leftThumbstick.xAxis.value,
-            leftY: gamepad.leftThumbstick.yAxis.value,
-            rightX: gamepad.rightThumbstick.xAxis.value,
-            rightY: gamepad.rightThumbstick.yAxis.value,
-            leftTrigger: gamepad.leftTrigger.value,
-            rightTrigger: gamepad.rightTrigger.value
-        )
+        for player in 0..<7 {
+            guard player < controllers.count,
+                  let gamepad = controllers[player].extendedGamepad else {
+                _ = core.setPlayer(
+                    index: UInt32(player),
+                    connected: false,
+                    buttons: 0,
+                    leftX: 0, leftY: 0,
+                    rightX: 0, rightY: 0,
+                    leftTrigger: 0, rightTrigger: 0
+                )
+                continue
+            }
+
+            var buttons: UInt64 = 0
+            if gamepad.dpad.up.isPressed { buttons |= 1 << 0 }
+            if gamepad.dpad.down.isPressed { buttons |= 1 << 1 }
+            if gamepad.dpad.left.isPressed { buttons |= 1 << 2 }
+            if gamepad.dpad.right.isPressed { buttons |= 1 << 3 }
+            if gamepad.buttonA.isPressed { buttons |= 1 << 4 }
+            if gamepad.buttonB.isPressed { buttons |= 1 << 5 }
+            if gamepad.buttonX.isPressed { buttons |= 1 << 6 }
+            if gamepad.buttonY.isPressed { buttons |= 1 << 7 }
+            if gamepad.leftShoulder.isPressed { buttons |= 1 << 8 }
+            if gamepad.rightShoulder.isPressed { buttons |= 1 << 9 }
+            if gamepad.leftTrigger.isPressed { buttons |= 1 << 10 }
+            if gamepad.rightTrigger.isPressed { buttons |= 1 << 11 }
+            if gamepad.leftThumbstickButton?.isPressed == true { buttons |= 1 << 12 }
+            if gamepad.rightThumbstickButton?.isPressed == true { buttons |= 1 << 13 }
+            if gamepad.buttonMenu.isPressed { buttons |= 1 << 14 }
+            if gamepad.buttonOptions?.isPressed == true { buttons |= 1 << 15 }
+            if #available(iOS 14.0, *), gamepad.buttonHome?.isPressed == true { buttons |= 1 << 16 }
+
+            _ = core.setPlayer(
+                index: UInt32(player),
+                connected: true,
+                buttons: buttons,
+                leftX: gamepad.leftThumbstick.xAxis.value,
+                leftY: gamepad.leftThumbstick.yAxis.value,
+                rightX: gamepad.rightThumbstick.xAxis.value,
+                rightY: gamepad.rightThumbstick.yAxis.value,
+                leftTrigger: gamepad.leftTrigger.value,
+                rightTrigger: gamepad.rightTrigger.value
+            )
+        }
     }
 }
