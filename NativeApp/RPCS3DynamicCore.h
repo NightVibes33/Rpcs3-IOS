@@ -24,14 +24,6 @@ NS_ASSUME_NONNULL_BEGIN
 @property(nonatomic, readonly) uint64_t memoryTotalBytes;
 @end
 
-@interface RPCS3GameCacheRecord : NSObject
-@property(nonatomic, readonly) uint64_t shaderBytes;
-@property(nonatomic, readonly) uint64_t ppuBytes;
-@property(nonatomic, readonly) uint64_t spuBytes;
-@property(nonatomic, readonly) uint64_t hdd1Bytes;
-@property(nonatomic, readonly) uint64_t totalBytes;
-@end
-
 @interface RPCS3RPCNConfigRecord : NSObject
 @property(nonatomic, readonly) BOOL hasPassword;
 @property(nonatomic, readonly) BOOL hasToken;
@@ -109,6 +101,44 @@ NS_ASSUME_NONNULL_BEGIN
 @property(nonatomic, readonly) NSString *name;
 @property(nonatomic, readonly) NSString *trophyDescription;
 @property(nonatomic, readonly) NSString *iconPath;
+@end
+
+
+
+@interface RPCS3GameSettingsPresetRecord : NSObject
+@property(nonatomic, readonly) NSString *name;
+@property(nonatomic, readonly) uint64_t size;
+@property(nonatomic, readonly) int64_t modifiedTime;
+@end
+
+@interface RPCS3RPCNSocialRecord : NSObject
+@property(nonatomic, readonly) uint32_t kind;
+@property(nonatomic, readonly, getter=isOnline) BOOL online;
+@property(nonatomic, readonly) uint64_t timestamp;
+@property(nonatomic, readonly) NSString *username;
+@property(nonatomic, readonly) NSString *presenceTitle;
+@property(nonatomic, readonly) NSString *presenceStatus;
+@property(nonatomic, readonly) NSString *presenceComment;
+@property(nonatomic, readonly) NSString *historyDescriptionText;
+@end
+
+@interface RPCS3PadFeedbackRecord : NSObject
+@property(nonatomic, readonly) uint32_t largeMotor;
+@property(nonatomic, readonly) uint32_t smallMotor;
+@end
+
+@interface RPCS3GamePatchRecord : NSObject
+@property(nonatomic, readonly) NSString *titleID;
+@property(nonatomic, readonly) NSString *title;
+@property(nonatomic, readonly) NSString *version;
+@end
+
+@interface RPCS3GameCacheRecord : NSObject
+@property(nonatomic, readonly) uint64_t shaderBytes;
+@property(nonatomic, readonly) uint64_t ppuBytes;
+@property(nonatomic, readonly) uint64_t spuBytes;
+@property(nonatomic, readonly) uint64_t hdd1Bytes;
+@property(nonatomic, readonly) uint64_t totalBytes;
 @end
 
 @interface RPCS3GameRecord : NSObject
@@ -212,35 +242,16 @@ typedef NS_OPTIONS(uint64_t, RPCS3HostPadButton) {
 - (BOOL)bootXMB;
 - (RPCS3BootProgressRecord *)bootProgress;
 - (RPCS3PerformanceRecord *)performanceMetrics;
-- (RPCS3GameCacheRecord *)gameCacheInfoForTitleID:(NSString *)titleID
-    NS_SWIFT_NAME(gameCacheInfo(titleID:));
-- (BOOL)clearGameCacheForTitleID:(NSString *)titleID
-                            type:(uint32_t)type
-                    bytesRemoved:(uint64_t * _Nullable)bytesRemoved
-    NS_SWIFT_NAME(clearGameCache(titleID:type:bytesRemoved:));
-- (BOOL)deleteGameForTitleID:(NSString *)titleID
-    NS_SWIFT_NAME(deleteGame(titleID:));
-
 - (NSArray<RPCS3RuntimePatchRecord *> *)runtimePatchesForTitleID:(NSString *)titleID
                                                     appVersion:(NSString *)appVersion
     NS_SWIFT_NAME(runtimePatches(titleID:appVersion:));
 - (BOOL)setRuntimePatchForTitleID:(NSString *)titleID
-                             hash:(NSString *)hashValue
+                             hash:(NSString *)patchHash
                             title:(NSString *)title
                        appVersion:(NSString *)appVersion
                       description:(NSString *)description
                           enabled:(BOOL)enabled
     NS_SWIFT_NAME(setRuntimePatch(titleID:hash:title:appVersion:description:enabled:));
-
-- (NSData * _Nullable)gameUpdateManifestForTitleID:(NSString *)titleID
-    NS_SWIFT_NAME(gameUpdateManifest(titleID:));
-- (BOOL)downloadGameUpdatePackageURL:(NSString *)packageURL
-                     destinationPath:(NSString *)destinationPath
-                        expectedSize:(uint64_t)expectedSize
-    NS_SWIFT_NAME(downloadGameUpdate(packageURL:destinationPath:expectedSize:));
-- (BOOL)installGamePatchForTitleID:(NSString *)titleID
-                       packagePath:(NSString *)packagePath
-    NS_SWIFT_NAME(installGamePatch(titleID:packagePath:));
 
 - (RPCS3RPCNConfigRecord *)rpcnConfig;
 - (NSArray<RPCS3RPCNServerRecord *> *)rpcnServers;
@@ -260,6 +271,99 @@ typedef NS_OPTIONS(uint64_t, RPCS3HostPadButton) {
 
 - (BOOL)updateConfigDatabaseData:(NSData *)data NS_SWIFT_NAME(updateConfigDatabase(data:));
 
+
+- (BOOL)installGamePatchForTitleID:(NSString *)titleID
+                       packagePath:(NSString *)packagePath
+    NS_SWIFT_NAME(installGamePatch(titleID:packagePath:));
+- (NSData * _Nullable)gameUpdateManifestForTitleID:(NSString *)titleID
+    NS_SWIFT_NAME(gameUpdateManifest(titleID:));
+- (BOOL)downloadGameUpdatePackageURL:(NSString *)packageURL
+                     destinationPath:(NSString *)destinationPath
+                        expectedSize:(uint64_t)expectedSize
+    NS_SWIFT_NAME(downloadGameUpdate(packageURL:destinationPath:expectedSize:));
+
+- (BOOL)duplicateSavestateForTitleID:(NSString *)titleID
+                         identifier:(NSString *)identifier
+    NS_SWIFT_NAME(duplicateSavestate(titleID:identifier:));
+- (BOOL)deleteSavestateForTitleID:(NSString *)titleID
+                       identifier:(NSString *)identifier
+    NS_SWIFT_NAME(deleteSavestate(titleID:identifier:));
+- (BOOL)importSavestateForTitleID:(NSString *)titleID
+                       sourcePath:(NSString *)sourcePath
+    NS_SWIFT_NAME(importSavestate(titleID:sourcePath:));
+- (BOOL)exportSavestateForTitleID:(NSString *)titleID
+                      savestateID:(NSString *)savestateID
+                  destinationPath:(NSString *)destinationPath
+    NS_SWIFT_NAME(exportSavestate(titleID:savestateID:destinationPath:));
+
+- (BOOL)deleteGameForTitleID:(NSString *)titleID NS_SWIFT_NAME(deleteGame(titleID:));
+- (RPCS3GameCacheRecord *)gameCacheInfoForTitleID:(NSString *)titleID
+    NS_SWIFT_NAME(gameCacheInfo(titleID:));
+- (BOOL)clearGameCacheForTitleID:(NSString *)titleID
+                            type:(uint32_t)type
+                    bytesRemoved:(uint64_t * _Nullable)bytesRemoved
+    NS_SWIFT_NAME(clearGameCache(titleID:type:bytesRemoved:));
+- (NSArray<RPCS3GamePatchRecord *> *)installedGamePatchesForTitleID:(NSString *)titleID
+    NS_SWIFT_NAME(installedGamePatches(titleID:));
+
+- (NSString * _Nullable)patchRepositoryURL;
+- (BOOL)installPatchRepositoryVersion:(NSString *)version
+                               sha256:(NSString *)sha256
+                                 data:(NSData *)data
+    NS_SWIFT_NAME(installPatchRepository(version:sha256:data:));
+
+
+- (NSArray<RPCS3GameSettingsPresetRecord *> *)gameSettingsPresetsForTitleID:(NSString *)titleID
+    NS_SWIFT_NAME(gameSettingsPresets(titleID:));
+- (BOOL)saveGameSettingsPresetForTitleID:(NSString *)titleID
+                                    name:(NSString *)name
+    NS_SWIFT_NAME(saveGameSettingsPreset(titleID:name:));
+- (BOOL)applyGameSettingsPresetForTitleID:(NSString *)titleID
+                                     name:(NSString *)name
+    NS_SWIFT_NAME(applyGameSettingsPreset(titleID:name:));
+- (BOOL)duplicateGameSettingsPresetForTitleID:(NSString *)titleID
+                                    sourceName:(NSString *)sourceName
+                               destinationName:(NSString *)destinationName
+    NS_SWIFT_NAME(duplicateGameSettingsPreset(titleID:sourceName:destinationName:));
+- (BOOL)renameGameSettingsPresetForTitleID:(NSString *)titleID
+                                 sourceName:(NSString *)sourceName
+                            destinationName:(NSString *)destinationName
+    NS_SWIFT_NAME(renameGameSettingsPreset(titleID:sourceName:destinationName:));
+- (BOOL)deleteGameSettingsPresetForTitleID:(NSString *)titleID
+                                      name:(NSString *)name
+    NS_SWIFT_NAME(deleteGameSettingsPreset(titleID:name:));
+- (BOOL)importGameSettingsPresetForTitleID:(NSString *)titleID
+                                sourcePath:(NSString *)sourcePath
+                                      name:(NSString *)name
+    NS_SWIFT_NAME(importGameSettingsPreset(titleID:sourcePath:name:));
+- (BOOL)exportGameSettingsPresetForTitleID:(NSString *)titleID
+                                      name:(NSString *)name
+                           destinationPath:(NSString *)destinationPath
+    NS_SWIFT_NAME(exportGameSettingsPreset(titleID:name:destinationPath:));
+
+- (BOOL)createRPCNAccountUsername:(NSString *)username
+                         password:(NSString *)password
+                            email:(NSString *)email
+    NS_SWIFT_NAME(createRPCNAccount(username:password:email:));
+- (BOOL)resendRPCNToken;
+- (BOOL)requestRPCNPasswordResetUsername:(NSString *)username
+                                   email:(NSString *)email
+    NS_SWIFT_NAME(requestRPCNPasswordReset(username:email:));
+- (BOOL)resetRPCNPasswordUsername:(NSString *)username
+                       resetToken:(NSString *)resetToken
+                      newPassword:(NSString *)newPassword
+    NS_SWIFT_NAME(resetRPCNPassword(username:resetToken:newPassword:));
+- (BOOL)deleteRPCNAccount;
+- (NSArray<RPCS3RPCNSocialRecord *> *)rpcnSocial;
+- (BOOL)performRPCNSocialAction:(uint32_t)action
+                      username:(NSString *)username
+    NS_SWIFT_NAME(performRPCNSocialAction(_:username:));
+
+- (RPCS3PadFeedbackRecord * _Nullable)padFeedbackForPlayerIndex:(uint32_t)playerIndex
+    NS_SWIFT_NAME(padFeedback(playerIndex:));
+- (uint32_t)coreState;
+- (uint32_t)emulationState;
+
 - (RPCS3SettingsSnapshot *)globalSettings;
 - (RPCS3SettingsSnapshot *)gameSettingsForTitleID:(NSString *)titleID
     NS_SWIFT_NAME(gameSettings(titleID:));
@@ -277,12 +381,6 @@ typedef NS_OPTIONS(uint64_t, RPCS3HostPadButton) {
 - (NSArray<RPCS3GameRecord *> *)enumerateGames;
 - (NSArray<RPCS3SavestateRecord *> *)enumerateSavestatesForTitleID:(NSString *)titleID
     NS_SWIFT_NAME(enumerateSavestates(titleID:));
-- (BOOL)duplicateSavestateForTitleID:(NSString *)titleID
-                         identifier:(NSString *)identifier
-    NS_SWIFT_NAME(duplicateSavestate(titleID:identifier:));
-- (BOOL)deleteSavestateForTitleID:(NSString *)titleID
-                       identifier:(NSString *)identifier
-    NS_SWIFT_NAME(deleteSavestate(titleID:identifier:));
 - (NSArray<RPCS3TrophyRecord *> *)enumerateTrophiesForTitleID:(NSString *)titleID
     NS_SWIFT_NAME(enumerateTrophies(titleID:));
 - (BOOL)bootGameWithTitleID:(NSString *)titleID NS_SWIFT_NAME(bootGame(titleID:));
