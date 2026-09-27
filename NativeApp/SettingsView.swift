@@ -466,7 +466,7 @@ private struct GameSettingsPresetsSection: View {
         }
         .fileImporter(
             isPresented: $showingPresetImporter,
-            allowedContentTypes: [.yaml, .plainText, .data],
+            allowedContentTypes: [.plainText, .data],
             allowsMultipleSelection: false
         ) { result in
             if case let .success(urls) = result, let url = urls.first {
