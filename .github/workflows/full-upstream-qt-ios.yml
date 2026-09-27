@@ -1,4 +1,4 @@
-name: Build Full Upstream RPCS3 Qt iOS
+name: Build Full Upstream RPCS3 Qt iOS (Legacy Manual)
 
 on:
   workflow_dispatch:
