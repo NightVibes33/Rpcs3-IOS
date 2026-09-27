@@ -207,6 +207,35 @@ static NSString * const RPCS3DynamicCoreErrorDomain = @"com.nightvibes33.rpcs3.d
 }
 @end
 
+
+@interface RPCS3GamePatchRecord ()
+- (instancetype)initWithInfo:(const rpcs3_ios_game_patch_info*)info;
+@end
+@implementation RPCS3GamePatchRecord
+- (instancetype)initWithInfo:(const rpcs3_ios_game_patch_info*)info
+{
+    self = [super init];
+    if (!self) return nil;
+    auto str = [](const char* value) -> NSString* {
+        return value ? ([NSString stringWithUTF8String:value] ?: @"") : @"";
+    };
+    _titleID = str(info->title_id);
+    _title = str(info->title);
+    _version = str(info->version);
+    return self;
+}
+@end
+
+@interface RPCS3GameCacheRecord ()
+@property(nonatomic, readwrite) uint64_t shaderBytes;
+@property(nonatomic, readwrite) uint64_t ppuBytes;
+@property(nonatomic, readwrite) uint64_t spuBytes;
+@property(nonatomic, readwrite) uint64_t hdd1Bytes;
+@property(nonatomic, readwrite) uint64_t totalBytes;
+@end
+@implementation RPCS3GameCacheRecord
+@end
+
 @interface RPCS3GameRecord (Internal)
 - (instancetype)initWithInfo:(const rpcs3_ios_game_info*)info;
 @end
@@ -355,6 +384,17 @@ static void collect_rpcn_server(void* user_context, const rpcs3_ios_rpcn_server_
     record.serverDescription = info->description ? ([NSString stringWithUTF8String:info->description] ?: @"") : @"";
     record.host = info->host ? ([NSString stringWithUTF8String:info->host] ?: @"") : @"";
     [records addObject:record];
+}
+
+
+static void collect_game_patch(void* user_context, const rpcs3_ios_game_patch_info* info)
+{
+    if (!user_context || !info || info->struct_size < sizeof(rpcs3_ios_game_patch_info))
+        return;
+    NSMutableArray<RPCS3GamePatchRecord*>* records =
+        (__bridge NSMutableArray<RPCS3GamePatchRecord*>*)user_context;
+    RPCS3GamePatchRecord* record = [[RPCS3GamePatchRecord alloc] initWithInfo:info];
+    if (record) [records addObject:record];
 }
 
 static void collect_runtime_patch(void* user_context, const rpcs3_ios_runtime_patch_info* info)
@@ -1048,6 +1088,180 @@ NSError* make_error(NSInteger code, NSString* message)
                 enabled ? 1u : 0u)
                 operation:@"Game patch update"
                     error:nullptr];
+}
+
+
+- (BOOL)installGamePatchForTitleID:(NSString*)titleID path:(NSString*)path
+{
+    if (!self.ready || !_api.install_game_patch || titleID.length == 0 || path.length == 0)
+        return NO;
+    return [self statusOK:_api.install_game_patch(
+                titleID.UTF8String, path.fileSystemRepresentation, nullptr, nullptr)
+                operation:@"Game update installation"
+                    error:nullptr];
+}
+
+- (NSData*)gameUpdateManifestForTitleID:(NSString*)titleID
+{
+    if (!self.ready || !_api.fetch_game_update_manifest || titleID.length == 0)
+        return nil;
+
+    constexpr size_t capacity = 2u * 1024u * 1024u;
+    NSMutableData* data = [NSMutableData dataWithLength:capacity];
+    size_t size = 0;
+    const rpcs3_ios_status status = _api.fetch_game_update_manifest(
+        titleID.UTF8String, data.mutableBytes, data.length, &size);
+    if (status != RPCS3_IOS_OK)
+    {
+        [self setFailure:[self coreError]];
+        return nil;
+    }
+    if (size > data.length)
+    {
+        [self setFailure:@"RPCS3 returned an invalid update-manifest size."];
+        return nil;
+    }
+    data.length = size;
+    return [data copy];
+}
+
+- (BOOL)downloadGameUpdatePackageURL:(NSString*)packageURL
+                     destinationPath:(NSString*)destinationPath
+                        expectedSize:(uint64_t)expectedSize
+{
+    if (!self.ready || !_api.download_game_update_package ||
+        packageURL.length == 0 || destinationPath.length == 0 || expectedSize == 0)
+        return NO;
+    return [self statusOK:_api.download_game_update_package(
+                packageURL.UTF8String,
+                destinationPath.fileSystemRepresentation,
+                expectedSize,
+                nullptr,
+                nullptr)
+                operation:@"Game update download"
+                    error:nullptr];
+}
+
+- (BOOL)duplicateSavestateForTitleID:(NSString*)titleID savestateID:(NSString*)savestateID
+{
+    if (!self.ready || !_api.duplicate_savestate || titleID.length == 0 || savestateID.length == 0)
+        return NO;
+    return [self statusOK:_api.duplicate_savestate(titleID.UTF8String, savestateID.UTF8String)
+                operation:@"Duplicate savestate" error:nullptr];
+}
+
+- (BOOL)deleteSavestateForTitleID:(NSString*)titleID savestateID:(NSString*)savestateID
+{
+    if (!self.ready || !_api.delete_savestate || titleID.length == 0 || savestateID.length == 0)
+        return NO;
+    return [self statusOK:_api.delete_savestate(titleID.UTF8String, savestateID.UTF8String)
+                operation:@"Delete savestate" error:nullptr];
+}
+
+- (BOOL)importSavestateForTitleID:(NSString*)titleID sourcePath:(NSString*)sourcePath
+{
+    if (!self.ready || !_api.import_savestate || titleID.length == 0 || sourcePath.length == 0)
+        return NO;
+    return [self statusOK:_api.import_savestate(titleID.UTF8String, sourcePath.fileSystemRepresentation)
+                operation:@"Import savestate" error:nullptr];
+}
+
+- (BOOL)exportSavestateForTitleID:(NSString*)titleID
+                      savestateID:(NSString*)savestateID
+                  destinationPath:(NSString*)destinationPath
+{
+    if (!self.ready || !_api.export_savestate ||
+        titleID.length == 0 || savestateID.length == 0 || destinationPath.length == 0)
+        return NO;
+    return [self statusOK:_api.export_savestate(
+                titleID.UTF8String,
+                savestateID.UTF8String,
+                destinationPath.fileSystemRepresentation)
+                operation:@"Export savestate" error:nullptr];
+}
+
+- (BOOL)deleteGameWithTitleID:(NSString*)titleID
+{
+    if (!self.ready || !_api.delete_game || titleID.length == 0)
+        return NO;
+    return [self statusOK:_api.delete_game(titleID.UTF8String)
+                operation:@"Delete game" error:nullptr];
+}
+
+- (RPCS3GameCacheRecord*)gameCacheInfoForTitleID:(NSString*)titleID
+{
+    if (!self.ready || !_api.get_game_cache_info || titleID.length == 0)
+        return nil;
+    rpcs3_ios_game_cache_info info = {};
+    info.struct_size = sizeof(info);
+    if (_api.get_game_cache_info(titleID.UTF8String, &info) != RPCS3_IOS_OK)
+    {
+        [self setFailure:[self coreError]];
+        return nil;
+    }
+
+    RPCS3GameCacheRecord* record = [[RPCS3GameCacheRecord alloc] init];
+    record.shaderBytes = info.shader;
+    record.ppuBytes = info.ppu;
+    record.spuBytes = info.spu;
+    record.hdd1Bytes = info.hdd1;
+    record.totalBytes = info.total;
+    return record;
+}
+
+- (NSNumber*)clearGameCacheForTitleID:(NSString*)titleID cacheType:(uint32_t)cacheType
+{
+    if (!self.ready || !_api.clear_game_cache || titleID.length == 0 ||
+        cacheType < RPCS3_IOS_GAME_CACHE_SHADER || cacheType > RPCS3_IOS_GAME_CACHE_ALL)
+        return nil;
+    uint64_t removed = 0;
+    if (![self statusOK:_api.clear_game_cache(
+            titleID.UTF8String,
+            static_cast<rpcs3_ios_game_cache_type>(cacheType),
+            &removed)
+            operation:@"Clear game cache" error:nullptr])
+        return nil;
+    return @(removed);
+}
+
+- (NSArray<RPCS3GamePatchRecord*>*)installedGamePatchesForTitleID:(NSString*)titleID
+{
+    if (!self.ready || !_api.enumerate_game_patches || titleID.length == 0)
+        return @[];
+    NSMutableArray<RPCS3GamePatchRecord*>* records = [NSMutableArray array];
+    const rpcs3_ios_status status = _api.enumerate_game_patches(
+        titleID.UTF8String, &collect_game_patch, (__bridge void*)records);
+    if (status != RPCS3_IOS_OK)
+    {
+        [self setFailure:[self coreError]];
+        return @[];
+    }
+    return [records copy];
+}
+
+- (NSString*)patchRepositoryURL
+{
+    if (!self.ready || !_api.get_patch_repository_url)
+        return nil;
+    char buffer[16384] = {};
+    if (_api.get_patch_repository_url(buffer, sizeof(buffer)) != RPCS3_IOS_OK)
+    {
+        [self setFailure:[self coreError]];
+        return nil;
+    }
+    return buffer[0] ? ([NSString stringWithUTF8String:buffer] ?: nil) : nil;
+}
+
+- (BOOL)installPatchRepositoryVersion:(NSString*)version
+                               sha256:(NSString*)sha256
+                                 data:(NSData*)data
+{
+    if (!self.ready || !_api.install_patch_repository ||
+        version.length == 0 || sha256.length == 0 || data.length == 0)
+        return NO;
+    return [self statusOK:_api.install_patch_repository(
+                version.UTF8String, sha256.UTF8String, data.bytes, data.length)
+                operation:@"Patch repository installation" error:nullptr];
 }
 
 - (RPCS3SettingsSnapshot*)globalSettings
