@@ -260,6 +260,12 @@ typedef NS_OPTIONS(uint64_t, RPCS3HostPadButton) {
 - (NSArray<RPCS3GameRecord *> *)enumerateGames;
 - (NSArray<RPCS3SavestateRecord *> *)enumerateSavestatesForTitleID:(NSString *)titleID
     NS_SWIFT_NAME(enumerateSavestates(titleID:));
+- (BOOL)duplicateSavestateForTitleID:(NSString *)titleID
+                         identifier:(NSString *)identifier
+    NS_SWIFT_NAME(duplicateSavestate(titleID:identifier:));
+- (BOOL)deleteSavestateForTitleID:(NSString *)titleID
+                       identifier:(NSString *)identifier
+    NS_SWIFT_NAME(deleteSavestate(titleID:identifier:));
 - (NSArray<RPCS3TrophyRecord *> *)enumerateTrophiesForTitleID:(NSString *)titleID
     NS_SWIFT_NAME(enumerateTrophies(titleID:));
 - (BOOL)bootGameWithTitleID:(NSString *)titleID NS_SWIFT_NAME(bootGame(titleID:));
