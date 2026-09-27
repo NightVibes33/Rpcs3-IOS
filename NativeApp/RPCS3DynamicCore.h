@@ -103,6 +103,21 @@ NS_ASSUME_NONNULL_BEGIN
 @property(nonatomic, readonly) NSString *iconPath;
 @end
 
+
+@interface RPCS3GamePatchRecord : NSObject
+@property(nonatomic, readonly) NSString *titleID;
+@property(nonatomic, readonly) NSString *title;
+@property(nonatomic, readonly) NSString *version;
+@end
+
+@interface RPCS3GameCacheRecord : NSObject
+@property(nonatomic, readonly) uint64_t shaderBytes;
+@property(nonatomic, readonly) uint64_t ppuBytes;
+@property(nonatomic, readonly) uint64_t spuBytes;
+@property(nonatomic, readonly) uint64_t hdd1Bytes;
+@property(nonatomic, readonly) uint64_t totalBytes;
+@end
+
 @interface RPCS3GameRecord : NSObject
 @property(nonatomic, readonly) NSString *titleID;
 @property(nonatomic, readonly) NSString *title;
@@ -232,6 +247,46 @@ typedef NS_OPTIONS(uint64_t, RPCS3HostPadButton) {
 - (BOOL)testRPCNAccount;
 
 - (BOOL)updateConfigDatabaseData:(NSData *)data NS_SWIFT_NAME(updateConfigDatabase(data:));
+
+
+- (BOOL)installGamePatchForTitleID:(NSString *)titleID
+                              path:(NSString *)path
+    NS_SWIFT_NAME(installGamePatch(titleID:path:));
+- (NSData * _Nullable)gameUpdateManifestForTitleID:(NSString *)titleID
+    NS_SWIFT_NAME(gameUpdateManifest(titleID:));
+- (BOOL)downloadGameUpdatePackageURL:(NSString *)packageURL
+                     destinationPath:(NSString *)destinationPath
+                        expectedSize:(uint64_t)expectedSize
+    NS_SWIFT_NAME(downloadGameUpdatePackage(url:destinationPath:expectedSize:));
+
+- (BOOL)duplicateSavestateForTitleID:(NSString *)titleID
+                         savestateID:(NSString *)savestateID
+    NS_SWIFT_NAME(duplicateSavestate(titleID:savestateID:));
+- (BOOL)deleteSavestateForTitleID:(NSString *)titleID
+                      savestateID:(NSString *)savestateID
+    NS_SWIFT_NAME(deleteSavestate(titleID:savestateID:));
+- (BOOL)importSavestateForTitleID:(NSString *)titleID
+                       sourcePath:(NSString *)sourcePath
+    NS_SWIFT_NAME(importSavestate(titleID:sourcePath:));
+- (BOOL)exportSavestateForTitleID:(NSString *)titleID
+                      savestateID:(NSString *)savestateID
+                  destinationPath:(NSString *)destinationPath
+    NS_SWIFT_NAME(exportSavestate(titleID:savestateID:destinationPath:));
+
+- (BOOL)deleteGameWithTitleID:(NSString *)titleID NS_SWIFT_NAME(deleteGame(titleID:));
+- (RPCS3GameCacheRecord * _Nullable)gameCacheInfoForTitleID:(NSString *)titleID
+    NS_SWIFT_NAME(gameCacheInfo(titleID:));
+- (NSNumber * _Nullable)clearGameCacheForTitleID:(NSString *)titleID
+                                       cacheType:(uint32_t)cacheType
+    NS_SWIFT_NAME(clearGameCache(titleID:cacheType:));
+- (NSArray<RPCS3GamePatchRecord *> *)installedGamePatchesForTitleID:(NSString *)titleID
+    NS_SWIFT_NAME(installedGamePatches(titleID:));
+
+- (NSString * _Nullable)patchRepositoryURL;
+- (BOOL)installPatchRepositoryVersion:(NSString *)version
+                               sha256:(NSString *)sha256
+                                 data:(NSData *)data
+    NS_SWIFT_NAME(installPatchRepository(version:sha256:data:));
 
 - (RPCS3SettingsSnapshot *)globalSettings;
 - (RPCS3SettingsSnapshot *)gameSettingsForTitleID:(NSString *)titleID
