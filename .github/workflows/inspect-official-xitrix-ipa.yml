@@ -1,0 +1,151 @@
+name: Inspect Official XITRIX RPCS3 IPA
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ios-core-v30-migration]
+    paths:
+      - ".github/workflows/inspect-official-xitrix-ipa.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  inspect:
+    name: Official v0.9 IPA anatomy
+    runs-on: macos-15
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download and verify official v0.9 IPA
+        shell: bash
+        run: |
+          set -euo pipefail
+          URL="https://github.com/XITRIX/RPCS3-iOS-Releases/releases/download/v0.9/RPCS3.ipa"
+          EXPECTED="4cc11c8a0bc3be74685c2781741a7a2b559e94dac6b81df609ed43523e5cfec0"
+          curl -fL --retry 4 --retry-delay 2 "$URL" -o "$RUNNER_TEMP/RPCS3-v0.9.ipa"
+          ACTUAL="$(shasum -a 256 "$RUNNER_TEMP/RPCS3-v0.9.ipa" | awk '{print $1}')"
+          test "$ACTUAL" = "$EXPECTED"
+          printf 'sha256=%s\n' "$ACTUAL" | tee official-ipa-identity.txt
+
+      - name: Extract bundle
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/official"
+          unzip -q "$RUNNER_TEMP/RPCS3-v0.9.ipa" -d "$RUNNER_TEMP/official"
+          APP="$(find "$RUNNER_TEMP/official/Payload" -maxdepth 1 -type d -name '*.app' -print -quit)"
+          test -n "$APP"
+          EXECUTABLE="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleExecutable' "$APP/Info.plist")"
+          BIN="$APP/$EXECUTABLE"
+          test -s "$BIN"
+          printf '%s\n' "$APP" > official-app-path.txt
+          printf '%s\n' "$EXECUTABLE" > official-executable-name.txt
+          file "$BIN" | tee official-executable-file.txt
+          lipo -archs "$BIN" | tee official-executable-archs.txt
+
+      - name: Inspect Info.plist and bundle layout
+        shell: bash
+        run: |
+          set -euo pipefail
+          APP="$(cat official-app-path.txt)"
+          /usr/bin/plutil -convert xml1 -o official-Info.plist "$APP/Info.plist"
+          find "$APP" -maxdepth 4 -type f -print             | sed "s#^$APP/##"             | sort > official-bundle-files.txt
+          find "$APP" -maxdepth 3 \( -type d -name '*.framework' -o -type f -name '*.dylib' \) -print             | sed "s#^$APP/##"             | sort > official-frameworks.txt
+          cat official-frameworks.txt
+
+      - name: Inspect Mach-O dependencies and symbols
+        shell: bash
+        run: |
+          set -euo pipefail
+          APP="$(cat official-app-path.txt)"
+          BIN="$APP/$(cat official-executable-name.txt)"
+          otool -L "$BIN" > official-app-loads.txt
+          otool -l "$BIN" > official-app-load-commands.txt
+          nm -gU "$BIN" > official-app-defined-symbols.txt || true
+          nm -u "$BIN" > official-app-undefined-symbols.txt || true
+          strings -a "$BIN" > official-app-strings.txt
+
+          while IFS= read -r candidate; do
+            test -f "$candidate" || continue
+            name="$(basename "$candidate")"
+            {
+              echo "===== $candidate ====="
+              file "$candidate"
+              otool -L "$candidate" || true
+              nm -gU "$candidate" || true
+            } >> official-embedded-mach-o.txt
+          done < <(find "$APP" -type f \( -name '*.dylib' -o -path '*.framework/*' \) -perm +111 -print 2>/dev/null || true)
+
+      - name: Inspect signing and entitlements
+        shell: bash
+        run: |
+          set -euo pipefail
+          APP="$(cat official-app-path.txt)"
+          BIN="$APP/$(cat official-executable-name.txt)"
+          codesign -dvvv "$APP" > official-codesign.txt 2>&1 || true
+          codesign -d --entitlements :- "$APP" > official-entitlements.plist 2>&1 || true
+          codesign -d --entitlements :- "$BIN" > official-executable-entitlements.plist 2>&1 || true
+
+      - name: Extract frontend architecture clues
+        shell: bash
+        run: |
+          set -euo pipefail
+          {
+            echo "=== linked Apple/UI/runtime libraries ==="
+            grep -Ei 'SwiftUI|UIKit|Metal|MetalFX|QuartzCore|GameController|Audio|RPCS3|Flutter|Qt' official-app-loads.txt || true
+            echo
+            echo "=== likely native frontend/runtime strings ==="
+            grep -Eai 'StikDebug|universal\.js|RPCS3Core|Big Picture|Install.*Firmware|Install.*Package|Game Patch|RPCN|Troph|Save Data|MetalFX|Start' official-app-strings.txt               | head -n 800 || true
+            echo
+            echo "=== Swift/ObjC frontend hints ==="
+            grep -Eai 'SwiftUI|UIViewController|UIHostingController|NavigationStack|UICollectionView|UITableView|UIDocumentPicker' official-app-strings.txt               | head -n 500 || true
+          } | tee official-frontend-clues.txt
+
+      - name: Write anatomy summary
+        shell: bash
+        run: |
+          set -euo pipefail
+          APP="$(cat official-app-path.txt)"
+          BIN="$APP/$(cat official-executable-name.txt)"
+          {
+            echo "# Official XITRIX RPCS3 v0.9 IPA anatomy"
+            echo
+            echo "- Verified SHA-256: `$(cut -d= -f2 official-ipa-identity.txt)`"
+            echo "- Executable: `$(cat official-executable-name.txt)`"
+            echo "- Architecture: `$(cat official-executable-archs.txt)`"
+            echo
+            echo "## Embedded frameworks/dylibs"
+            sed 's/^/- `/; s/$/`/' official-frameworks.txt
+            echo
+            echo "## Linked libraries"
+            sed 's/^/    /' official-app-loads.txt
+          } > official-anatomy.md
+          cat official-anatomy.md
+
+      - name: Upload inspection reports only
+        uses: actions/upload-artifact@v4
+        with:
+          name: XITRIX-RPCS3-v0.9-anatomy
+          path: |
+            official-ipa-identity.txt
+            official-anatomy.md
+            official-Info.plist
+            official-bundle-files.txt
+            official-frameworks.txt
+            official-executable-file.txt
+            official-executable-archs.txt
+            official-app-loads.txt
+            official-app-load-commands.txt
+            official-app-defined-symbols.txt
+            official-app-undefined-symbols.txt
+            official-embedded-mach-o.txt
+            official-codesign.txt
+            official-entitlements.plist
+            official-executable-entitlements.plist
+            official-frontend-clues.txt
+          if-no-files-found: error
+          retention-days: 14
