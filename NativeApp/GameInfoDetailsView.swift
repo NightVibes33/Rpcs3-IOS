@@ -266,13 +266,31 @@ private struct SavestateRow: View {
 
             Spacer()
 
-            Button {
-                controller.launch(game: game, savestate: savestate)
+            Menu {
+                Button {
+                    controller.launch(game: game, savestate: savestate)
+                } label: {
+                    Label("Load Save State", systemImage: "play.fill")
+                }
+                .disabled(!savestate.compatible || controller.state != .ready)
+
+                Button {
+                    controller.duplicateSavestate(for: game, savestate: savestate)
+                } label: {
+                    Label("Duplicate", systemImage: "plus.square.on.square")
+                }
+                .disabled(controller.state != .ready)
+
+                Button(role: .destructive) {
+                    controller.deleteSavestate(for: game, savestate: savestate)
+                } label: {
+                    Label("Delete", systemImage: "trash")
+                }
+                .disabled(controller.state != .ready)
             } label: {
-                Image(systemName: "play.fill")
+                Image(systemName: "ellipsis.circle")
             }
             .buttonStyle(.bordered)
-            .disabled(!savestate.compatible || controller.state != .ready)
         }
     }
 
