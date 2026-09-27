@@ -146,7 +146,7 @@ jobs:
           rm -rf direct-publish
           mkdir direct-publish
           cp RPCS3.ipa RPCS3.ipa.sha256 XITRIX-required-entitlements.plist direct-publish/
-          cat > direct-publish/README.md <<EOF
+          cat > direct-publish/README.md <<'EOF'
           # RPCS3 iOS direct build
 
           Source build run: ${RUN_ID}
