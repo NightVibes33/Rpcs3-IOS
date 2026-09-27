@@ -112,6 +112,16 @@ struct AppShellView: View {
                             .disabled(controller.state != .ready)
 
                             Button {
+                                controller.launchXMB()
+                            } label: {
+                                Label("PlayStation 3 XMB", systemImage: "rectangle.inset.filled")
+                                    .frame(maxWidth: .infinity)
+                            }
+                            .buttonStyle(.bordered)
+                            .controlSize(.large)
+                            .disabled(controller.state != .ready)
+
+                            Button {
                                 controller.showingImporter = true
                             } label: {
                                 Label("Install Firmware / Content", systemImage: "square.and.arrow.down")
