@@ -36,6 +36,9 @@ final class CoreController: ObservableObject {
     @Published var performanceSummary = ""
     @Published var trophiesByTitleID: [String: [RPCS3TrophyRecord]] = [:]
     @Published var savestatesByTitleID: [String: [RPCS3SavestateRecord]] = [:]
+    @Published var globalSettings: [RPCS3SettingRecord] = []
+    @Published var gameSettingsByTitleID: [String: [RPCS3SettingRecord]] = [:]
+    @Published var gameHasCustomConfig: [String: Bool] = [:]
 
     private var virtualPad = VirtualPadSnapshot()
     private let core = RPCS3DynamicCore.shared()
@@ -126,6 +129,118 @@ final class CoreController: ObservableObject {
             let records = core.enumerateGames()
             DispatchQueue.main.async {
                 self?.games = records
+            }
+        }
+    }
+
+    func refreshGlobalSettings() {
+        guard coreReady, state == .ready else { return }
+        let core = self.core
+        worker.async { [weak self] in
+            let snapshot = core.globalSettings()
+            let records = snapshot.settings
+            let message = core.lastError
+            DispatchQueue.main.async {
+                guard let self else { return }
+                self.globalSettings = records
+                if records.isEmpty && !message.isEmpty {
+                    self.status = message
+                }
+            }
+        }
+    }
+
+    func setGlobalSetting(_ setting: RPCS3SettingRecord, value: String) {
+        guard coreReady, state == .ready else { return }
+        let core = self.core
+        let key = setting.key
+        worker.async { [weak self] in
+            let ok = core.setGlobalSetting(key: key, value: value)
+            let message = core.lastError
+            DispatchQueue.main.async {
+                guard let self else { return }
+                self.status = ok ? "Saved \(setting.name)." : message
+                if ok { self.refreshGlobalSettings() }
+            }
+        }
+    }
+
+    func resetGlobalSettings() {
+        guard coreReady, state == .ready else { return }
+        let core = self.core
+        worker.async { [weak self] in
+            let ok = core.resetGlobalSettings()
+            let message = core.lastError
+            DispatchQueue.main.async {
+                guard let self else { return }
+                self.status = ok ? "Restored RPCS3 global settings to defaults." : message
+                if ok { self.refreshGlobalSettings() }
+            }
+        }
+    }
+
+    func refreshGameSettings(for game: RPCS3GameRecord) {
+        guard coreReady, state == .ready else { return }
+        let core = self.core
+        let titleID = game.titleID
+        worker.async { [weak self] in
+            let snapshot = core.gameSettings(titleID: titleID)
+            let records = snapshot.settings
+            let hasCustom = snapshot.hasCustomConfig
+            let message = core.lastError
+            DispatchQueue.main.async {
+                guard let self else { return }
+                self.gameSettingsByTitleID[titleID] = records
+                self.gameHasCustomConfig[titleID] = hasCustom
+                if records.isEmpty && !message.isEmpty {
+                    self.status = message
+                }
+            }
+        }
+    }
+
+    func setGameSetting(for game: RPCS3GameRecord, setting: RPCS3SettingRecord, value: String) {
+        guard coreReady, state == .ready else { return }
+        let core = self.core
+        let titleID = game.titleID
+        let key = setting.key
+        worker.async { [weak self] in
+            let ok = core.setGameSetting(titleID: titleID, key: key, value: value)
+            let message = core.lastError
+            DispatchQueue.main.async {
+                guard let self else { return }
+                self.status = ok ? "Saved \(setting.name) for \(game.title)." : message
+                if ok { self.refreshGameSettings(for: game) }
+            }
+        }
+    }
+
+    func resetGameSettings(for game: RPCS3GameRecord) {
+        guard coreReady, state == .ready else { return }
+        let core = self.core
+        let titleID = game.titleID
+        worker.async { [weak self] in
+            let ok = core.resetGameSettings(titleID: titleID)
+            let message = core.lastError
+            DispatchQueue.main.async {
+                guard let self else { return }
+                self.status = ok ? "Restored RPCS3 defaults for \(game.title)." : message
+                if ok { self.refreshGameSettings(for: game) }
+            }
+        }
+    }
+
+    func removeGameSettings(for game: RPCS3GameRecord) {
+        guard coreReady, state == .ready else { return }
+        let core = self.core
+        let titleID = game.titleID
+        worker.async { [weak self] in
+            let ok = core.removeGameSettings(titleID: titleID)
+            let message = core.lastError
+            DispatchQueue.main.async {
+                guard let self else { return }
+                self.status = ok ? "\(game.title) now inherits global RPCS3 settings." : message
+                if ok { self.refreshGameSettings(for: game) }
             }
         }
     }
