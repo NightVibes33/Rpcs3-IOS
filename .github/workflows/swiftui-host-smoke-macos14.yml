@@ -1,0 +1,86 @@
+name: SwiftUI Host Smoke macOS 14
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [xitrix-swiftui-host-macos14-smoke]
+    paths:
+      - "NativeApp/**"
+      - "scripts/build-real-ios-app.sh"
+      - ".github/workflows/swiftui-host-smoke-macos14.yml"
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: rpcs3-swiftui-host-macos14
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Compile current SwiftUI host on macOS 14
+    runs-on: macos-14
+    timeout-minutes: 25
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Select Xcode 16.2
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: "16.2"
+
+      - name: Materialize exact source-built XITRIX core
+        uses: actions/download-artifact@v4
+        with:
+          name: RPCS3-XITRIX-build-evidence
+          path: baseline-current
+          run-id: 36348158249
+          github-token: ${{ github.token }}
+
+      - name: Validate and stage source core
+        shell: bash
+        run: |
+          set -euo pipefail
+          SOURCE="baseline-current/BuildSupport/RPCS3Core"
+          test -s "$SOURCE/libRPCS3Core.dylib"
+          test -s "$SOURCE/RPCS3IOS.h"
+          test "$(tr -d '[:space:]' < "$SOURCE/RPCS3_SOURCE_COMMIT.txt")" = "559987e966db0f8ac983502a160b419968e2474d"
+          test "$(tr -d '[:space:]' < "$SOURCE/RPCS3_IOS_ABI.txt")" = "30"
+          rm -rf BuildSupport/RPCS3Core
+          mkdir -p BuildSupport
+          cp -R "$SOURCE" BuildSupport/RPCS3Core
+
+      - name: Compile exact staging tree
+        shell: bash
+        run: |
+          set -o pipefail
+          bash scripts/build-real-ios-app.sh 2>&1 | tee macos14-host-build.log
+
+      - name: Validate product boundary
+        shell: bash
+        run: |
+          set -euo pipefail
+          APP="$(cat native-ios-build/app-path.txt)"
+          BIN="$APP/RPCS3"
+          test -s "$BIN"
+          test -s "$APP/Frameworks/libRPCS3Core.dylib"
+          otool -L "$BIN" | tee macos14-host-loads.txt
+          ! grep -q 'libRPCS3Core.dylib' macos14-host-loads.txt
+          grep -q 'SwiftUI.framework/SwiftUI' macos14-host-loads.txt
+          ! grep -Eiq 'Qt(Core|Gui|Widgets)|Flutter|RPCS3UpstreamRuntime' macos14-host-loads.txt
+
+      - name: Upload compile evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: RPCS3-SwiftUI-macos14-smoke
+          path: |
+            macos14-host-build.log
+            macos14-host-loads.txt
+            native-ios-build/app-file.txt
+            native-ios-build/app-archs.txt
+          if-no-files-found: warn
+          retention-days: 3
