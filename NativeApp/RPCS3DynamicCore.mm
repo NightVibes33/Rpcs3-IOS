@@ -11,6 +11,10 @@
 
 static NSString * const RPCS3DynamicCoreErrorDomain = @"com.nightvibes33.rpcs3.dynamiccore";
 
+@interface RPCS3GameRecord (Internal)
+- (instancetype)initWithInfo:(const rpcs3_ios_game_info*)info;
+@end
+
 namespace
 {
 struct RPCS3API
