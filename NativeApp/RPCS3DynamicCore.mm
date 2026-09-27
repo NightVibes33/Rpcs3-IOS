@@ -28,6 +28,7 @@ struct RPCS3API
     decltype(&rpcs3_ios_install_package) install_package = nullptr;
     decltype(&rpcs3_ios_install_iso) install_iso = nullptr;
     decltype(&rpcs3_ios_install_zip) install_zip = nullptr;
+    decltype(&rpcs3_ios_install_folder) install_folder = nullptr;
     decltype(&rpcs3_ios_enumerate_games) enumerate_games = nullptr;
     decltype(&rpcs3_ios_set_display_surface) set_display_surface = nullptr;
     decltype(&rpcs3_ios_set_pad_state) set_pad_state = nullptr;
@@ -196,6 +197,7 @@ NSError* make_error(NSInteger code, NSString* message)
     LOAD_API(rpcs3_ios_install_package, install_package);
     LOAD_API(rpcs3_ios_install_iso, install_iso);
     LOAD_API(rpcs3_ios_install_zip, install_zip);
+    LOAD_API(rpcs3_ios_install_folder, install_folder);
     LOAD_API(rpcs3_ios_enumerate_games, enumerate_games);
     LOAD_API(rpcs3_ios_set_display_surface, set_display_surface);
     LOAD_API(rpcs3_ios_set_pad_state, set_pad_state);
@@ -373,16 +375,17 @@ NSError* make_error(NSInteger code, NSString* message)
                 operation:@"ZIP installation" error:error];
 }
 
-- (BOOL)setPlayerOneConnected:(BOOL)connected
-                      buttons:(uint64_t)buttons
-                        leftX:(float)leftX
-                        leftY:(float)leftY
-                       rightX:(float)rightX
-                       rightY:(float)rightY
-                  leftTrigger:(float)leftTrigger
-                 rightTrigger:(float)rightTrigger
+- (BOOL)setPlayerIndex:(uint32_t)playerIndex
+              connected:(BOOL)connected
+                buttons:(uint64_t)buttons
+                  leftX:(float)leftX
+                  leftY:(float)leftY
+                 rightX:(float)rightX
+                 rightY:(float)rightY
+            leftTrigger:(float)leftTrigger
+           rightTrigger:(float)rightTrigger
 {
-    if (!self.ready || !_api.set_pad_state)
+    if (!self.ready || !_api.set_pad_state || playerIndex > 6)
         return NO;
     rpcs3_ios_pad_state state = {};
     state.struct_size = sizeof(state);
@@ -394,7 +397,27 @@ NSError* make_error(NSInteger code, NSString* message)
     state.right_stick_y = std::clamp(rightY, -1.0f, 1.0f);
     state.left_trigger = std::clamp(leftTrigger, 0.0f, 1.0f);
     state.right_trigger = std::clamp(rightTrigger, 0.0f, 1.0f);
-    return _api.set_pad_state(0, &state) == RPCS3_IOS_OK;
+    return _api.set_pad_state(playerIndex, &state) == RPCS3_IOS_OK;
+}
+
+- (BOOL)setPlayerOneConnected:(BOOL)connected
+                      buttons:(uint64_t)buttons
+                        leftX:(float)leftX
+                        leftY:(float)leftY
+                       rightX:(float)rightX
+                       rightY:(float)rightY
+                  leftTrigger:(float)leftTrigger
+                 rightTrigger:(float)rightTrigger
+{
+    return [self setPlayerIndex:0
+                     connected:connected
+                       buttons:buttons
+                         leftX:leftX
+                         leftY:leftY
+                        rightX:rightX
+                        rightY:rightY
+                   leftTrigger:leftTrigger
+                  rightTrigger:rightTrigger];
 }
 
 - (BOOL)pauseWithError:(NSError**)error
@@ -462,6 +485,12 @@ NSError* make_error(NSInteger code, NSString* message)
         return [self installISOAtPath:path error:nullptr];
     if ([ext isEqualToString:@"zip"])
         return [self installZIPAtPath:path error:nullptr];
+
+    BOOL isDirectory = NO;
+    if ([[NSFileManager defaultManager] fileExistsAtPath:path isDirectory:&isDirectory] && isDirectory)
+        return [self statusOK:_api.install_folder(path.fileSystemRepresentation, nullptr, nullptr)
+                    operation:@"Game folder installation"
+                        error:nullptr];
 
     [self setFailure:[NSString stringWithFormat:@"Unsupported RPCS3 content type: .%@", ext]];
     return NO;
