@@ -80,6 +80,56 @@ NSError* make_error(NSInteger code, NSString* message)
     NSString* _buildInfo;
     NSString* _lastError;
 }
+- (BOOL)startWithSupportPath:(NSString*)supportPath
+                  cachePath:(NSString*)cachePath
+             jitCapacityMiB:(uint32_t)jitCapacityMiB
+{
+    return [self loadAndInitializeWithSupportPath:supportPath
+                                       cachePath:cachePath
+                                  jitCapacityMiB:jitCapacityMiB
+                                           error:nullptr];
+}
+
+- (BOOL)attachMetalLayer:(CAMetalLayer*)layer
+                   width:(uint32_t)width
+                  height:(uint32_t)height
+             refreshRate:(float)refreshRate
+{
+    return [self attachMetalLayer:layer width:width height:height refreshRate:refreshRate error:nullptr];
+}
+
+- (BOOL)detachDisplay
+{
+    return [self detachDisplayWithError:nullptr];
+}
+
+- (BOOL)bootBigPicture
+{
+    return [self bootBigPictureWithError:nullptr];
+}
+
+- (BOOL)installContentAtPath:(NSString*)path
+{
+    NSString* ext = path.pathExtension.lowercaseString;
+    if ([ext isEqualToString:@"pup"])
+        return [self installFirmwareAtPath:path error:nullptr];
+    if ([ext isEqualToString:@"pkg"])
+        return [self installPackageAtPath:path error:nullptr];
+    if ([ext isEqualToString:@"iso"])
+        return [self installISOAtPath:path error:nullptr];
+    if ([ext isEqualToString:@"zip"])
+        return [self installZIPAtPath:path error:nullptr];
+
+    [self setFailure:[NSString stringWithFormat:@"Unsupported RPCS3 content type: .%@", ext]];
+    return NO;
+}
+
+- (BOOL)pause { return [self pauseWithError:nullptr]; }
+- (BOOL)resume { return [self resumeWithError:nullptr]; }
+- (BOOL)stop { return [self stopWithError:nullptr]; }
+- (BOOL)shutdown { return [self shutdownWithError:nullptr]; }
+
+
 @end
 
 @implementation RPCS3DynamicCore
