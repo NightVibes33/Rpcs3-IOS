@@ -15,6 +15,17 @@ static NSString * const RPCS3DynamicCoreErrorDomain = @"com.nightvibes33.rpcs3.d
 
 
 
+
+@interface RPCS3GameCacheRecord ()
+@property(nonatomic, readwrite) uint64_t shaderBytes;
+@property(nonatomic, readwrite) uint64_t ppuBytes;
+@property(nonatomic, readwrite) uint64_t spuBytes;
+@property(nonatomic, readwrite) uint64_t hdd1Bytes;
+@property(nonatomic, readwrite) uint64_t totalBytes;
+@end
+@implementation RPCS3GameCacheRecord
+@end
+
 @interface RPCS3RPCNConfigRecord ()
 @property(nonatomic, readwrite) BOOL hasPassword;
 @property(nonatomic, readwrite) BOOL hasToken;
@@ -243,6 +254,9 @@ struct RPCS3API
     decltype(&rpcs3_ios_get_emulation_state) get_emulation_state = nullptr;
     decltype(&rpcs3_ios_get_boot_progress) get_boot_progress = nullptr;
     decltype(&rpcs3_ios_get_performance_metrics) get_performance_metrics = nullptr;
+    decltype(&rpcs3_ios_get_game_cache_info) get_game_cache_info = nullptr;
+    decltype(&rpcs3_ios_clear_game_cache) clear_game_cache = nullptr;
+    decltype(&rpcs3_ios_delete_game) delete_game = nullptr;
     decltype(&rpcs3_ios_get_rpcn_config) get_rpcn_config = nullptr;
     decltype(&rpcs3_ios_enumerate_rpcn_servers) enumerate_rpcn_servers = nullptr;
     decltype(&rpcs3_ios_set_rpcn_server) set_rpcn_server = nullptr;
@@ -543,6 +557,9 @@ NSError* make_error(NSInteger code, NSString* message)
     LOAD_API(rpcs3_ios_get_emulation_state, get_emulation_state);
     LOAD_API(rpcs3_ios_get_boot_progress, get_boot_progress);
     LOAD_API(rpcs3_ios_get_performance_metrics, get_performance_metrics);
+    LOAD_API(rpcs3_ios_get_game_cache_info, get_game_cache_info);
+    LOAD_API(rpcs3_ios_clear_game_cache, clear_game_cache);
+    LOAD_API(rpcs3_ios_delete_game, delete_game);
     LOAD_API(rpcs3_ios_get_rpcn_config, get_rpcn_config);
     LOAD_API(rpcs3_ios_enumerate_rpcn_servers, enumerate_rpcn_servers);
     LOAD_API(rpcs3_ios_set_rpcn_server, set_rpcn_server);
@@ -923,6 +940,56 @@ NSError* make_error(NSInteger code, NSString* message)
                 nullptr,
                 nullptr)
                 operation:@"Game-update installation"
+                    error:nullptr];
+}
+
+
+- (RPCS3GameCacheRecord*)gameCacheInfoForTitleID:(NSString*)titleID
+{
+    RPCS3GameCacheRecord* record = [[RPCS3GameCacheRecord alloc] init];
+    if (!self.ready || !_api.get_game_cache_info || titleID.length == 0)
+        return record;
+
+    rpcs3_ios_game_cache_info info = {};
+    info.struct_size = sizeof(info);
+    const rpcs3_ios_status status = _api.get_game_cache_info(titleID.UTF8String, &info);
+    if (status != RPCS3_IOS_OK)
+    {
+        [self setFailure:[self coreError]];
+        return record;
+    }
+
+    record.shaderBytes = info.shader;
+    record.ppuBytes = info.ppu;
+    record.spuBytes = info.spu;
+    record.hdd1Bytes = info.hdd1;
+    record.totalBytes = info.total;
+    return record;
+}
+
+- (BOOL)clearGameCacheForTitleID:(NSString*)titleID
+                            type:(uint32_t)type
+                    bytesRemoved:(uint64_t*)bytesRemoved
+{
+    if (!self.ready || !_api.clear_game_cache || titleID.length == 0)
+        return NO;
+    uint64_t removed = 0;
+    const BOOL ok = [self statusOK:_api.clear_game_cache(
+        titleID.UTF8String,
+        (rpcs3_ios_game_cache_type)type,
+        &removed)
+        operation:@"Clear game cache"
+        error:nullptr];
+    if (bytesRemoved) *bytesRemoved = removed;
+    return ok;
+}
+
+- (BOOL)deleteGameForTitleID:(NSString*)titleID
+{
+    if (!self.ready || !_api.delete_game || titleID.length == 0)
+        return NO;
+    return [self statusOK:_api.delete_game(titleID.UTF8String)
+                operation:@"Delete installed game"
                     error:nullptr];
 }
 
