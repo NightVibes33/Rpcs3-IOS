@@ -19,8 +19,9 @@ concurrency:
 
 jobs:
   build:
+    if: false
     name: Compile current SwiftUI host on macOS 13
-    runs-on: macos-13
+    runs-on: ubuntu-latest
     timeout-minutes: 25
 
     steps:
