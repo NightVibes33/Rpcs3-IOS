@@ -105,6 +105,8 @@ jobs:
           grep -q 'rpcs3_ios_get_performance_metrics' NativeApp/RPCS3DynamicCore.mm
           grep -q '@main' NativeApp/RPCS3App.swift
           grep -q 'struct GamesView' NativeApp/ContentView.swift
+          grep -q 'ios-host.log' NativeApp/RPCS3DynamicCore.mm
+          grep -q 'Share RPCS3 Device Log' NativeApp/SettingsView.swift
           ! grep -R -n 'RPCS3UpstreamRuntime.framework' NativeApp
           ! grep -R -n -E 'Qt6::|QApplication|QMainWindow|Flutter' NativeApp
 
