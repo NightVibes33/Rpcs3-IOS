@@ -254,7 +254,7 @@ private struct SavestateRow: View {
         HStack(spacing: 12) {
             Image(systemName: savestate.compatible ? "clock.badge.checkmark" : "exclamationmark.triangle.fill")
                 .font(.title2)
-                .foregroundStyle(savestate.compatible ? .green : .orange)
+                .foregroundStyle(savestate.compatible ? Color.green : Color.orange)
 
             VStack(alignment: .leading, spacing: 4) {
                 Text(modifiedDate)
