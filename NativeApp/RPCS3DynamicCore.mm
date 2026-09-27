@@ -3,6 +3,13 @@
 
 #import <dlfcn.h>
 #import <os/log.h>
+#import <os/lock.h>
+
+#include <fcntl.h>
+#include <unistd.h>
+#include <sys/stat.h>
+#include <cstdio>
+#include <ctime>
 
 #include <algorithm>
 #include <cstdlib>
@@ -280,12 +287,77 @@ struct RPCS3API
     decltype(&rpcs3_ios_last_error) last_error = nullptr;
 };
 
+static os_unfair_lock g_host_log_lock = OS_UNFAIR_LOCK_INIT;
+static int g_host_log_fd = -1;
+
+void write_persistent_host_log(int32_t level, const char* message)
+{
+    if (!message) return;
+
+    char line[8192];
+    const std::time_t now = std::time(nullptr);
+    const int length = std::snprintf(
+        line,
+        sizeof(line),
+        "[%lld] L%d %s\n",
+        static_cast<long long>(now),
+        static_cast<int>(level),
+        message);
+    if (length <= 0) return;
+
+    const size_t bytes = static_cast<size_t>(std::min<int>(length, sizeof(line) - 1));
+    os_unfair_lock_lock(&g_host_log_lock);
+    if (g_host_log_fd >= 0)
+        (void)::write(g_host_log_fd, line, bytes);
+    os_unfair_lock_unlock(&g_host_log_lock);
+}
+
+void configure_persistent_host_log()
+{
+    NSArray<NSURL*>* documents = [[NSFileManager defaultManager]
+        URLsForDirectory:NSDocumentDirectory
+        inDomains:NSUserDomainMask];
+    NSURL* documentsURL = documents.firstObject;
+    if (!documentsURL) return;
+
+    NSURL* directory = [documentsURL URLByAppendingPathComponent:@"RPCS3 Logs" isDirectory:YES];
+    NSError* directoryError = nil;
+    if (![[NSFileManager defaultManager] createDirectoryAtURL:directory
+                                 withIntermediateDirectories:YES
+                                                  attributes:nil
+                                                       error:&directoryError])
+        return;
+
+    NSURL* logURL = [directory URLByAppendingPathComponent:@"ios-host.log" isDirectory:NO];
+    NSURL* previousURL = [directory URLByAppendingPathComponent:@"ios-host.previous.log" isDirectory:NO];
+    NSDictionary<NSFileAttributeKey, id>* attributes =
+        [[NSFileManager defaultManager] attributesOfItemAtPath:logURL.path error:nil];
+
+    constexpr unsigned long long maxLogBytes = 4ull * 1024ull * 1024ull;
+    if ([attributes fileSize] > maxLogBytes)
+    {
+        [[NSFileManager defaultManager] removeItemAtURL:previousURL error:nil];
+        [[NSFileManager defaultManager] moveItemAtURL:logURL toURL:previousURL error:nil];
+    }
+
+    const int fd = ::open(logURL.fileSystemRepresentation, O_WRONLY | O_CREAT | O_APPEND, 0644);
+    if (fd < 0) return;
+
+    os_unfair_lock_lock(&g_host_log_lock);
+    if (g_host_log_fd >= 0) ::close(g_host_log_fd);
+    g_host_log_fd = fd;
+    os_unfair_lock_unlock(&g_host_log_lock);
+
+    write_persistent_host_log(4, "=== RPCS3 iOS host session start ===");
+}
+
 void host_log(void*, int32_t level, const char* message)
 {
     if (!message) return;
     os_log_with_type(OS_LOG_DEFAULT,
         level <= 1 ? OS_LOG_TYPE_ERROR : (level <= 3 ? OS_LOG_TYPE_DEFAULT : OS_LOG_TYPE_INFO),
         "RPCS3Core: %{public}s", message);
+    write_persistent_host_log(level, message);
 }
 
 void host_main_thread(void*, rpcs3_ios_main_thread_task task, void* task_context)
@@ -611,6 +683,9 @@ NSError* make_error(NSInteger code, NSString* message)
             return NO;
         }
 
+        configure_persistent_host_log();
+        write_persistent_host_log(4, "Preparing delayed RPCS3Core load");
+
         // XITRIX's JIT layer explicitly latches this process policy before any
         // RPCS3Core constructor is allowed to prepare an arena.
         const std::string jit = std::to_string(jitCapacityMiB);
@@ -638,14 +713,17 @@ NSError* make_error(NSInteger code, NSString* message)
         {
             NSString* message = [NSString stringWithFormat:@"Unable to load RPCS3Core: %@", [self coreError]];
             [self setFailure:message];
+            write_persistent_host_log(1, message.UTF8String);
             if (error) *error = make_error(-5, message);
             return NO;
         }
         _loaded = YES;
+        write_persistent_host_log(4, "libRPCS3Core.dylib loaded successfully");
 
         if (![self resolveAPI:error])
             return NO;
 
+        write_persistent_host_log(4, "RPCS3Core ABI symbols resolved");
         const uint32_t abi = _api.abi_version();
         if (abi != RPCS3_IOS_ABI_VERSION)
         {
@@ -671,13 +749,20 @@ NSError* make_error(NSInteger code, NSString* message)
         config.reserved = 0;
 
         if (![self statusOK:_api.initialize(&config) operation:@"RPCS3 Emu.Init()" error:error])
+        {
+            write_persistent_host_log(1, self.lastError.UTF8String);
             return NO;
+        }
+        write_persistent_host_log(4, "RPCS3 Emu.Init completed");
 
         uint64_t output = 0;
         if (![self statusOK:_api.run_llvm_self_test(11, &output)
                   operation:@"RPCS3 LLVM JIT self-test"
                       error:error])
+        {
+            write_persistent_host_log(1, self.lastError.UTF8String);
             return NO;
+        }
         if (output != 40)
         {
             NSString* message = [NSString stringWithFormat:
@@ -687,8 +772,10 @@ NSError* make_error(NSInteger code, NSString* message)
             return NO;
         }
 
+        write_persistent_host_log(4, "RPCS3 LLVM JIT self-test passed");
         _ready = YES;
         _lastError = @"";
+        write_persistent_host_log(4, "RPCS3Core ready");
         return YES;
     }
 }
