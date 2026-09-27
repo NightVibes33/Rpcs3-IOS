@@ -24,6 +24,14 @@ NS_ASSUME_NONNULL_BEGIN
 @property(nonatomic, readonly) uint64_t memoryTotalBytes;
 @end
 
+@interface RPCS3GameCacheRecord : NSObject
+@property(nonatomic, readonly) uint64_t shaderBytes;
+@property(nonatomic, readonly) uint64_t ppuBytes;
+@property(nonatomic, readonly) uint64_t spuBytes;
+@property(nonatomic, readonly) uint64_t hdd1Bytes;
+@property(nonatomic, readonly) uint64_t totalBytes;
+@end
+
 @interface RPCS3RPCNConfigRecord : NSObject
 @property(nonatomic, readonly) BOOL hasPassword;
 @property(nonatomic, readonly) BOOL hasToken;
@@ -204,6 +212,15 @@ typedef NS_OPTIONS(uint64_t, RPCS3HostPadButton) {
 - (BOOL)bootXMB;
 - (RPCS3BootProgressRecord *)bootProgress;
 - (RPCS3PerformanceRecord *)performanceMetrics;
+- (RPCS3GameCacheRecord *)gameCacheInfoForTitleID:(NSString *)titleID
+    NS_SWIFT_NAME(gameCacheInfo(titleID:));
+- (BOOL)clearGameCacheForTitleID:(NSString *)titleID
+                            type:(uint32_t)type
+                    bytesRemoved:(uint64_t * _Nullable)bytesRemoved
+    NS_SWIFT_NAME(clearGameCache(titleID:type:bytesRemoved:));
+- (BOOL)deleteGameForTitleID:(NSString *)titleID
+    NS_SWIFT_NAME(deleteGame(titleID:));
+
 - (NSArray<RPCS3RuntimePatchRecord *> *)runtimePatchesForTitleID:(NSString *)titleID
                                                     appVersion:(NSString *)appVersion
     NS_SWIFT_NAME(runtimePatches(titleID:appVersion:));
