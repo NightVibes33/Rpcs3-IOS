@@ -104,6 +104,29 @@ NS_ASSUME_NONNULL_BEGIN
 @end
 
 
+
+@interface RPCS3GameSettingsPresetRecord : NSObject
+@property(nonatomic, readonly) NSString *name;
+@property(nonatomic, readonly) uint64_t size;
+@property(nonatomic, readonly) int64_t modifiedTime;
+@end
+
+@interface RPCS3RPCNSocialRecord : NSObject
+@property(nonatomic, readonly) uint32_t kind;
+@property(nonatomic, readonly, getter=isOnline) BOOL online;
+@property(nonatomic, readonly) uint64_t timestamp;
+@property(nonatomic, readonly) NSString *username;
+@property(nonatomic, readonly) NSString *presenceTitle;
+@property(nonatomic, readonly) NSString *presenceStatus;
+@property(nonatomic, readonly) NSString *presenceComment;
+@property(nonatomic, readonly) NSString *historyDescriptionText;
+@end
+
+@interface RPCS3PadFeedbackRecord : NSObject
+@property(nonatomic, readonly) uint32_t largeMotor;
+@property(nonatomic, readonly) uint32_t smallMotor;
+@end
+
 @interface RPCS3GamePatchRecord : NSObject
 @property(nonatomic, readonly) NSString *titleID;
 @property(nonatomic, readonly) NSString *title;
@@ -287,6 +310,58 @@ typedef NS_OPTIONS(uint64_t, RPCS3HostPadButton) {
                                sha256:(NSString *)sha256
                                  data:(NSData *)data
     NS_SWIFT_NAME(installPatchRepository(version:sha256:data:));
+
+
+- (NSArray<RPCS3GameSettingsPresetRecord *> *)gameSettingsPresetsForTitleID:(NSString *)titleID
+    NS_SWIFT_NAME(gameSettingsPresets(titleID:));
+- (BOOL)saveGameSettingsPresetForTitleID:(NSString *)titleID
+                                    name:(NSString *)name
+    NS_SWIFT_NAME(saveGameSettingsPreset(titleID:name:));
+- (BOOL)applyGameSettingsPresetForTitleID:(NSString *)titleID
+                                     name:(NSString *)name
+    NS_SWIFT_NAME(applyGameSettingsPreset(titleID:name:));
+- (BOOL)duplicateGameSettingsPresetForTitleID:(NSString *)titleID
+                                    sourceName:(NSString *)sourceName
+                               destinationName:(NSString *)destinationName
+    NS_SWIFT_NAME(duplicateGameSettingsPreset(titleID:sourceName:destinationName:));
+- (BOOL)renameGameSettingsPresetForTitleID:(NSString *)titleID
+                                 sourceName:(NSString *)sourceName
+                            destinationName:(NSString *)destinationName
+    NS_SWIFT_NAME(renameGameSettingsPreset(titleID:sourceName:destinationName:));
+- (BOOL)deleteGameSettingsPresetForTitleID:(NSString *)titleID
+                                      name:(NSString *)name
+    NS_SWIFT_NAME(deleteGameSettingsPreset(titleID:name:));
+- (BOOL)importGameSettingsPresetForTitleID:(NSString *)titleID
+                                sourcePath:(NSString *)sourcePath
+                                      name:(NSString *)name
+    NS_SWIFT_NAME(importGameSettingsPreset(titleID:sourcePath:name:));
+- (BOOL)exportGameSettingsPresetForTitleID:(NSString *)titleID
+                                      name:(NSString *)name
+                           destinationPath:(NSString *)destinationPath
+    NS_SWIFT_NAME(exportGameSettingsPreset(titleID:name:destinationPath:));
+
+- (BOOL)createRPCNAccountUsername:(NSString *)username
+                         password:(NSString *)password
+                            email:(NSString *)email
+    NS_SWIFT_NAME(createRPCNAccount(username:password:email:));
+- (BOOL)resendRPCNToken;
+- (BOOL)requestRPCNPasswordResetUsername:(NSString *)username
+                                   email:(NSString *)email
+    NS_SWIFT_NAME(requestRPCNPasswordReset(username:email:));
+- (BOOL)resetRPCNPasswordUsername:(NSString *)username
+                       resetToken:(NSString *)resetToken
+                      newPassword:(NSString *)newPassword
+    NS_SWIFT_NAME(resetRPCNPassword(username:resetToken:newPassword:));
+- (BOOL)deleteRPCNAccount;
+- (NSArray<RPCS3RPCNSocialRecord *> *)rpcnSocial;
+- (BOOL)performRPCNSocialAction:(uint32_t)action
+                      username:(NSString *)username
+    NS_SWIFT_NAME(performRPCNSocialAction(_:username:));
+
+- (RPCS3PadFeedbackRecord * _Nullable)padFeedbackForPlayerIndex:(uint32_t)playerIndex
+    NS_SWIFT_NAME(padFeedback(playerIndex:));
+- (uint32_t)coreState;
+- (uint32_t)emulationState;
 
 - (RPCS3SettingsSnapshot *)globalSettings;
 - (RPCS3SettingsSnapshot *)gameSettingsForTitleID:(NSString *)titleID
