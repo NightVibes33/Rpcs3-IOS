@@ -62,6 +62,13 @@ jobs:
             _rpcs3_ios_enumerate_games \
             _rpcs3_ios_enumerate_savestates \
             _rpcs3_ios_enumerate_trophies \
+            _rpcs3_ios_enumerate_settings \
+            _rpcs3_ios_set_setting \
+            _rpcs3_ios_reset_settings \
+            _rpcs3_ios_enumerate_game_settings \
+            _rpcs3_ios_set_game_setting \
+            _rpcs3_ios_reset_game_settings \
+            _rpcs3_ios_remove_game_settings \
             _rpcs3_ios_boot_big_picture_mode \
             _rpcs3_ios_boot_vsh \
             _rpcs3_ios_boot_game \
