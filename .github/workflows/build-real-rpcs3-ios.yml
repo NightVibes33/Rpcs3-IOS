@@ -1,5 +1,7 @@
 name: Build Real RPCS3 iOS
 
+# Canonical mainline product: native SwiftUI host + current XITRIX RPCS3 iOS core.
+
 on:
   workflow_dispatch:
   push:
