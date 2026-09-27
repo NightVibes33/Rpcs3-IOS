@@ -196,6 +196,8 @@ typedef NS_OPTIONS(uint64_t, RPCS3HostPadButton) {
                           enabled:(BOOL)enabled
     NS_SWIFT_NAME(setRuntimePatch(titleID:hash:title:appVersion:description:enabled:));
 
+- (BOOL)updateConfigDatabaseData:(NSData *)data NS_SWIFT_NAME(updateConfigDatabase(data:));
+
 - (RPCS3SettingsSnapshot *)globalSettings;
 - (RPCS3SettingsSnapshot *)gameSettingsForTitleID:(NSString *)titleID
     NS_SWIFT_NAME(gameSettings(titleID:));
