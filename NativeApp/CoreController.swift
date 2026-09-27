@@ -577,7 +577,7 @@ final class CoreController: ObservableObject {
         guard coreReady, state == .ready else { return }
         let core = self.core
         let titleID = game.titleID
-        let hashValue = patch.hashValue
+        let hashValue = patch.patchHash
         let title = patch.title
         let appVersion = patch.appVersion
         let description = patch.patchDescription
