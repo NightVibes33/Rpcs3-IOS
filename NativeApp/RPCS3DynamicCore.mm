@@ -763,7 +763,6 @@ NSError* make_error(NSInteger code, NSString* message)
                   operation:@"RPCS3 LLVM JIT self-test"
                       error:error])
         {
-            write_persistent_host_log(1, self.lastError.UTF8String);
             return NO;
         }
         if (output != 40)
@@ -900,10 +899,19 @@ NSError* make_error(NSInteger code, NSString* message)
 - (BOOL)shutdownWithError:(NSError**)error
 {
     if (!_ready) return YES;
+    write_persistent_host_log(4, "RPCS3Core shutdown requested");
     const BOOL ok = [self statusOK:_api.shutdown() operation:@"RPCS3Core shutdown" error:error];
     if (ok)
     {
         @synchronized (self) { _ready = NO; }
+        write_persistent_host_log(4, "RPCS3Core shutdown completed");
+        os_unfair_lock_lock(&g_host_log_lock);
+        if (g_host_log_fd >= 0)
+        {
+            ::close(g_host_log_fd);
+            g_host_log_fd = -1;
+        }
+        os_unfair_lock_unlock(&g_host_log_lock);
     }
     return ok;
 }
