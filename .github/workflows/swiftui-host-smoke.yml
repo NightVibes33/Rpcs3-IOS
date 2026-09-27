@@ -152,11 +152,18 @@ jobs:
           rm -rf Payload smoke-output
           mkdir -p Payload smoke-output
           /usr/bin/ditto "$APP" Payload/RPCS3.app
-          rm -rf Payload/RPCS3.app/_CodeSignature
+          # Keep the ad-hoc signature/entitlements so SideStore can see
+          # and request the memory capabilities when re-signing.
           rm -f Payload/RPCS3.app/embedded.mobileprovision
           test -s Payload/RPCS3.app/RPCS3
           test -s Payload/RPCS3.app/Frameworks/libRPCS3Core.dylib
+          test -d Payload/RPCS3.app/_CodeSignature
           /usr/bin/plutil -lint Payload/RPCS3.app/Info.plist
+          codesign --verify --deep --strict Payload/RPCS3.app
+          codesign -d --entitlements :- Payload/RPCS3.app > swiftui-host-entitlements.plist 2>/dev/null
+          grep -q 'com.apple.developer.kernel.increased-memory-limit' swiftui-host-entitlements.plist
+          grep -q 'com.apple.developer.kernel.extended-virtual-addressing' swiftui-host-entitlements.plist
+          grep -q 'com.apple.developer.kernel.increased-debugging-memory-limit' swiftui-host-entitlements.plist
 
           SHORT_SHA="$(printf '%s' "$GITHUB_SHA" | cut -c1-7)"
           IPA="smoke-output/RPCS3-XITRIX-currentcore-SwiftUI-${SHORT_SHA}-unsigned.ipa"
@@ -186,5 +193,7 @@ jobs:
             swiftui-host-ipa-contents.txt
             native-ios-build/app-file.txt
             native-ios-build/app-archs.txt
+            native-ios-build/app-signed-entitlements.plist
+            swiftui-host-entitlements.plist
           if-no-files-found: warn
           retention-days: 7
