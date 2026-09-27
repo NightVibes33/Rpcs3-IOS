@@ -1,0 +1,75 @@
+name: Publish Direct RPCS3 IPA
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/publish-direct-ipa.yml"
+
+permissions:
+  contents: write
+  actions: read
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download known-green IPA artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: RPCS3-XITRIX-iOS-unsigned
+          path: downloaded
+          run-id: 36354934719
+          github-token: ${{ github.token }}
+
+      - name: Validate actual IPA payload
+        shell: bash
+        run: |
+          set -euo pipefail
+          IPA="$(find downloaded -maxdepth 2 -type f -name '*.ipa' -print -quit)"
+          test -n "$IPA"
+          echo "IPA=$IPA" >> "$GITHUB_ENV"
+
+          rm -rf verify
+          mkdir verify
+          unzip -q "$IPA" -d verify
+
+          APP="$(find verify/Payload -maxdepth 1 -type d -name '*.app' -print -quit)"
+          test -n "$APP"
+          test -f "$APP/Info.plist"
+          test -s "$APP/RPCS3"
+          test -s "$APP/Frameworks/libRPCS3Core.dylib"
+
+          python3 - <<'PY'
+          import plistlib, pathlib
+          apps=list(pathlib.Path("verify/Payload").glob("*.app"))
+          assert len(apps)==1, apps
+          p=apps[0]/"Info.plist"
+          with p.open("rb") as f:
+              info=plistlib.load(f)
+          assert info["CFBundleExecutable"]=="RPCS3", info
+          assert info["CFBundlePackageType"]=="APPL", info
+          assert info["CFBundleIdentifier"], info
+          print("Validated", p)
+          PY
+
+          sha256sum "$IPA" | tee direct-ipa.sha256
+          cp "$IPA" RPCS3-iOS-XITRIX-Core-fc89a38-unsigned.ipa
+          cp direct-ipa.sha256 RPCS3-iOS-XITRIX-Core-fc89a38-unsigned.ipa.sha256
+
+      - name: Publish direct IPA release asset
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          TAG="ios-dev-fc89a38"
+          TITLE="RPCS3 iOS — XITRIX Core fc89a38"
+          NOTES="Direct unsigned IPA from canonical green main build run 36354934719. This asset is the IPA itself, not the GitHub Actions artifact wrapper ZIP. XITRIX RPCS3 iOS ABI v30 core; native SwiftUI host."
+
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release upload "$TAG"               RPCS3-iOS-XITRIX-Core-fc89a38-unsigned.ipa               RPCS3-iOS-XITRIX-Core-fc89a38-unsigned.ipa.sha256               --clobber --repo "$GITHUB_REPOSITORY"
+          else
+            gh release create "$TAG"               RPCS3-iOS-XITRIX-Core-fc89a38-unsigned.ipa               RPCS3-iOS-XITRIX-Core-fc89a38-unsigned.ipa.sha256               --title "$TITLE"               --notes "$NOTES"               --prerelease               --target fc89a3887e7c14325d846c053501c13ea50df00a               --repo "$GITHUB_REPOSITORY"
+          fi
