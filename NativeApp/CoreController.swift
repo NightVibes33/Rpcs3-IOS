@@ -46,6 +46,7 @@ final class CoreController: ObservableObject {
     @Published var rpcnStatus = "RPCN not loaded"
     @Published var gameUpdatesByTitleID: [String: [PS3GameUpdatePackage]] = [:]
     @Published var gameUpdateStatusByTitleID: [String: String] = [:]
+    @Published var gameCacheByTitleID: [String: RPCS3GameCacheRecord] = [:]
 
     private var virtualPad = VirtualPadSnapshot()
     private let core = RPCS3DynamicCore.shared()
@@ -139,6 +140,59 @@ final class CoreController: ObservableObject {
             let records = core.enumerateGames()
             DispatchQueue.main.async {
                 self?.games = records
+            }
+        }
+    }
+
+    func refreshGameCache(for game: RPCS3GameRecord) {
+        guard coreReady, state == .ready else { return }
+        let core = self.core
+        let titleID = game.titleID
+        worker.async { [weak self] in
+            let info = core.gameCacheInfo(titleID: titleID)
+            let message = core.lastError
+            DispatchQueue.main.async {
+                guard let self else { return }
+                self.gameCacheByTitleID[titleID] = info
+                if info.totalBytes == 0 && !message.isEmpty {
+                    self.status = message
+                }
+            }
+        }
+    }
+
+    func clearGameCache(for game: RPCS3GameRecord, type: UInt32) {
+        guard coreReady, state == .ready else { return }
+        let core = self.core
+        let titleID = game.titleID
+        worker.async { [weak self] in
+            var removed: UInt64 = 0
+            let ok = core.clearGameCache(titleID: titleID, type: type, bytesRemoved: &removed)
+            let message = core.lastError
+            DispatchQueue.main.async {
+                guard let self else { return }
+                self.status = ok
+                    ? "Cleared \(ByteCountFormatter.string(fromByteCount: Int64(clamping: removed), countStyle: .file)) of RPCS3 cache."
+                    : message
+                if ok { self.refreshGameCache(for: game) }
+            }
+        }
+    }
+
+    func deleteInstalledGame(_ game: RPCS3GameRecord) {
+        guard coreReady, state == .ready else { return }
+        let core = self.core
+        let titleID = game.titleID
+        worker.async { [weak self] in
+            let ok = core.deleteGame(titleID: titleID)
+            let message = core.lastError
+            DispatchQueue.main.async {
+                guard let self else { return }
+                self.status = ok ? "Deleted \(game.title)." : message
+                if ok {
+                    self.gameCacheByTitleID.removeValue(forKey: titleID)
+                    self.refreshGames()
+                }
             }
         }
     }
