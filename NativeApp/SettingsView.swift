@@ -1,4 +1,5 @@
 import SwiftUI
+import UniformTypeIdentifiers
 
 struct SettingsView: View {
     var body: some View {
@@ -378,6 +379,7 @@ private struct GameSettingsPresetsSection: View {
     @State private var renameSource = ""
     @State private var renameDestination = ""
     @State private var showingRename = false
+    @State private var showingPresetImporter = false
 
     private var presets: [RPCS3GameSettingsPresetRecord] {
         controller.gameSettingsPresetsByTitleID[game.titleID] ?? []
@@ -390,6 +392,18 @@ private struct GameSettingsPresetsSection: View {
                 showingSavePreset = true
             } label: {
                 Label("Save Current Settings as Preset", systemImage: "plus.square")
+            }
+
+            Button {
+                showingPresetImporter = true
+            } label: {
+                Label("Import Preset", systemImage: "square.and.arrow.down")
+            }
+
+            if let exportURL = controller.gameSettingsPresetExportURL {
+                ShareLink(item: exportURL) {
+                    Label("Share Last Exported Preset", systemImage: "square.and.arrow.up")
+                }
             }
 
             ForEach(presets, id: \.name) { preset in
@@ -416,6 +430,9 @@ private struct GameSettingsPresetsSection: View {
                             renameSource = preset.name
                             renameDestination = preset.name
                             showingRename = true
+                        }
+                        Button("Export") {
+                            controller.exportGameSettingsPreset(for: game, name: preset.name)
                         }
                         Button("Delete", role: .destructive) {
                             controller.deleteGameSettingsPreset(for: game, name: preset.name)
@@ -446,6 +463,15 @@ private struct GameSettingsPresetsSection: View {
                 )
             }
             Button("Cancel", role: .cancel) {}
+        }
+        .fileImporter(
+            isPresented: $showingPresetImporter,
+            allowedContentTypes: [.yaml, .plainText, .data],
+            allowsMultipleSelection: false
+        ) { result in
+            if case let .success(urls) = result, let url = urls.first {
+                controller.importGameSettingsPreset(for: game, from: url)
+            }
         }
     }
 }
