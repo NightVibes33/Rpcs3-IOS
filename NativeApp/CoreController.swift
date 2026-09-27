@@ -39,11 +39,13 @@ final class CoreController: ObservableObject {
     @Published var globalSettings: [RPCS3SettingRecord] = []
     @Published var gameSettingsByTitleID: [String: [RPCS3SettingRecord]] = [:]
     @Published var gameHasCustomConfig: [String: Bool] = [:]
+    @Published var gameSettingsPresetsByTitleID: [String: [RPCS3GameSettingsPresetRecord]] = [:]
     @Published var runtimePatchesByTitleID: [String: [RPCS3RuntimePatchRecord]] = [:]
     @Published var configDatabaseStatus = "Not synced this session"
     @Published var rpcnConfig: RPCS3RPCNConfigRecord?
     @Published var rpcnServers: [RPCS3RPCNServerRecord] = []
     @Published var rpcnStatus = "RPCN not loaded"
+    @Published var rpcnSocial: [RPCS3RPCNSocialRecord] = []
     @Published var gameUpdatesByTitleID: [String: [PS3GameUpdatePackage]] = [:]
     @Published var gameUpdateStatusByTitleID: [String: String] = [:]
     @Published var gameCacheByTitleID: [String: RPCS3GameCacheRecord] = [:]
@@ -355,6 +357,166 @@ final class CoreController: ObservableObject {
         }
     }
 
+    func createRPCNAccount(username: String, password: String, email: String, ipv6: Bool) {
+        guard coreReady, state == .ready else { return }
+        let user = username.trimmingCharacters(in: .whitespacesAndNewlines)
+        let address = email.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !user.isEmpty, !password.isEmpty, !address.isEmpty else {
+            rpcnStatus = "RPCN username, password, and email are required."
+            return
+        }
+
+        rpcnStatus = "Creating RPCN account…"
+        let core = self.core
+        worker.async { [weak self] in
+            let ok = core.createRPCNAccount(username: user, password: password, email: address)
+            let message = core.lastError
+            if ok {
+                try? RPCNCredentialVault.save(RPCNStoredCredentials(
+                    username: user,
+                    password: password,
+                    token: "",
+                    ipv6: ipv6
+                ))
+            }
+            DispatchQueue.main.async {
+                guard let self else { return }
+                self.rpcnStatus = ok
+                    ? "RPCN account created. Check your email for the verification token."
+                    : message
+                if ok { self.refreshRPCN() }
+            }
+        }
+    }
+
+    func resendRPCNVerificationToken() {
+        guard coreReady, state == .ready else { return }
+        rpcnStatus = "Requesting a new RPCN verification token…"
+        let core = self.core
+        worker.async { [weak self] in
+            let ok = core.resendRPCNToken()
+            let message = core.lastError
+            DispatchQueue.main.async {
+                guard let self else { return }
+                self.rpcnStatus = ok
+                    ? "RPCN verification token requested. Check your email."
+                    : message
+            }
+        }
+    }
+
+    func requestRPCNPasswordReset(username: String, email: String) {
+        guard coreReady, state == .ready else { return }
+        let user = username.trimmingCharacters(in: .whitespacesAndNewlines)
+        let address = email.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !user.isEmpty, !address.isEmpty else {
+            rpcnStatus = "RPCN username and email are required."
+            return
+        }
+
+        rpcnStatus = "Requesting RPCN password-reset token…"
+        let core = self.core
+        worker.async { [weak self] in
+            let ok = core.requestRPCNPasswordReset(username: user, email: address)
+            let message = core.lastError
+            DispatchQueue.main.async {
+                guard let self else { return }
+                self.rpcnStatus = ok
+                    ? "RPCN password-reset token requested. Check your email."
+                    : message
+            }
+        }
+    }
+
+    func resetRPCNPassword(username: String, token: String, newPassword: String) {
+        guard coreReady, state == .ready else { return }
+        let user = username.trimmingCharacters(in: .whitespacesAndNewlines)
+        let normalizedToken = token.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
+        guard !user.isEmpty, normalizedToken.count == 16, !newPassword.isEmpty else {
+            rpcnStatus = "RPCN reset requires a username, 16-character token, and new password."
+            return
+        }
+
+        rpcnStatus = "Resetting RPCN password…"
+        let core = self.core
+        worker.async { [weak self] in
+            let ok = core.resetRPCNPassword(
+                username: user,
+                resetToken: normalizedToken,
+                newPassword: newPassword
+            )
+            let message = core.lastError
+
+            if ok, let stored = RPCNCredentialVault.load(), stored.username == user {
+                try? RPCNCredentialVault.save(RPCNStoredCredentials(
+                    username: stored.username,
+                    password: newPassword,
+                    token: stored.token,
+                    ipv6: stored.ipv6
+                ))
+            }
+
+            DispatchQueue.main.async {
+                guard let self else { return }
+                self.rpcnStatus = ok ? "RPCN password reset completed." : message
+                if ok { self.refreshRPCN() }
+            }
+        }
+    }
+
+    func deleteRPCNAccount() {
+        guard coreReady, state == .ready else { return }
+        rpcnStatus = "Deleting RPCN account…"
+        let core = self.core
+        worker.async { [weak self] in
+            let ok = core.deleteRPCNAccount()
+            let message = core.lastError
+            if ok {
+                try? RPCNCredentialVault.delete()
+            }
+            DispatchQueue.main.async {
+                guard let self else { return }
+                self.rpcnStatus = ok ? "RPCN account deleted." : message
+                if ok {
+                    self.rpcnSocial = []
+                    self.refreshRPCN()
+                }
+            }
+        }
+    }
+
+    func refreshRPCNSocial() {
+        guard coreReady, state == .ready else { return }
+        let core = self.core
+        worker.async { [weak self] in
+            let records = core.rpcnSocial()
+            let message = core.lastError
+            DispatchQueue.main.async {
+                guard let self else { return }
+                self.rpcnSocial = records
+                if records.isEmpty && !message.isEmpty {
+                    self.rpcnStatus = message
+                }
+            }
+        }
+    }
+
+    func performRPCNSocialAction(_ action: UInt32, username: String) {
+        guard coreReady, state == .ready else { return }
+        let normalized = username.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalized.isEmpty else { return }
+        let core = self.core
+        worker.async { [weak self] in
+            let ok = core.performRPCNSocialAction(action, username: normalized)
+            let message = core.lastError
+            DispatchQueue.main.async {
+                guard let self else { return }
+                self.rpcnStatus = ok ? "RPCN social action completed for \(normalized)." : message
+                if ok { self.refreshRPCNSocial() }
+            }
+        }
+    }
+
     func refreshRPCN() {
         guard coreReady else { return }
         let core = self.core
@@ -366,6 +528,9 @@ final class CoreController: ObservableObject {
                 guard let self else { return }
                 self.rpcnConfig = config
                 self.rpcnServers = servers
+                if config.authenticated {
+                    self.refreshRPCNSocial()
+                }
                 if config.authenticated {
                     self.rpcnStatus = "Authenticated as \(config.onlineName.isEmpty ? config.username : config.onlineName)"
                 } else if config.connected {
@@ -654,6 +819,72 @@ final class CoreController: ObservableObject {
                 guard let self else { return }
                 self.status = ok ? "Restored RPCS3 global settings to defaults." : message
                 if ok { self.refreshGlobalSettings() }
+            }
+        }
+    }
+
+    func refreshGameSettingsPresets(for game: RPCS3GameRecord) {
+        guard coreReady, state == .ready else { return }
+        let core = self.core
+        let titleID = game.titleID
+        worker.async { [weak self] in
+            let records = core.gameSettingsPresets(titleID: titleID)
+            let message = core.lastError
+            DispatchQueue.main.async {
+                guard let self else { return }
+                self.gameSettingsPresetsByTitleID[titleID] = records
+                if records.isEmpty && !message.isEmpty { self.status = message }
+            }
+        }
+    }
+
+    func saveGameSettingsPreset(for game: RPCS3GameRecord, name: String) {
+        mutateGameSettingsPreset(game, success: "Saved preset \(name).") {
+            $0.saveGameSettingsPreset(titleID: game.titleID, name: name)
+        }
+    }
+
+    func applyGameSettingsPreset(for game: RPCS3GameRecord, name: String) {
+        mutateGameSettingsPreset(game, success: "Applied preset \(name).") {
+            $0.applyGameSettingsPreset(titleID: game.titleID, name: name)
+        }
+    }
+
+    func duplicateGameSettingsPreset(for game: RPCS3GameRecord, source: String, destination: String) {
+        mutateGameSettingsPreset(game, success: "Duplicated preset as \(destination).") {
+            $0.duplicateGameSettingsPreset(titleID: game.titleID, sourceName: source, destinationName: destination)
+        }
+    }
+
+    func renameGameSettingsPreset(for game: RPCS3GameRecord, source: String, destination: String) {
+        mutateGameSettingsPreset(game, success: "Renamed preset to \(destination).") {
+            $0.renameGameSettingsPreset(titleID: game.titleID, sourceName: source, destinationName: destination)
+        }
+    }
+
+    func deleteGameSettingsPreset(for game: RPCS3GameRecord, name: String) {
+        mutateGameSettingsPreset(game, success: "Deleted preset \(name).") {
+            $0.deleteGameSettingsPreset(titleID: game.titleID, name: name)
+        }
+    }
+
+    private func mutateGameSettingsPreset(
+        _ game: RPCS3GameRecord,
+        success: String,
+        operation: @escaping (RPCS3DynamicCore) -> Bool
+    ) {
+        guard coreReady, state == .ready else { return }
+        let core = self.core
+        worker.async { [weak self] in
+            let ok = operation(core)
+            let message = core.lastError
+            DispatchQueue.main.async {
+                guard let self else { return }
+                self.status = ok ? success : message
+                if ok {
+                    self.refreshGameSettings(for: game)
+                    self.refreshGameSettingsPresets(for: game)
+                }
             }
         }
     }
