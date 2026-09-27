@@ -13,6 +13,7 @@ struct ContentView: View {
                 .allowsHitTesting(controller.sessionRunning)
 
             if controller.sessionRunning {
+                PS3TouchControllerOverlay(controller: controller)
                 sessionOverlay
             } else {
                 AppShellView()
@@ -34,6 +35,12 @@ struct ContentView: View {
             HStack {
                 Spacer()
                 Menu {
+                    Button(controller.touchControllerVisible ? "Hide Touch Controller" : "Show Touch Controller") {
+                        controller.touchControllerVisible.toggle()
+                        if !controller.touchControllerVisible {
+                            controller.clearVirtualPad()
+                        }
+                    }
                     Button("Stop Emulation", role: .destructive) {
                         controller.stopSession()
                     }
