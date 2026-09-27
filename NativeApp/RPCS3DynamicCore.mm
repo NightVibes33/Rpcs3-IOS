@@ -232,6 +232,8 @@ struct RPCS3API
     decltype(&rpcs3_ios_download_game_update_package) download_game_update_package = nullptr;
     decltype(&rpcs3_ios_enumerate_games) enumerate_games = nullptr;
     decltype(&rpcs3_ios_enumerate_savestates) enumerate_savestates = nullptr;
+    decltype(&rpcs3_ios_duplicate_savestate) duplicate_savestate = nullptr;
+    decltype(&rpcs3_ios_delete_savestate) delete_savestate = nullptr;
     decltype(&rpcs3_ios_enumerate_trophies) enumerate_trophies = nullptr;
     decltype(&rpcs3_ios_set_display_surface) set_display_surface = nullptr;
     decltype(&rpcs3_ios_set_pad_state) set_pad_state = nullptr;
@@ -530,6 +532,8 @@ NSError* make_error(NSInteger code, NSString* message)
     LOAD_API(rpcs3_ios_download_game_update_package, download_game_update_package);
     LOAD_API(rpcs3_ios_enumerate_games, enumerate_games);
     LOAD_API(rpcs3_ios_enumerate_savestates, enumerate_savestates);
+    LOAD_API(rpcs3_ios_duplicate_savestate, duplicate_savestate);
+    LOAD_API(rpcs3_ios_delete_savestate, delete_savestate);
     LOAD_API(rpcs3_ios_enumerate_trophies, enumerate_trophies);
     LOAD_API(rpcs3_ios_set_display_surface, set_display_surface);
     LOAD_API(rpcs3_ios_set_pad_state, set_pad_state);
@@ -1202,6 +1206,25 @@ NSError* make_error(NSInteger code, NSString* message)
         return @[];
     }
     return [records copy];
+}
+
+
+- (BOOL)duplicateSavestateForTitleID:(NSString*)titleID identifier:(NSString*)identifier
+{
+    if (!self.ready || !_api.duplicate_savestate || titleID.length == 0 || identifier.length == 0)
+        return NO;
+    return [self statusOK:_api.duplicate_savestate(titleID.UTF8String, identifier.UTF8String)
+                operation:@"Duplicate save state"
+                    error:nullptr];
+}
+
+- (BOOL)deleteSavestateForTitleID:(NSString*)titleID identifier:(NSString*)identifier
+{
+    if (!self.ready || !_api.delete_savestate || titleID.length == 0 || identifier.length == 0)
+        return NO;
+    return [self statusOK:_api.delete_savestate(titleID.UTF8String, identifier.UTF8String)
+                operation:@"Delete save state"
+                    error:nullptr];
 }
 
 - (NSArray<RPCS3TrophyRecord*>*)enumerateTrophiesForTitleID:(NSString*)titleID
