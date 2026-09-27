@@ -24,6 +24,27 @@ NS_ASSUME_NONNULL_BEGIN
 @property(nonatomic, readonly) uint64_t memoryTotalBytes;
 @end
 
+@interface RPCS3SavestateRecord : NSObject
+@property(nonatomic, readonly) BOOL compatible;
+@property(nonatomic, readonly) uint64_t size;
+@property(nonatomic, readonly) int64_t modifiedTime;
+@property(nonatomic, readonly) NSString *identifier;
+@end
+
+@interface RPCS3TrophyRecord : NSObject
+@property(nonatomic, readonly) uint32_t trophyID;
+@property(nonatomic, readonly) uint32_t displayOrder;
+@property(nonatomic, readonly) uint32_t grade;
+@property(nonatomic, readonly) BOOL earned;
+@property(nonatomic, readonly) BOOL hidden;
+@property(nonatomic, readonly) uint64_t unlockTimestamp;
+@property(nonatomic, readonly) NSString *trophySetID;
+@property(nonatomic, readonly) NSString *gameTitle;
+@property(nonatomic, readonly) NSString *name;
+@property(nonatomic, readonly) NSString *trophyDescription;
+@property(nonatomic, readonly) NSString *iconPath;
+@end
+
 @interface RPCS3GameRecord : NSObject
 @property(nonatomic, readonly) NSString *titleID;
 @property(nonatomic, readonly) NSString *title;
@@ -126,7 +147,14 @@ typedef NS_OPTIONS(uint64_t, RPCS3HostPadButton) {
 - (RPCS3BootProgressRecord *)bootProgress;
 - (RPCS3PerformanceRecord *)performanceMetrics;
 - (NSArray<RPCS3GameRecord *> *)enumerateGames;
+- (NSArray<RPCS3SavestateRecord *> *)enumerateSavestatesForTitleID:(NSString *)titleID
+    NS_SWIFT_NAME(enumerateSavestates(titleID:));
+- (NSArray<RPCS3TrophyRecord *> *)enumerateTrophiesForTitleID:(NSString *)titleID
+    NS_SWIFT_NAME(enumerateTrophies(titleID:));
 - (BOOL)bootGameWithTitleID:(NSString *)titleID NS_SWIFT_NAME(bootGame(titleID:));
+- (BOOL)bootGameWithTitleID:(NSString *)titleID
+                savestateID:(NSString *)savestateID
+    NS_SWIFT_NAME(bootGame(titleID:savestateID:));
 - (BOOL)installContentAtPath:(NSString *)path NS_SWIFT_NAME(installContent(atPath:));
 - (BOOL)pause;
 - (BOOL)resume;
