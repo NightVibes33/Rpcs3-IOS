@@ -44,6 +44,8 @@ final class CoreController: ObservableObject {
     @Published var rpcnConfig: RPCS3RPCNConfigRecord?
     @Published var rpcnServers: [RPCS3RPCNServerRecord] = []
     @Published var rpcnStatus = "RPCN not loaded"
+    @Published var gameUpdatesByTitleID: [String: [PS3GameUpdatePackage]] = [:]
+    @Published var gameUpdateStatusByTitleID: [String: String] = [:]
 
     private var virtualPad = VirtualPadSnapshot()
     private let core = RPCS3DynamicCore.shared()
@@ -51,6 +53,7 @@ final class CoreController: ObservableObject {
     private var metalView: RPCS3MetalView?
     private var inputManager: GameControllerInputManager?
     private var telemetryTimer: Timer?
+    private var cacheRoot: URL?
 
     var coreReady: Bool { state == .ready || state == .launching || state == .running }
     var sessionRunning: Bool { state == .running }
@@ -76,6 +79,7 @@ final class CoreController: ObservableObject {
 
         let support = supportBase.appendingPathComponent("RPCS3", isDirectory: true)
         let cache = cacheBase.appendingPathComponent("RPCS3", isDirectory: true)
+        cacheRoot = cache
 
         do {
             try fm.createDirectory(at: support, withIntermediateDirectories: true)
@@ -135,6 +139,153 @@ final class CoreController: ObservableObject {
             let records = core.enumerateGames()
             DispatchQueue.main.async {
                 self?.games = records
+            }
+        }
+    }
+
+    func checkGameUpdates(for game: RPCS3GameRecord) {
+        guard coreReady, state == .ready else { return }
+        let titleID = game.titleID
+        let installedVersion = game.version
+        gameUpdateStatusByTitleID[titleID] = "Checking Sony for updates…"
+
+        let core = self.core
+        worker.async { [weak self] in
+            guard let data = core.gameUpdateManifest(titleID: titleID) else {
+                let message = core.lastError
+                DispatchQueue.main.async {
+                    self?.gameUpdateStatusByTitleID[titleID] =
+                        message.isEmpty ? "Unable to fetch the game-update manifest." : message
+                }
+                return
+            }
+
+            do {
+                let all = try PS3GameUpdateManifest.parse(data)
+                let newer = all.filter {
+                    PS3GameUpdateManifest.isNewer($0.version, than: installedVersion)
+                }
+                DispatchQueue.main.async {
+                    self?.gameUpdatesByTitleID[titleID] = newer
+                    self?.gameUpdateStatusByTitleID[titleID] = newer.isEmpty
+                        ? "No newer PlayStation 3 update packages found."
+                        : "\(newer.count) newer update package\(newer.count == 1 ? "" : "s") available."
+                }
+            } catch {
+                DispatchQueue.main.async {
+                    self?.gameUpdateStatusByTitleID[titleID] =
+                        "Could not parse Sony's update manifest: \(error.localizedDescription)"
+                }
+            }
+        }
+    }
+
+    func installAllGameUpdates(for game: RPCS3GameRecord) {
+        guard coreReady, state == .ready,
+              let cacheRoot else { return }
+
+        let titleID = game.titleID
+        let packages = (gameUpdatesByTitleID[titleID] ?? [])
+            .sorted { PS3GameUpdateManifest.compareVersions($0.version, $1.version) == .orderedAscending }
+        guard !packages.isEmpty else {
+            gameUpdateStatusByTitleID[titleID] = "No pending updates."
+            return
+        }
+
+        gameUpdateStatusByTitleID[titleID] = "Starting ordered update batch…"
+        let core = self.core
+        let updateDirectory = cacheRoot.appendingPathComponent("game-updates", isDirectory: true)
+
+        worker.async { [weak self] in
+            do {
+                try FileManager.default.createDirectory(
+                    at: updateDirectory,
+                    withIntermediateDirectories: true
+                )
+
+                for (index, package) in packages.enumerated() {
+                    let safeVersion = package.version.replacingOccurrences(
+                        of: "[^0-9A-Za-z._-]",
+                        with: "_",
+                        options: .regularExpression
+                    )
+                    let destination = updateDirectory
+                        .appendingPathComponent("\(titleID)-\(safeVersion).pkg")
+
+                    DispatchQueue.main.async {
+                        self?.gameUpdateStatusByTitleID[titleID] =
+                            "Downloading \(package.version) (\(index + 1)/\(packages.count))…"
+                    }
+
+                    try? FileManager.default.removeItem(at: destination)
+                    guard core.downloadGameUpdate(
+                        packageURL: package.url,
+                        destinationPath: destination.path,
+                        expectedSize: package.size
+                    ) else {
+                        throw NSError(
+                            domain: "RPCS3.GameUpdater",
+                            code: 2,
+                            userInfo: [NSLocalizedDescriptionKey:
+                                core.lastError.isEmpty ? "RPCS3Core could not download update \(package.version)." : core.lastError]
+                        )
+                    }
+
+                    guard package.sha1.count == 40 else {
+                        try? FileManager.default.removeItem(at: destination)
+                        throw NSError(
+                            domain: "RPCS3.GameUpdater",
+                            code: 3,
+                            userInfo: [NSLocalizedDescriptionKey:
+                                "Sony's manifest did not provide a valid SHA-1 for update \(package.version)."]
+                        )
+                    }
+
+                    DispatchQueue.main.async {
+                        self?.gameUpdateStatusByTitleID[titleID] =
+                            "Verifying \(package.version)…"
+                    }
+                    let actualSHA1 = try PS3PackageIntegrity.sha1Hex(of: destination)
+                    guard actualSHA1.caseInsensitiveCompare(package.sha1) == .orderedSame else {
+                        try? FileManager.default.removeItem(at: destination)
+                        throw NSError(
+                            domain: "RPCS3.GameUpdater",
+                            code: 4,
+                            userInfo: [NSLocalizedDescriptionKey:
+                                "SHA-1 verification failed for update \(package.version)."]
+                        )
+                    }
+
+                    DispatchQueue.main.async {
+                        self?.gameUpdateStatusByTitleID[titleID] =
+                            "Installing \(package.version) (\(index + 1)/\(packages.count))…"
+                    }
+                    guard core.installGamePatch(
+                        titleID: titleID,
+                        packagePath: destination.path
+                    ) else {
+                        try? FileManager.default.removeItem(at: destination)
+                        throw NSError(
+                            domain: "RPCS3.GameUpdater",
+                            code: 5,
+                            userInfo: [NSLocalizedDescriptionKey:
+                                core.lastError.isEmpty ? "RPCS3Core rejected update \(package.version)." : core.lastError]
+                        )
+                    }
+
+                    try? FileManager.default.removeItem(at: destination)
+                }
+
+                DispatchQueue.main.async {
+                    guard let self else { return }
+                    self.gameUpdateStatusByTitleID[titleID] = "All selected PlayStation 3 updates installed."
+                    self.gameUpdatesByTitleID[titleID] = []
+                    self.refreshGames()
+                }
+            } catch {
+                DispatchQueue.main.async {
+                    self?.gameUpdateStatusByTitleID[titleID] = error.localizedDescription
+                }
             }
         }
     }
