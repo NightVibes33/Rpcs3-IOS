@@ -2,25 +2,6 @@ name: Build Full Upstream RPCS3 Qt iOS
 
 on:
   workflow_dispatch:
-  push:
-    branches: [main]
-    paths:
-      - "scripts/build-upstream-full-qt-ios.sh"
-      - "scripts/patch-upstream-ios-emu-graph.py"
-      - "scripts/patch-upstream-ios-runtime-blockers.py"
-      - "scripts/patch-upstream-ios-full-qt-blockers.py"
-      - "scripts/patch-upstream-ios-openal.py"
-      - "scripts/patch-upstream-ios-audio-frameworks.py"
-      - "scripts/patch-upstream-ios-cubeb.py"
-      - "scripts/patch-upstream-ios-libusb-api.py"
-      - "scripts/apply-upstream-ios-overlay.py"
-      - "scripts/build-ffmpeg-ios.sh"
-      - "scripts/build-moltenvk-ios.sh"
-      - "cmake/**"
-      - "CoreBridge/**"
-      - "Port/**"
-      - "UPSTREAM_RPCS3_REVISION"
-      - ".github/workflows/full-upstream-qt-ios.yml"
 
 permissions:
   contents: read
