@@ -1,0 +1,150 @@
+name: Build Real RPCS3 iOS
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ios-core-v30-migration]
+    paths:
+      - "NativeApp/**"
+      - "scripts/build-real-xitrix-core.sh"
+      - "scripts/build-real-ios-app.sh"
+      - "UPSTREAM_RPCS3_REVISION"
+      - ".github/workflows/build-real-rpcs3-ios.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: real-rpcs3-ios-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: XITRIX RPCS3Core + native iOS host
+    runs-on: macos-15
+    timeout-minutes: 180
+    env:
+      HOMEBREW_NO_AUTO_UPDATE: "1"
+      IOS_DEPLOYMENT_TARGET: "17.4"
+      BUILD_JOBS: "3"
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Select Xcode 16.4
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: "16.4"
+
+      - name: Install build dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          for formula in cmake ninja ccache llvm@22; do
+            brew list --versions "$formula" >/dev/null 2>&1 || brew install "$formula"
+          done
+          xcodebuild -version
+          xcrun --sdk iphoneos --show-sdk-version
+          cmake --version
+          "$(brew --prefix llvm@22)/bin/clang" --version
+
+      - name: Reject legacy product path
+        shell: bash
+        run: |
+          set -euo pipefail
+          grep -q 'XITRIX/rpcs3.git' scripts/build-real-xitrix-core.sh
+          grep -q 'RPCS3_FRONTEND=IOS' scripts/build-real-xitrix-core.sh
+          grep -q 'WITH_LLVM=ON' scripts/build-real-xitrix-core.sh
+          grep -q 'rpcs3_ios_boot_big_picture_mode' NativeApp/main.mm
+          grep -q 'expanded_jit_arena = 1024' NativeApp/main.mm
+          ! grep -R -n 'RPCS3UpstreamRuntime.framework' NativeApp scripts/build-real-*.sh
+          ! grep -R -n 'Qt6::\|QApplication\|QMainWindow' NativeApp scripts/build-real-*.sh
+
+      - name: Build real XITRIX RPCS3Core
+        shell: bash
+        run: |
+          set -o pipefail
+          bash scripts/build-real-xitrix-core.sh 2>&1 | tee real-core-build.log
+
+      - name: Build native iOS host
+        shell: bash
+        run: |
+          set -o pipefail
+          bash scripts/build-real-ios-app.sh 2>&1 | tee real-app-build.log
+
+      - name: Validate exact product
+        id: product
+        shell: bash
+        run: |
+          set -euo pipefail
+          APP="$(cat native-ios-build/app-path.txt)"
+          BIN="$APP/RPCS3"
+          CORE="$APP/Frameworks/libRPCS3Core.dylib"
+
+          test -s "$BIN"
+          test -s "$CORE"
+          test "$(cat BuildSupport/RPCS3Core/RPCS3_IOS_ABI.txt)" = "30"
+          test "$(cat BuildSupport/RPCS3Core/RPCS3_SOURCE_COMMIT.txt)" = "$(tr -d '[:space:]' < UPSTREAM_RPCS3_REVISION)"
+
+          otool -L "$BIN" | tee app-loads.txt
+          grep -q '@rpath/libRPCS3Core.dylib' app-loads.txt
+          ! grep -Eiq 'Qt(Core|Gui|Widgets)|RPCS3UpstreamRuntime' app-loads.txt
+
+          nm -gU "$CORE" > core-exports.txt
+          for symbol in             _rpcs3_ios_initialize             _rpcs3_ios_run_llvm_self_test             _rpcs3_ios_set_display_surface             _rpcs3_ios_set_pad_state             _rpcs3_ios_install_firmware             _rpcs3_ios_install_package             _rpcs3_ios_install_iso             _rpcs3_ios_install_zip             _rpcs3_ios_boot_big_picture_mode             _rpcs3_ios_boot_game             _rpcs3_ios_get_performance_metrics             _rpcs3_ios_stop_emulation             _rpcs3_ios_shutdown; do
+            grep -q " $symbol$" core-exports.txt
+          done
+
+          file "$BIN"
+          file "$CORE"
+          lipo -archs "$BIN" | grep -qw arm64
+          lipo -archs "$CORE" | grep -qw arm64
+
+          echo "app=$APP" >> "$GITHUB_OUTPUT"
+
+      - name: Package unsigned IPA
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf Payload output
+          mkdir -p Payload output
+          /usr/bin/ditto "${{ steps.product.outputs.app }}" Payload/RPCS3.app
+          rm -rf Payload/RPCS3.app/_CodeSignature
+          rm -f Payload/RPCS3.app/embedded.mobileprovision
+          /usr/bin/plutil -lint Payload/RPCS3.app/Info.plist
+          test -s Payload/RPCS3.app/Frameworks/libRPCS3Core.dylib
+
+          SHORT_SHA="$(printf '%s' "$GITHUB_SHA" | cut -c1-7)"
+          IPA="output/RPCS3-XITRIX-iOS-${SHORT_SHA}-unsigned.ipa"
+          /usr/bin/ditto -c -k --sequesterRsrc --keepParent Payload "$IPA"
+          shasum -a 256 "$IPA" > "$IPA.sha256"
+          unzip -l "$IPA" | tee ipa-contents.txt
+          ! grep -Eiq 'Qt(Core|Gui|Widgets)|RPCS3UpstreamRuntime' ipa-contents.txt
+          grep -q 'Payload/RPCS3.app/Frameworks/libRPCS3Core.dylib' ipa-contents.txt
+          ls -lh output
+
+      - name: Upload unsigned IPA
+        uses: actions/upload-artifact@v4
+        with:
+          name: RPCS3-XITRIX-iOS-unsigned
+          path: output/*
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Upload core and diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: RPCS3-XITRIX-build-evidence
+          path: |
+            BuildSupport/RPCS3Core/**
+            real-core-build.log
+            real-app-build.log
+            app-loads.txt
+            core-exports.txt
+            ipa-contents.txt
+            native-ios-build/app-file.txt
+            native-ios-build/app-archs.txt
+          if-no-files-found: warn
+          retention-days: 30
