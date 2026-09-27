@@ -2,10 +2,6 @@ name: Inspect Official XITRIX RPCS3 IPA
 
 on:
   workflow_dispatch:
-  push:
-    branches: [ios-core-v30-migration]
-    paths:
-      - ".github/workflows/inspect-official-xitrix-ipa.yml"
 
 permissions:
   contents: read
