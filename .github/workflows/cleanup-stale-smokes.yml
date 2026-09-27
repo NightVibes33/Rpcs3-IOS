@@ -1,0 +1,43 @@
+name: Cleanup Stale RPCS3 iOS Smokes
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [xitrix-swiftui-host]
+    paths:
+      - ".github/workflows/cleanup-stale-smokes.yml"
+
+permissions:
+  contents: read
+  actions: write
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Cancel obsolete queued host smoke runs
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          stale_runs=(
+            36350424406
+            36350426502
+            36350450904
+            36350452797
+          )
+          for run_id in "${stale_runs[@]}"; do
+            status="$(gh api "repos/$REPO/actions/runs/$run_id" --jq '.status' 2>/dev/null || echo missing)"
+            case "$status" in
+              queued|pending|in_progress|waiting|requested)
+                echo "Cancelling stale run $run_id ($status)"
+                gh api --method POST "repos/$REPO/actions/runs/$run_id/cancel" >/dev/null || true
+                ;;
+              *)
+                echo "Skipping run $run_id ($status)"
+                ;;
+            esac
+          done
