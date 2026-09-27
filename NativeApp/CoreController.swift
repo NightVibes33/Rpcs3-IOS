@@ -159,6 +159,36 @@ final class CoreController: ObservableObject {
         }
     }
 
+    func launchXMB() {
+        guard state == .ready else { return }
+        guard attachCurrentSurface() else {
+            fail(core.lastError.isEmpty ? "RPCS3Core is not ready for a video surface." : core.lastError)
+            return
+        }
+
+        state = .launching
+        bootStage = "Starting PlayStation 3 XMB"
+        bootFraction = nil
+        status = "Starting PlayStation 3 XMB"
+        let core = self.core
+        worker.async { [weak self] in
+            let ok = core.bootXMB()
+            let message = core.lastError
+            DispatchQueue.main.async {
+                guard let self else { return }
+                if ok {
+                    self.state = .running
+                    self.bootStage = ""
+                    self.bootFraction = nil
+                    self.status = "PlayStation 3 XMB"
+                } else {
+                    self.state = .ready
+                    self.status = message.isEmpty ? "PlayStation 3 XMB failed to start." : message
+                }
+            }
+        }
+    }
+
     func launchBigPicture() {
         guard state == .ready else { return }
         guard attachCurrentSurface() else {
