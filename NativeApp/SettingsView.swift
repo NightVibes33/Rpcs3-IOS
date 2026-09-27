@@ -115,6 +115,8 @@ struct GameSettingsView: View {
     let game: RPCS3GameRecord
     @State private var showingResetConfirmation = false
     @State private var showingRemoveConfirmation = false
+    @State private var showingSavePreset = false
+    @State private var newPresetName = ""
 
     private var settings: [RPCS3SettingRecord] {
         controller.gameSettingsByTitleID[game.titleID] ?? []
@@ -144,6 +146,12 @@ struct GameSettingsView: View {
                         }
                     }
 
+                    GameSettingsPresetsSection(
+                        game: game,
+                        showingSavePreset: $showingSavePreset,
+                        newPresetName: $newPresetName
+                    )
+
                     ForEach(grouped, id: \.0) { category, records in
                         SettingsCategoryView(
                             title: category,
@@ -160,6 +168,7 @@ struct GameSettingsView: View {
         .navigationBarTitleDisplayMode(.inline)
         .task {
             controller.refreshGameSettings(for: game)
+            controller.refreshGameSettingsPresets(for: game)
         }
         .refreshable {
             controller.refreshGameSettings(for: game)
@@ -360,6 +369,86 @@ struct SettingsPicker: View {
     }
 }
 
+
+private struct GameSettingsPresetsSection: View {
+    @EnvironmentObject private var controller: CoreController
+    let game: RPCS3GameRecord
+    @Binding var showingSavePreset: Bool
+    @Binding var newPresetName: String
+    @State private var renameSource = ""
+    @State private var renameDestination = ""
+    @State private var showingRename = false
+
+    private var presets: [RPCS3GameSettingsPresetRecord] {
+        controller.gameSettingsPresetsByTitleID[game.titleID] ?? []
+    }
+
+    var body: some View {
+        Section("Presets") {
+            Button {
+                newPresetName = ""
+                showingSavePreset = true
+            } label: {
+                Label("Save Current Settings as Preset", systemImage: "plus.square")
+            }
+
+            ForEach(presets, id: \.name) { preset in
+                HStack {
+                    VStack(alignment: .leading) {
+                        Text(preset.name)
+                        Text(ByteCountFormatter.string(fromByteCount: Int64(clamping: preset.size), countStyle: .file))
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                    Menu {
+                        Button("Apply") {
+                            controller.applyGameSettingsPreset(for: game, name: preset.name)
+                        }
+                        Button("Duplicate") {
+                            controller.duplicateGameSettingsPreset(
+                                for: game,
+                                source: preset.name,
+                                destination: preset.name + " Copy"
+                            )
+                        }
+                        Button("Rename") {
+                            renameSource = preset.name
+                            renameDestination = preset.name
+                            showingRename = true
+                        }
+                        Button("Delete", role: .destructive) {
+                            controller.deleteGameSettingsPreset(for: game, name: preset.name)
+                        }
+                    } label: {
+                        Image(systemName: "ellipsis.circle")
+                    }
+                }
+            }
+        }
+        .alert("Save Preset", isPresented: $showingSavePreset) {
+            TextField("Preset name", text: $newPresetName)
+            Button("Save") {
+                controller.saveGameSettingsPreset(
+                    for: game,
+                    name: newPresetName.trimmingCharacters(in: .whitespacesAndNewlines)
+                )
+            }
+            Button("Cancel", role: .cancel) {}
+        }
+        .alert("Rename Preset", isPresented: $showingRename) {
+            TextField("Preset name", text: $renameDestination)
+            Button("Rename") {
+                controller.renameGameSettingsPreset(
+                    for: game,
+                    source: renameSource,
+                    destination: renameDestination.trimmingCharacters(in: .whitespacesAndNewlines)
+                )
+            }
+            Button("Cancel", role: .cancel) {}
+        }
+    }
+}
 
 struct DiagnosticsView: View {
     @EnvironmentObject private var controller: CoreController
