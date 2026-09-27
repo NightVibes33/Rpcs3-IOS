@@ -105,6 +105,73 @@ jobs:
             grep -Eai 'SwiftUI|UIViewController|UIHostingController|NavigationStack|UICollectionView|UITableView|UIDocumentPicker' official-app-strings.txt               | head -n 500 || true
           } | tee official-frontend-clues.txt
 
+      - name: Print exact app metadata and frontend type clues
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "=== Info.plist ==="
+          cat official-Info.plist
+          echo
+          echo "=== app entitlements ==="
+          cat official-entitlements.plist || true
+          echo
+          echo "=== executable entitlements ==="
+          cat official-executable-entitlements.plist || true
+          echo
+          echo "=== native frontend type-name candidates ==="
+          grep -Ea '^[A-Za-z_][A-Za-z0-9_]{2,}(App|View|Screen|Manager|Controller|Store|Model|Card|Row|Sheet|Picker|Overlay)
+          set -euo pipefail
+          APP="$(cat official-app-path.txt)"
+          BIN="$APP/$(cat official-executable-name.txt)"
+          {
+            echo "# Official XITRIX RPCS3 v0.9 IPA anatomy"
+            echo
+            echo "- Verified SHA-256: `$(cut -d= -f2 official-ipa-identity.txt)`"
+            echo "- Executable: `$(cat official-executable-name.txt)`"
+            echo "- Architecture: `$(cat official-executable-archs.txt)`"
+            echo
+            echo "## Embedded frameworks/dylibs"
+            sed 's/^/- `/; s/$/`/' official-frameworks.txt
+            echo
+            echo "## Linked libraries"
+            sed 's/^/    /' official-app-loads.txt
+          } > official-anatomy.md
+          cat official-anatomy.md
+
+      - name: Upload inspection reports only
+        uses: actions/upload-artifact@v4
+        with:
+          name: XITRIX-RPCS3-v0.9-anatomy
+          path: |
+            official-ipa-identity.txt
+            official-anatomy.md
+            official-Info.plist
+            official-bundle-files.txt
+            official-frameworks.txt
+            official-executable-file.txt
+            official-executable-archs.txt
+            official-app-loads.txt
+            official-app-load-commands.txt
+            official-app-defined-symbols.txt
+            official-app-undefined-symbols.txt
+            official-embedded-mach-o.txt
+            official-codesign.txt
+            official-entitlements.plist
+            official-executable-entitlements.plist
+            official-frontend-clues.txt
+            official-frontend-types.txt
+            official-swift-mangled.txt
+            official-swift-demangled.txt
+          if-no-files-found: error
+          retention-days: 14
+ official-app-strings.txt             | sort -u | head -n 1200 | tee official-frontend-types.txt || true
+          echo
+          echo "=== RPCS3 Swift mangled symbols ==="
+          grep -Ea '^\\$s[0-9]+RPCS3' official-app-strings.txt             | sort -u | head -n 1200 > official-swift-mangled.txt || true
+          if command -v swift-demangle >/dev/null 2>&1; then
+            swift-demangle < official-swift-mangled.txt | head -n 1200 | tee official-swift-demangled.txt || true
+          fi
+
       - name: Write anatomy summary
         shell: bash
         run: |
