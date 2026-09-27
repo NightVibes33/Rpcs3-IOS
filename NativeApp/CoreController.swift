@@ -34,6 +34,8 @@ final class CoreController: ObservableObject {
     @Published var bootStage = ""
     @Published var bootFraction: Double?
     @Published var performanceSummary = ""
+    @Published var trophiesByTitleID: [String: [RPCS3TrophyRecord]] = [:]
+    @Published var savestatesByTitleID: [String: [RPCS3SavestateRecord]] = [:]
 
     private var virtualPad = VirtualPadSnapshot()
     private let core = RPCS3DynamicCore.shared()
@@ -128,6 +130,40 @@ final class CoreController: ObservableObject {
         }
     }
 
+    func refreshTrophies(for game: RPCS3GameRecord) {
+        guard coreReady else { return }
+        let core = self.core
+        let titleID = game.titleID
+        worker.async { [weak self] in
+            let records = core.enumerateTrophies(titleID: titleID)
+            let message = core.lastError
+            DispatchQueue.main.async {
+                guard let self else { return }
+                self.trophiesByTitleID[titleID] = records
+                if records.isEmpty && !message.isEmpty {
+                    self.status = message
+                }
+            }
+        }
+    }
+
+    func refreshSavestates(for game: RPCS3GameRecord) {
+        guard coreReady else { return }
+        let core = self.core
+        let titleID = game.titleID
+        worker.async { [weak self] in
+            let records = core.enumerateSavestates(titleID: titleID)
+            let message = core.lastError
+            DispatchQueue.main.async {
+                guard let self else { return }
+                self.savestatesByTitleID[titleID] = records
+                if records.isEmpty && !message.isEmpty {
+                    self.status = message
+                }
+            }
+        }
+    }
+
     func launch(game: RPCS3GameRecord) {
         guard state == .ready, game.bootable else { return }
         guard attachCurrentSurface() else {
@@ -154,6 +190,38 @@ final class CoreController: ObservableObject {
                 } else {
                     self.state = .ready
                     self.status = message.isEmpty ? "RPCS3 could not boot \(game.title)." : message
+                }
+            }
+        }
+    }
+
+    func launch(game: RPCS3GameRecord, savestate: RPCS3SavestateRecord) {
+        guard state == .ready, game.bootable, savestate.compatible else { return }
+        guard attachCurrentSurface() else {
+            fail(core.lastError.isEmpty ? "RPCS3Core is not ready for a video surface." : core.lastError)
+            return
+        }
+
+        state = .launching
+        bootStage = "Loading save state for \(game.title)"
+        bootFraction = nil
+        status = "Loading save state…"
+        let core = self.core
+        let titleID = game.titleID
+        let savestateID = savestate.identifier
+        worker.async { [weak self] in
+            let ok = core.bootGame(titleID: titleID, savestateID: savestateID)
+            let message = core.lastError
+            DispatchQueue.main.async {
+                guard let self else { return }
+                if ok {
+                    self.state = .running
+                    self.bootStage = ""
+                    self.bootFraction = nil
+                    self.status = game.title
+                } else {
+                    self.state = .ready
+                    self.status = message.isEmpty ? "RPCS3 could not load the selected save state." : message
                 }
             }
         }
