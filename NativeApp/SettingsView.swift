@@ -27,6 +27,19 @@ struct EmuSettingsView: View {
                 )
             } else {
                 List {
+                    Section("Configuration Database") {
+                        Button {
+                            controller.syncConfigDatabase()
+                        } label: {
+                            Label("Sync RPCS3 Config Database", systemImage: "arrow.triangle.2.circlepath")
+                        }
+                        .disabled(controller.state != .ready)
+
+                        Text(controller.configDatabaseStatus)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+
                     ForEach(grouped, id: \.0) { category, settings in
                         SettingsCategoryView(
                             title: category,
