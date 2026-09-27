@@ -27,6 +27,23 @@ struct EmuSettingsView: View {
                 )
             } else {
                 List {
+                    Section("Diagnostics") {
+                        if let logURL = controller.diagnosticsLogURL,
+                           controller.diagnosticsLogAvailable {
+                            ShareLink(item: logURL) {
+                                Label("Share RPCS3 Device Log", systemImage: "square.and.arrow.up")
+                            }
+
+                            Text("Persistent startup/core log: Files → RPCS3 → RPCS3 Logs → ios-host.log")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        } else {
+                            Text("The persistent RPCS3 device log is created when RPCS3Core first starts.")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+
                     Section("Configuration Database") {
                         Button {
                             controller.syncConfigDatabase()
