@@ -11,6 +11,30 @@
 
 static NSString * const RPCS3DynamicCoreErrorDomain = @"com.nightvibes33.rpcs3.dynamiccore";
 
+
+@interface RPCS3BootProgressRecord ()
+@property(nonatomic, readwrite) BOOL valid;
+@property(nonatomic, readwrite) uint32_t completed;
+@property(nonatomic, readwrite) uint32_t total;
+@property(nonatomic, readwrite) NSString *stage;
+@end
+@implementation RPCS3BootProgressRecord
+@end
+
+@interface RPCS3PerformanceRecord ()
+@property(nonatomic, readwrite) BOOL fpsValid;
+@property(nonatomic, readwrite) BOOL cpuValid;
+@property(nonatomic, readwrite) BOOL gpuValid;
+@property(nonatomic, readwrite) BOOL memoryValid;
+@property(nonatomic, readwrite) double framesPerSecond;
+@property(nonatomic, readwrite) double cpuUsagePercent;
+@property(nonatomic, readwrite) double gpuUsagePercent;
+@property(nonatomic, readwrite) uint64_t memoryUsedBytes;
+@property(nonatomic, readwrite) uint64_t memoryTotalBytes;
+@end
+@implementation RPCS3PerformanceRecord
+@end
+
 @interface RPCS3GameRecord (Internal)
 - (instancetype)initWithInfo:(const rpcs3_ios_game_info*)info;
 @end
@@ -35,6 +59,8 @@ struct RPCS3API
     decltype(&rpcs3_ios_boot_big_picture_mode) boot_big_picture_mode = nullptr;
     decltype(&rpcs3_ios_boot_game) boot_game = nullptr;
     decltype(&rpcs3_ios_get_emulation_state) get_emulation_state = nullptr;
+    decltype(&rpcs3_ios_get_boot_progress) get_boot_progress = nullptr;
+    decltype(&rpcs3_ios_get_performance_metrics) get_performance_metrics = nullptr;
     decltype(&rpcs3_ios_pause_emulation) pause_emulation = nullptr;
     decltype(&rpcs3_ios_resume_emulation) resume_emulation = nullptr;
     decltype(&rpcs3_ios_stop_emulation) stop_emulation = nullptr;
@@ -204,6 +230,8 @@ NSError* make_error(NSInteger code, NSString* message)
     LOAD_API(rpcs3_ios_boot_big_picture_mode, boot_big_picture_mode);
     LOAD_API(rpcs3_ios_boot_game, boot_game);
     LOAD_API(rpcs3_ios_get_emulation_state, get_emulation_state);
+    LOAD_API(rpcs3_ios_get_boot_progress, get_boot_progress);
+    LOAD_API(rpcs3_ios_get_performance_metrics, get_performance_metrics);
     LOAD_API(rpcs3_ios_pause_emulation, pause_emulation);
     LOAD_API(rpcs3_ios_resume_emulation, resume_emulation);
     LOAD_API(rpcs3_ios_stop_emulation, stop_emulation);
@@ -496,6 +524,52 @@ NSError* make_error(NSInteger code, NSString* message)
     return NO;
 }
 
+
+
+- (RPCS3BootProgressRecord*)bootProgress
+{
+    RPCS3BootProgressRecord* record = [[RPCS3BootProgressRecord alloc] init];
+    record.stage = @"";
+    if (!self.ready || !_api.get_boot_progress)
+        return record;
+
+    uint32_t completed = 0;
+    uint32_t total = 0;
+    char stage[1024] = {};
+    const rpcs3_ios_status status = _api.get_boot_progress(
+        &completed, &total, stage, sizeof(stage));
+    if (status != RPCS3_IOS_OK)
+        return record;
+
+    record.valid = YES;
+    record.completed = completed;
+    record.total = total;
+    record.stage = stage[0] ? ([NSString stringWithUTF8String:stage] ?: @"") : @"";
+    return record;
+}
+
+- (RPCS3PerformanceRecord*)performanceMetrics
+{
+    RPCS3PerformanceRecord* record = [[RPCS3PerformanceRecord alloc] init];
+    if (!self.ready || !_api.get_performance_metrics)
+        return record;
+
+    rpcs3_ios_performance_metrics metrics = {};
+    metrics.struct_size = sizeof(metrics);
+    if (_api.get_performance_metrics(&metrics) != RPCS3_IOS_OK)
+        return record;
+
+    record.fpsValid = (metrics.valid_fields & RPCS3_IOS_PERFORMANCE_FPS_VALID) != 0;
+    record.cpuValid = (metrics.valid_fields & RPCS3_IOS_PERFORMANCE_CPU_VALID) != 0;
+    record.gpuValid = (metrics.valid_fields & RPCS3_IOS_PERFORMANCE_GPU_VALID) != 0;
+    record.memoryValid = (metrics.valid_fields & RPCS3_IOS_PERFORMANCE_MEMORY_VALID) != 0;
+    record.framesPerSecond = metrics.frames_per_second;
+    record.cpuUsagePercent = metrics.cpu_usage_percent;
+    record.gpuUsagePercent = metrics.gpu_usage_percent;
+    record.memoryUsedBytes = metrics.memory_used_bytes;
+    record.memoryTotalBytes = metrics.memory_total_bytes;
+    return record;
+}
 
 - (NSArray<RPCS3GameRecord*>*)enumerateGames
 {
