@@ -40,6 +40,7 @@ final class CoreController: ObservableObject {
     @Published var gameSettingsByTitleID: [String: [RPCS3SettingRecord]] = [:]
     @Published var gameHasCustomConfig: [String: Bool] = [:]
     @Published var runtimePatchesByTitleID: [String: [RPCS3RuntimePatchRecord]] = [:]
+    @Published var configDatabaseStatus = "Not synced this session"
 
     private var virtualPad = VirtualPadSnapshot()
     private let core = RPCS3DynamicCore.shared()
@@ -132,6 +133,54 @@ final class CoreController: ObservableObject {
                 self?.games = records
             }
         }
+    }
+
+    func syncConfigDatabase() {
+        guard coreReady, state == .ready else { return }
+        configDatabaseStatus = "Downloading RPCS3 configuration database…"
+
+        guard let url = URL(string: "https://api.rpcs3.net/config/?api=v1") else {
+            configDatabaseStatus = "RPCS3 configuration endpoint is invalid."
+            return
+        }
+
+        URLSession.shared.dataTask(with: url) { [weak self] data, response, error in
+            if let error {
+                DispatchQueue.main.async {
+                    self?.configDatabaseStatus = "Config database download failed: \(error.localizedDescription)"
+                }
+                return
+            }
+
+            guard let http = response as? HTTPURLResponse,
+                  (200..<300).contains(http.statusCode),
+                  let data,
+                  !data.isEmpty else {
+                DispatchQueue.main.async {
+                    self?.configDatabaseStatus = "RPCS3 configuration database returned an invalid response."
+                }
+                return
+            }
+
+            guard let self else { return }
+            let core = self.core
+            self.worker.async { [weak self] in
+                let ok = core.updateConfigDatabase(data: data)
+                let message = core.lastError
+                DispatchQueue.main.async {
+                    guard let self else { return }
+                    self.configDatabaseStatus = ok
+                        ? "RPCS3 configuration database synced."
+                        : (message.isEmpty ? "RPCS3 rejected the configuration database." : message)
+                    if ok {
+                        self.refreshGlobalSettings()
+                        for game in self.games {
+                            self.refreshGameSettings(for: game)
+                        }
+                    }
+                }
+            }
+        }.resume()
     }
 
     func refreshRuntimePatches(for game: RPCS3GameRecord) {
