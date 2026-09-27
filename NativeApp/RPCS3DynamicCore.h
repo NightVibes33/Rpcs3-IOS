@@ -24,6 +24,32 @@ NS_ASSUME_NONNULL_BEGIN
 @property(nonatomic, readonly) uint64_t memoryTotalBytes;
 @end
 
+@interface RPCS3SettingOptionRecord : NSObject
+@property(nonatomic, readonly) NSString *value;
+@property(nonatomic, readonly) NSString *label;
+@end
+
+@interface RPCS3SettingRecord : NSObject
+@property(nonatomic, readonly) uint32_t kind;
+@property(nonatomic, readonly) NSString *key;
+@property(nonatomic, readonly) NSString *category;
+@property(nonatomic, readonly) NSString *section;
+@property(nonatomic, readonly) NSString *name;
+@property(nonatomic, readonly) NSString *settingDescription;
+@property(nonatomic, readonly) NSString *value;
+@property(nonatomic, readonly) NSString *defaultValue;
+@property(nonatomic, readonly) double minimum;
+@property(nonatomic, readonly) double maximum;
+@property(nonatomic, readonly) double step;
+@property(nonatomic, readonly) NSString *recommendedValue;
+@property(nonatomic, readonly) NSArray<RPCS3SettingOptionRecord *> *options;
+@end
+
+@interface RPCS3SettingsSnapshot : NSObject
+@property(nonatomic, readonly) NSArray<RPCS3SettingRecord *> *settings;
+@property(nonatomic, readonly) BOOL hasCustomConfig;
+@end
+
 @interface RPCS3SavestateRecord : NSObject
 @property(nonatomic, readonly) BOOL compatible;
 @property(nonatomic, readonly) uint64_t size;
@@ -146,6 +172,20 @@ typedef NS_OPTIONS(uint64_t, RPCS3HostPadButton) {
 - (BOOL)bootXMB;
 - (RPCS3BootProgressRecord *)bootProgress;
 - (RPCS3PerformanceRecord *)performanceMetrics;
+- (RPCS3SettingsSnapshot *)globalSettings;
+- (RPCS3SettingsSnapshot *)gameSettingsForTitleID:(NSString *)titleID
+    NS_SWIFT_NAME(gameSettings(titleID:));
+- (BOOL)setGlobalSettingKey:(NSString *)key value:(NSString *)value
+    NS_SWIFT_NAME(setGlobalSetting(key:value:));
+- (BOOL)resetGlobalSettings;
+- (BOOL)setGameSettingForTitleID:(NSString *)titleID
+                             key:(NSString *)key
+                           value:(NSString *)value
+    NS_SWIFT_NAME(setGameSetting(titleID:key:value:));
+- (BOOL)resetGameSettingsForTitleID:(NSString *)titleID
+    NS_SWIFT_NAME(resetGameSettings(titleID:));
+- (BOOL)removeGameSettingsForTitleID:(NSString *)titleID
+    NS_SWIFT_NAME(removeGameSettings(titleID:));
 - (NSArray<RPCS3GameRecord *> *)enumerateGames;
 - (NSArray<RPCS3SavestateRecord *> *)enumerateSavestatesForTitleID:(NSString *)titleID
     NS_SWIFT_NAME(enumerateSavestates(titleID:));
