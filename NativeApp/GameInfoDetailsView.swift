@@ -269,7 +269,7 @@ private struct SavestateRow: View {
                     ? "Compatible with this RPCS3 build"
                     : "Incompatible with this RPCS3 build")
                     .font(.caption2)
-                    .foregroundStyle(savestate.compatible ? .secondary : .orange)
+                    .foregroundStyle(savestate.compatible ? Color.secondary : Color.orange)
             }
 
             Spacer()
