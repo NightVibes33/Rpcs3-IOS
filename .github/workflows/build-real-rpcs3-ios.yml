@@ -50,6 +50,15 @@ jobs:
           cmake --version
           "$(brew --prefix llvm@22)/bin/clang" --version
 
+      - name: Restore RPCS3 iOS compiler cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/ccache
+          key: rpcs3-ios-ccache-${{ runner.os }}-xcode16.4-${{ hashFiles('UPSTREAM_RPCS3_REVISION', 'scripts/build-real-xitrix-core.sh') }}
+          restore-keys: |
+            rpcs3-ios-ccache-${{ runner.os }}-xcode16.4-
+
       - name: Reject legacy product path
         shell: bash
         run: |
