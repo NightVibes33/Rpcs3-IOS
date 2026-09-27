@@ -332,9 +332,13 @@ void configure_persistent_host_log()
     NSURL* previousURL = [directory URLByAppendingPathComponent:@"ios-host.previous.log" isDirectory:NO];
     NSDictionary<NSFileAttributeKey, id>* attributes =
         [[NSFileManager defaultManager] attributesOfItemAtPath:logURL.path error:nil];
+    const unsigned long long existingBytes =
+        [attributes[NSFileSize] respondsToSelector:@selector(unsignedLongLongValue)]
+            ? [attributes[NSFileSize] unsignedLongLongValue]
+            : 0ull;
 
     constexpr unsigned long long maxLogBytes = 4ull * 1024ull * 1024ull;
-    if ([attributes fileSize] > maxLogBytes)
+    if (existingBytes > maxLogBytes)
     {
         [[NSFileManager defaultManager] removeItemAtURL:previousURL error:nil];
         [[NSFileManager defaultManager] moveItemAtURL:logURL toURL:previousURL error:nil];
@@ -559,6 +563,7 @@ NSError* make_error(NSInteger code, NSString* message)
     {
         _lastError = [message copy] ?: @"Unknown RPCS3Core failure";
     }
+    write_persistent_host_log(1, self.lastError.UTF8String);
 }
 
 - (NSString*)coreError
@@ -713,7 +718,6 @@ NSError* make_error(NSInteger code, NSString* message)
         {
             NSString* message = [NSString stringWithFormat:@"Unable to load RPCS3Core: %@", [self coreError]];
             [self setFailure:message];
-            write_persistent_host_log(1, message.UTF8String);
             if (error) *error = make_error(-5, message);
             return NO;
         }
@@ -750,7 +754,6 @@ NSError* make_error(NSInteger code, NSString* message)
 
         if (![self statusOK:_api.initialize(&config) operation:@"RPCS3 Emu.Init()" error:error])
         {
-            write_persistent_host_log(1, self.lastError.UTF8String);
             return NO;
         }
         write_persistent_host_log(4, "RPCS3 Emu.Init completed");
