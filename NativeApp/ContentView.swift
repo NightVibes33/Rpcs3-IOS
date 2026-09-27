@@ -143,6 +143,15 @@ struct AppShellView: View {
                         }
                     }
 
+                    NavigationLink {
+                        DiagnosticsView()
+                    } label: {
+                        Label("Diagnostics", systemImage: "stethoscope")
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.large)
+
                     StatusCard()
                 }
                 .frame(maxWidth: 620)
