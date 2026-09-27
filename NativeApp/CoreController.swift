@@ -39,6 +39,7 @@ final class CoreController: ObservableObject {
     @Published var globalSettings: [RPCS3SettingRecord] = []
     @Published var gameSettingsByTitleID: [String: [RPCS3SettingRecord]] = [:]
     @Published var gameHasCustomConfig: [String: Bool] = [:]
+    @Published var gameSettingsPresetsByTitleID: [String: [RPCS3GameSettingsPresetRecord]] = [:]
     @Published var runtimePatchesByTitleID: [String: [RPCS3RuntimePatchRecord]] = [:]
     @Published var configDatabaseStatus = "Not synced this session"
     @Published var rpcnConfig: RPCS3RPCNConfigRecord?
@@ -643,6 +644,72 @@ final class CoreController: ObservableObject {
                 guard let self else { return }
                 self.status = ok ? "Restored RPCS3 global settings to defaults." : message
                 if ok { self.refreshGlobalSettings() }
+            }
+        }
+    }
+
+    func refreshGameSettingsPresets(for game: RPCS3GameRecord) {
+        guard coreReady, state == .ready else { return }
+        let core = self.core
+        let titleID = game.titleID
+        worker.async { [weak self] in
+            let records = core.gameSettingsPresets(titleID: titleID)
+            let message = core.lastError
+            DispatchQueue.main.async {
+                guard let self else { return }
+                self.gameSettingsPresetsByTitleID[titleID] = records
+                if records.isEmpty && !message.isEmpty { self.status = message }
+            }
+        }
+    }
+
+    func saveGameSettingsPreset(for game: RPCS3GameRecord, name: String) {
+        mutateGameSettingsPreset(game, success: "Saved preset \(name).") {
+            $0.saveGameSettingsPreset(titleID: game.titleID, name: name)
+        }
+    }
+
+    func applyGameSettingsPreset(for game: RPCS3GameRecord, name: String) {
+        mutateGameSettingsPreset(game, success: "Applied preset \(name).") {
+            $0.applyGameSettingsPreset(titleID: game.titleID, name: name)
+        }
+    }
+
+    func duplicateGameSettingsPreset(for game: RPCS3GameRecord, source: String, destination: String) {
+        mutateGameSettingsPreset(game, success: "Duplicated preset as \(destination).") {
+            $0.duplicateGameSettingsPreset(titleID: game.titleID, sourceName: source, destinationName: destination)
+        }
+    }
+
+    func renameGameSettingsPreset(for game: RPCS3GameRecord, source: String, destination: String) {
+        mutateGameSettingsPreset(game, success: "Renamed preset to \(destination).") {
+            $0.renameGameSettingsPreset(titleID: game.titleID, sourceName: source, destinationName: destination)
+        }
+    }
+
+    func deleteGameSettingsPreset(for game: RPCS3GameRecord, name: String) {
+        mutateGameSettingsPreset(game, success: "Deleted preset \(name).") {
+            $0.deleteGameSettingsPreset(titleID: game.titleID, name: name)
+        }
+    }
+
+    private func mutateGameSettingsPreset(
+        _ game: RPCS3GameRecord,
+        success: String,
+        operation: @escaping (RPCS3DynamicCore) -> Bool
+    ) {
+        guard coreReady, state == .ready else { return }
+        let core = self.core
+        worker.async { [weak self] in
+            let ok = operation(core)
+            let message = core.lastError
+            DispatchQueue.main.async {
+                guard let self else { return }
+                self.status = ok ? success : message
+                if ok {
+                    self.refreshGameSettings(for: game)
+                    self.refreshGameSettingsPresets(for: game)
+                }
             }
         }
     }
