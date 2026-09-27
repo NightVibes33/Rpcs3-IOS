@@ -1,4 +1,4 @@
-name: Build RPCS3 Qt iOS Unsigned IPA
+name: Build RPCS3 Qt iOS Unsigned IPA (Legacy Manual)
 
 on:
   workflow_dispatch:
