@@ -108,6 +108,15 @@ struct RPCNView: View {
                 }
             }
 
+            Section {
+                NavigationLink {
+                    RPCNAccountManagementView()
+                } label: {
+                    Label("Manage RPCN Account", systemImage: "person.crop.circle.badge.gearshape")
+                }
+                .disabled(controller.state != .ready)
+            }
+
             Section("Servers") {
                 ForEach(controller.rpcnServers, id: \.host) { server in
                     RPCNServerRow(server: server)
@@ -304,6 +313,138 @@ private struct RPCNSocialRow: View {
             }
         default:
             EmptyView()
+        }
+    }
+}
+
+
+private struct RPCNAccountManagementView: View {
+    @EnvironmentObject private var controller: CoreController
+    @State private var username = ""
+    @State private var email = ""
+    @State private var password = ""
+    @State private var resetToken = ""
+    @State private var newPassword = ""
+    @State private var ipv6 = false
+    @State private var showingDeleteConfirmation = false
+
+    var body: some View {
+        Form {
+            Section("Create Account") {
+                TextField("Username", text: $username)
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+                TextField("Email", text: $email)
+                    .textInputAutocapitalization(.never)
+                    .keyboardType(.emailAddress)
+                    .autocorrectionDisabled()
+                SecureField("Password", text: $password)
+                    .textContentType(.newPassword)
+                Toggle("IPv6 support", isOn: $ipv6)
+
+                Button("Create RPCN Account") {
+                    controller.createRPCNAccount(
+                        username: username,
+                        password: password,
+                        email: email,
+                        ipv6: ipv6
+                    )
+                }
+                .disabled(
+                    controller.state != .ready ||
+                    username.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
+                    email.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
+                    password.isEmpty
+                )
+            }
+
+            Section("Verification") {
+                Button("Resend Verification Token") {
+                    controller.resendRPCNVerificationToken()
+                }
+                .disabled(controller.state != .ready || controller.rpcnConfig?.hasPassword != true)
+            }
+
+            Section("Password Reset") {
+                TextField("Username", text: $username)
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+                TextField("Email", text: $email)
+                    .textInputAutocapitalization(.never)
+                    .keyboardType(.emailAddress)
+                    .autocorrectionDisabled()
+
+                Button("Request Reset Token") {
+                    controller.requestRPCNPasswordReset(username: username, email: email)
+                }
+                .disabled(
+                    controller.state != .ready ||
+                    username.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
+                    email.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                )
+
+                TextField("16-character reset token", text: $resetToken)
+                    .textInputAutocapitalization(.characters)
+                    .autocorrectionDisabled()
+                    .onChange(of: resetToken) { _, newValue in
+                        let normalized = String(newValue.uppercased().filter {
+                            $0.isNumber || ($0 >= "A" && $0 <= "Z")
+                        }.prefix(16))
+                        if normalized != newValue {
+                            resetToken = normalized
+                        }
+                    }
+
+                SecureField("New password", text: $newPassword)
+                    .textContentType(.newPassword)
+
+                Button("Reset Password") {
+                    controller.resetRPCNPassword(
+                        username: username,
+                        token: resetToken,
+                        newPassword: newPassword
+                    )
+                }
+                .disabled(
+                    controller.state != .ready ||
+                    username.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
+                    resetToken.count != 16 ||
+                    newPassword.isEmpty
+                )
+            }
+
+            Section {
+                Button("Delete RPCN Account", role: .destructive) {
+                    showingDeleteConfirmation = true
+                }
+                .disabled(controller.state != .ready || controller.rpcnConfig?.hasPassword != true)
+
+                Text(controller.rpcnStatus)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .navigationTitle("RPCN Account")
+        .navigationBarTitleDisplayMode(.inline)
+        .task {
+            if let stored = RPCNCredentialVault.load() {
+                username = stored.username
+                password = stored.password
+                ipv6 = stored.ipv6
+            } else if let config = controller.rpcnConfig {
+                username = config.username
+                ipv6 = config.ipv6Support
+            }
+        }
+        .confirmationDialog(
+            "Permanently delete this RPCN account?",
+            isPresented: $showingDeleteConfirmation,
+            titleVisibility: .visible
+        ) {
+            Button("Delete RPCN Account", role: .destructive) {
+                controller.deleteRPCNAccount()
+            }
+            Button("Cancel", role: .cancel) {}
         }
     }
 }
