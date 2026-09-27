@@ -39,6 +39,7 @@ final class CoreController: ObservableObject {
     @Published var globalSettings: [RPCS3SettingRecord] = []
     @Published var gameSettingsByTitleID: [String: [RPCS3SettingRecord]] = [:]
     @Published var gameHasCustomConfig: [String: Bool] = [:]
+    @Published var runtimePatchesByTitleID: [String: [RPCS3RuntimePatchRecord]] = [:]
 
     private var virtualPad = VirtualPadSnapshot()
     private let core = RPCS3DynamicCore.shared()
@@ -129,6 +130,52 @@ final class CoreController: ObservableObject {
             let records = core.enumerateGames()
             DispatchQueue.main.async {
                 self?.games = records
+            }
+        }
+    }
+
+    func refreshRuntimePatches(for game: RPCS3GameRecord) {
+        guard coreReady, state == .ready else { return }
+        let core = self.core
+        let titleID = game.titleID
+        let appVersion = game.version
+        worker.async { [weak self] in
+            let records = core.runtimePatches(titleID: titleID, appVersion: appVersion)
+            let message = core.lastError
+            DispatchQueue.main.async {
+                guard let self else { return }
+                self.runtimePatchesByTitleID[titleID] = records
+                if records.isEmpty && !message.isEmpty {
+                    self.status = message
+                }
+            }
+        }
+    }
+
+    func setRuntimePatch(for game: RPCS3GameRecord, patch: RPCS3RuntimePatchRecord, enabled: Bool) {
+        guard coreReady, state == .ready else { return }
+        let core = self.core
+        let titleID = game.titleID
+        let hashValue = patch.hashValue
+        let title = patch.title
+        let appVersion = patch.appVersion
+        let description = patch.patchDescription
+        worker.async { [weak self] in
+            let ok = core.setRuntimePatch(
+                titleID: titleID,
+                hash: hashValue,
+                title: title,
+                appVersion: appVersion,
+                description: description,
+                enabled: enabled
+            )
+            let message = core.lastError
+            DispatchQueue.main.async {
+                guard let self else { return }
+                self.status = ok
+                    ? "\(enabled ? "Enabled" : "Disabled") \(description)."
+                    : message
+                if ok { self.refreshRuntimePatches(for: game) }
             }
         }
     }
