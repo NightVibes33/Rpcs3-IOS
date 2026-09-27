@@ -7,7 +7,7 @@ on:
     paths:
       - "NativeApp/**"
       - "scripts/build-real-ios-app.sh"
-      - ".github/workflows/swiftui-host-smoke.yml"
+      - ".github/workflows/swiftui-host-smoke-macos14.yml"
 
 permissions:
   contents: read
