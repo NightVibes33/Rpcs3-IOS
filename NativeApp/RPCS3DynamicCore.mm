@@ -24,9 +24,11 @@ struct RPCS3API
     decltype(&rpcs3_ios_install_package) install_package = nullptr;
     decltype(&rpcs3_ios_install_iso) install_iso = nullptr;
     decltype(&rpcs3_ios_install_zip) install_zip = nullptr;
+    decltype(&rpcs3_ios_enumerate_games) enumerate_games = nullptr;
     decltype(&rpcs3_ios_set_display_surface) set_display_surface = nullptr;
     decltype(&rpcs3_ios_set_pad_state) set_pad_state = nullptr;
     decltype(&rpcs3_ios_boot_big_picture_mode) boot_big_picture_mode = nullptr;
+    decltype(&rpcs3_ios_boot_game) boot_game = nullptr;
     decltype(&rpcs3_ios_get_emulation_state) get_emulation_state = nullptr;
     decltype(&rpcs3_ios_pause_emulation) pause_emulation = nullptr;
     decltype(&rpcs3_ios_resume_emulation) resume_emulation = nullptr;
@@ -63,6 +65,17 @@ bool load_symbol(void* handle, const char* name, T& output)
     return output != nullptr;
 }
 
+
+static void collect_game(void* user_context, const rpcs3_ios_game_info* game)
+{
+    if (!user_context || !game || game->struct_size < sizeof(rpcs3_ios_game_info))
+        return;
+    NSMutableArray<RPCS3GameRecord*>* records =
+        (__bridge NSMutableArray<RPCS3GameRecord*>*)user_context;
+    RPCS3GameRecord* record = [[RPCS3GameRecord alloc] initWithInfo:game];
+    if (record) [records addObject:record];
+}
+
 NSError* make_error(NSInteger code, NSString* message)
 {
     return [NSError errorWithDomain:RPCS3DynamicCoreErrorDomain
@@ -70,6 +83,28 @@ NSError* make_error(NSInteger code, NSString* message)
                            userInfo:@{NSLocalizedDescriptionKey: message ?: @"RPCS3Core operation failed"}];
 }
 }
+
+
+@implementation RPCS3GameRecord
+- (instancetype)initWithInfo:(const rpcs3_ios_game_info*)info
+{
+    self = [super init];
+    if (!self) return nil;
+    auto stringOrEmpty = [](const char* value) -> NSString* {
+        return value ? ([NSString stringWithUTF8String:value] ?: @"") : @"";
+    };
+    _titleID = stringOrEmpty(info->title_id);
+    _title = stringOrEmpty(info->title);
+    _version = stringOrEmpty(info->version);
+    _category = stringOrEmpty(info->category);
+    _iconPath = stringOrEmpty(info->icon_path);
+    _firmwareVersion = stringOrEmpty(info->firmware_version);
+    _path = stringOrEmpty(info->path);
+    _bootable = info->bootable != 0;
+    _sizeOnDisk = info->size_on_disk;
+    return self;
+}
+@end
 
 @interface RPCS3DynamicCore ()
 {
@@ -157,9 +192,11 @@ NSError* make_error(NSInteger code, NSString* message)
     LOAD_API(rpcs3_ios_install_package, install_package);
     LOAD_API(rpcs3_ios_install_iso, install_iso);
     LOAD_API(rpcs3_ios_install_zip, install_zip);
+    LOAD_API(rpcs3_ios_enumerate_games, enumerate_games);
     LOAD_API(rpcs3_ios_set_display_surface, set_display_surface);
     LOAD_API(rpcs3_ios_set_pad_state, set_pad_state);
     LOAD_API(rpcs3_ios_boot_big_picture_mode, boot_big_picture_mode);
+    LOAD_API(rpcs3_ios_boot_game, boot_game);
     LOAD_API(rpcs3_ios_get_emulation_state, get_emulation_state);
     LOAD_API(rpcs3_ios_pause_emulation, pause_emulation);
     LOAD_API(rpcs3_ios_resume_emulation, resume_emulation);
@@ -424,6 +461,31 @@ NSError* make_error(NSInteger code, NSString* message)
 
     [self setFailure:[NSString stringWithFormat:@"Unsupported RPCS3 content type: .%@", ext]];
     return NO;
+}
+
+
+- (NSArray<RPCS3GameRecord*>*)enumerateGames
+{
+    if (!self.ready || !_api.enumerate_games)
+        return @[];
+    NSMutableArray<RPCS3GameRecord*>* records = [NSMutableArray array];
+    const rpcs3_ios_status status = _api.enumerate_games(
+        &collect_game, (__bridge void*)records);
+    if (status != RPCS3_IOS_OK)
+    {
+        [self setFailure:[self coreError]];
+        return @[];
+    }
+    return [records copy];
+}
+
+- (BOOL)bootGameWithTitleID:(NSString*)titleID
+{
+    if (!self.ready || !_api.boot_game || titleID.length == 0)
+        return NO;
+    return [self statusOK:_api.boot_game(titleID.UTF8String, nullptr)
+                operation:@"Game boot"
+                    error:nullptr];
 }
 
 - (BOOL)pause { return [self pauseWithError:nullptr]; }
