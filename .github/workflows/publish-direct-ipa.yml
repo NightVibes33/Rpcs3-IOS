@@ -1,11 +1,15 @@
 name: Publish Direct RPCS3 IPA
 
 on:
+  workflow_run:
+    workflows: ["Build Real RPCS3 iOS"]
+    types: [completed]
   workflow_dispatch:
-  push:
-    branches: [main]
-    paths:
-      - ".github/workflows/publish-direct-ipa.yml"
+    inputs:
+      run_id:
+        description: "Successful Build Real RPCS3 iOS run ID"
+        required: true
+        type: string
 
 permissions:
   contents: write
@@ -13,14 +17,40 @@ permissions:
 
 jobs:
   publish:
+    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
     runs-on: ubuntu-latest
     steps:
-      - name: Download known-green IPA artifact
+      - name: Resolve source run
+        shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          EVENT_RUN_ID: ${{ github.event.workflow_run.id }}
+          EVENT_RUN_SHA: ${{ github.event.workflow_run.head_sha }}
+          INPUT_RUN_ID: ${{ inputs.run_id }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          if [[ "$EVENT_NAME" == "workflow_run" ]]; then
+            RUN_ID="$EVENT_RUN_ID"
+            RUN_SHA="$EVENT_RUN_SHA"
+          else
+            RUN_ID="$INPUT_RUN_ID"
+            RUN_SHA="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$RUN_ID" --jq .head_sha)"
+            CONCLUSION="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$RUN_ID" --jq .conclusion)"
+            test "$CONCLUSION" = "success"
+          fi
+          test -n "$RUN_ID"
+          test -n "$RUN_SHA"
+          echo "RUN_ID=$RUN_ID" >> "$GITHUB_ENV"
+          echo "RUN_SHA=$RUN_SHA" >> "$GITHUB_ENV"
+          echo "SHORT_SHA=$(printf '%s' "$RUN_SHA" | cut -c1-7)" >> "$GITHUB_ENV"
+
+      - name: Download successful IPA artifact
         uses: actions/download-artifact@v4
         with:
           name: RPCS3-XITRIX-iOS-unsigned
           path: downloaded
-          run-id: 36354934719
+          run-id: ${{ env.RUN_ID }}
           github-token: ${{ github.token }}
 
       - name: Validate actual IPA payload
@@ -29,7 +59,6 @@ jobs:
           set -euo pipefail
           IPA="$(find downloaded -maxdepth 2 -type f -name '*.ipa' -print -quit)"
           test -n "$IPA"
-          echo "IPA=$IPA" >> "$GITHUB_ENV"
 
           rm -rf verify
           mkdir verify
@@ -45,18 +74,21 @@ jobs:
           import plistlib, pathlib
           apps=list(pathlib.Path("verify/Payload").glob("*.app"))
           assert len(apps)==1, apps
-          p=apps[0]/"Info.plist"
-          with p.open("rb") as f:
+          app=apps[0]
+          with (app/"Info.plist").open("rb") as f:
               info=plistlib.load(f)
-          assert info["CFBundleExecutable"]=="RPCS3", info
-          assert info["CFBundlePackageType"]=="APPL", info
-          assert info["CFBundleIdentifier"], info
-          print("Validated", p)
+          assert info.get("CFBundleExecutable")=="RPCS3", info
+          assert info.get("CFBundlePackageType")=="APPL", info
+          assert info.get("CFBundleIdentifier")=="com.nightvibes33.rpcs3ios", info
+          assert (app/"RPCS3").is_file()
+          assert (app/"Frameworks"/"libRPCS3Core.dylib").is_file()
+          print("Validated installable IPA:", app)
           PY
 
-          sha256sum "$IPA" | tee direct-ipa.sha256
-          cp "$IPA" RPCS3-iOS-XITRIX-Core-fc89a38-unsigned.ipa
-          cp direct-ipa.sha256 RPCS3-iOS-XITRIX-Core-fc89a38-unsigned.ipa.sha256
+          OUT="RPCS3-iOS-XITRIX-Core-${SHORT_SHA}-unsigned.ipa"
+          cp "$IPA" "$OUT"
+          sha256sum "$OUT" > "$OUT.sha256"
+          echo "DIRECT_IPA=$OUT" >> "$GITHUB_ENV"
 
       - name: Publish direct IPA release asset
         shell: bash
@@ -64,12 +96,12 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          TAG="ios-dev-fc89a38"
-          TITLE="RPCS3 iOS — XITRIX Core fc89a38"
-          NOTES="Direct unsigned IPA from canonical green main build run 36354934719. This asset is the IPA itself, not the GitHub Actions artifact wrapper ZIP. XITRIX RPCS3 iOS ABI v30 core; native SwiftUI host."
+          TAG="ios-dev-${SHORT_SHA}"
+          TITLE="RPCS3 iOS — XITRIX Core ${SHORT_SHA}"
+          NOTES="Installer-ready unsigned IPA from canonical green main build run ${RUN_ID}. This asset is the IPA itself, not the GitHub Actions artifact wrapper ZIP. XITRIX RPCS3 iOS ABI v30 core; native SwiftUI host."
 
           if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            gh release upload "$TAG"               RPCS3-iOS-XITRIX-Core-fc89a38-unsigned.ipa               RPCS3-iOS-XITRIX-Core-fc89a38-unsigned.ipa.sha256               --clobber --repo "$GITHUB_REPOSITORY"
+            gh release upload "$TAG" "$DIRECT_IPA" "$DIRECT_IPA.sha256" --clobber --repo "$GITHUB_REPOSITORY"
           else
-            gh release create "$TAG"               RPCS3-iOS-XITRIX-Core-fc89a38-unsigned.ipa               RPCS3-iOS-XITRIX-Core-fc89a38-unsigned.ipa.sha256               --title "$TITLE"               --notes "$NOTES"               --prerelease               --target fc89a3887e7c14325d846c053501c13ea50df00a               --repo "$GITHUB_REPOSITORY"
+            gh release create "$TAG"               "$DIRECT_IPA"               "$DIRECT_IPA.sha256"               --title "$TITLE"               --notes "$NOTES"               --prerelease               --target "$RUN_SHA"               --repo "$GITHUB_REPOSITORY"
           fi
