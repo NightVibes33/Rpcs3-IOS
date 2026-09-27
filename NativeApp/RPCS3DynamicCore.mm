@@ -14,6 +14,30 @@ static NSString * const RPCS3DynamicCoreErrorDomain = @"com.nightvibes33.rpcs3.d
 
 
 
+
+@interface RPCS3RPCNConfigRecord ()
+@property(nonatomic, readwrite) BOOL hasPassword;
+@property(nonatomic, readwrite) BOOL hasToken;
+@property(nonatomic, readwrite) BOOL ipv6Support;
+@property(nonatomic, readwrite) BOOL connected;
+@property(nonatomic, readwrite) BOOL authenticated;
+@property(nonatomic, readwrite) NSString *username;
+@property(nonatomic, readwrite) NSString *host;
+@property(nonatomic, readwrite) NSString *onlineName;
+@property(nonatomic, readwrite) NSString *avatarURL;
+@end
+@implementation RPCS3RPCNConfigRecord
+@end
+
+@interface RPCS3RPCNServerRecord ()
+@property(nonatomic, readwrite) BOOL selected;
+@property(nonatomic, readwrite) BOOL removable;
+@property(nonatomic, readwrite) NSString *serverDescription;
+@property(nonatomic, readwrite) NSString *host;
+@end
+@implementation RPCS3RPCNServerRecord
+@end
+
 @interface RPCS3RuntimePatchRecord ()
 - (instancetype)initWithInfo:(const rpcs3_ios_runtime_patch_info*)info;
 @end
@@ -214,6 +238,13 @@ struct RPCS3API
     decltype(&rpcs3_ios_get_emulation_state) get_emulation_state = nullptr;
     decltype(&rpcs3_ios_get_boot_progress) get_boot_progress = nullptr;
     decltype(&rpcs3_ios_get_performance_metrics) get_performance_metrics = nullptr;
+    decltype(&rpcs3_ios_get_rpcn_config) get_rpcn_config = nullptr;
+    decltype(&rpcs3_ios_enumerate_rpcn_servers) enumerate_rpcn_servers = nullptr;
+    decltype(&rpcs3_ios_set_rpcn_server) set_rpcn_server = nullptr;
+    decltype(&rpcs3_ios_add_rpcn_server) add_rpcn_server = nullptr;
+    decltype(&rpcs3_ios_remove_rpcn_server) remove_rpcn_server = nullptr;
+    decltype(&rpcs3_ios_set_rpcn_credentials) set_rpcn_credentials = nullptr;
+    decltype(&rpcs3_ios_test_rpcn_account) test_rpcn_account = nullptr;
     decltype(&rpcs3_ios_enumerate_runtime_patches) enumerate_runtime_patches = nullptr;
     decltype(&rpcs3_ios_set_runtime_patch_enabled) set_runtime_patch_enabled = nullptr;
     decltype(&rpcs3_ios_enumerate_settings) enumerate_settings = nullptr;
@@ -261,6 +292,40 @@ bool load_symbol(void* handle, const char* name, T& output)
 
 
 
+
+
+static void collect_rpcn_config(void* user_context, const rpcs3_ios_rpcn_config_info* info)
+{
+    if (!user_context || !info || info->struct_size < sizeof(rpcs3_ios_rpcn_config_info))
+        return;
+    RPCS3RPCNConfigRecord* record = (__bridge RPCS3RPCNConfigRecord*)user_context;
+    auto str = [](const char* value) -> NSString* {
+        return value ? ([NSString stringWithUTF8String:value] ?: @"") : @"";
+    };
+    record.hasPassword = info->has_password != 0;
+    record.hasToken = info->has_token != 0;
+    record.ipv6Support = info->ipv6_support != 0;
+    record.connected = info->connected != 0;
+    record.authenticated = info->authenticated != 0;
+    record.username = str(info->username);
+    record.host = str(info->host);
+    record.onlineName = str(info->online_name);
+    record.avatarURL = str(info->avatar_url);
+}
+
+static void collect_rpcn_server(void* user_context, const rpcs3_ios_rpcn_server_info* info)
+{
+    if (!user_context || !info || info->struct_size < sizeof(rpcs3_ios_rpcn_server_info))
+        return;
+    NSMutableArray<RPCS3RPCNServerRecord*>* records =
+        (__bridge NSMutableArray<RPCS3RPCNServerRecord*>*)user_context;
+    RPCS3RPCNServerRecord* record = [[RPCS3RPCNServerRecord alloc] init];
+    record.selected = info->selected != 0;
+    record.removable = info->removable != 0;
+    record.serverDescription = info->description ? ([NSString stringWithUTF8String:info->description] ?: @"") : @"";
+    record.host = info->host ? ([NSString stringWithUTF8String:info->host] ?: @"") : @"";
+    [records addObject:record];
+}
 
 static void collect_runtime_patch(void* user_context, const rpcs3_ios_runtime_patch_info* info)
 {
@@ -468,6 +533,13 @@ NSError* make_error(NSInteger code, NSString* message)
     LOAD_API(rpcs3_ios_get_emulation_state, get_emulation_state);
     LOAD_API(rpcs3_ios_get_boot_progress, get_boot_progress);
     LOAD_API(rpcs3_ios_get_performance_metrics, get_performance_metrics);
+    LOAD_API(rpcs3_ios_get_rpcn_config, get_rpcn_config);
+    LOAD_API(rpcs3_ios_enumerate_rpcn_servers, enumerate_rpcn_servers);
+    LOAD_API(rpcs3_ios_set_rpcn_server, set_rpcn_server);
+    LOAD_API(rpcs3_ios_add_rpcn_server, add_rpcn_server);
+    LOAD_API(rpcs3_ios_remove_rpcn_server, remove_rpcn_server);
+    LOAD_API(rpcs3_ios_set_rpcn_credentials, set_rpcn_credentials);
+    LOAD_API(rpcs3_ios_test_rpcn_account, test_rpcn_account);
     LOAD_API(rpcs3_ios_enumerate_runtime_patches, enumerate_runtime_patches);
     LOAD_API(rpcs3_ios_set_runtime_patch_enabled, set_runtime_patch_enabled);
     LOAD_API(rpcs3_ios_enumerate_settings, enumerate_settings);
@@ -784,6 +856,90 @@ NSError* make_error(NSInteger code, NSString* message)
 
 
 
+
+
+- (RPCS3RPCNConfigRecord*)rpcnConfig
+{
+    RPCS3RPCNConfigRecord* record = [[RPCS3RPCNConfigRecord alloc] init];
+    record.username = @"";
+    record.host = @"";
+    record.onlineName = @"";
+    record.avatarURL = @"";
+    if (!self.ready || !_api.get_rpcn_config)
+        return record;
+    const rpcs3_ios_status status = _api.get_rpcn_config(
+        &collect_rpcn_config, (__bridge void*)record);
+    if (status != RPCS3_IOS_OK)
+        [self setFailure:[self coreError]];
+    return record;
+}
+
+- (NSArray<RPCS3RPCNServerRecord*>*)rpcnServers
+{
+    if (!self.ready || !_api.enumerate_rpcn_servers)
+        return @[];
+    NSMutableArray<RPCS3RPCNServerRecord*>* records = [NSMutableArray array];
+    const rpcs3_ios_status status = _api.enumerate_rpcn_servers(
+        &collect_rpcn_server, (__bridge void*)records);
+    if (status != RPCS3_IOS_OK)
+    {
+        [self setFailure:[self coreError]];
+        return @[];
+    }
+    return [records copy];
+}
+
+- (BOOL)setRPCNServerHost:(NSString*)host
+{
+    if (!self.ready || !_api.set_rpcn_server || host.length == 0)
+        return NO;
+    return [self statusOK:_api.set_rpcn_server(host.UTF8String)
+                operation:@"RPCN server selection"
+                    error:nullptr];
+}
+
+- (BOOL)addRPCNServerDescription:(NSString*)description host:(NSString*)host
+{
+    if (!self.ready || !_api.add_rpcn_server || description.length == 0 || host.length == 0)
+        return NO;
+    return [self statusOK:_api.add_rpcn_server(description.UTF8String, host.UTF8String)
+                operation:@"Add RPCN server"
+                    error:nullptr];
+}
+
+- (BOOL)removeRPCNServerDescription:(NSString*)description host:(NSString*)host
+{
+    if (!self.ready || !_api.remove_rpcn_server || description.length == 0 || host.length == 0)
+        return NO;
+    return [self statusOK:_api.remove_rpcn_server(description.UTF8String, host.UTF8String)
+                operation:@"Remove RPCN server"
+                    error:nullptr];
+}
+
+- (BOOL)setRPCNCredentialsUsername:(NSString*)username
+                          password:(NSString*)password
+                             token:(NSString*)token
+                              ipv6:(BOOL)ipv6
+{
+    if (!self.ready || !_api.set_rpcn_credentials)
+        return NO;
+    return [self statusOK:_api.set_rpcn_credentials(
+                username.UTF8String,
+                password.UTF8String,
+                token.UTF8String,
+                ipv6 ? 1u : 0u)
+                operation:@"Save RPCN credentials"
+                    error:nullptr];
+}
+
+- (BOOL)testRPCNAccount
+{
+    if (!self.ready || !_api.test_rpcn_account)
+        return NO;
+    return [self statusOK:_api.test_rpcn_account()
+                operation:@"RPCN account test"
+                    error:nullptr];
+}
 
 - (BOOL)updateConfigDatabaseData:(NSData*)data
 {
