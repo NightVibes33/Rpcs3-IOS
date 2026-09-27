@@ -5,6 +5,18 @@
 
 NS_ASSUME_NONNULL_BEGIN
 
+@interface RPCS3GameRecord : NSObject
+@property(nonatomic, readonly) NSString *titleID;
+@property(nonatomic, readonly) NSString *title;
+@property(nonatomic, readonly) NSString *version;
+@property(nonatomic, readonly) NSString *category;
+@property(nonatomic, readonly) NSString *iconPath;
+@property(nonatomic, readonly) NSString *firmwareVersion;
+@property(nonatomic, readonly) NSString *path;
+@property(nonatomic, readonly) BOOL bootable;
+@property(nonatomic, readonly) uint64_t sizeOnDisk;
+@end
+
 typedef NS_OPTIONS(uint64_t, RPCS3HostPadButton) {
     RPCS3HostPadUp       = UINT64_C(1) << 0,
     RPCS3HostPadDown     = UINT64_C(1) << 1,
@@ -80,6 +92,8 @@ typedef NS_OPTIONS(uint64_t, RPCS3HostPadButton) {
     NS_SWIFT_NAME(attach(metalLayer:width:height:refreshRate:));
 - (BOOL)detachDisplay;
 - (BOOL)bootBigPicture;
+- (NSArray<RPCS3GameRecord *> *)enumerateGames;
+- (BOOL)bootGameWithTitleID:(NSString *)titleID NS_SWIFT_NAME(bootGame(titleID:));
 - (BOOL)installContentAtPath:(NSString *)path NS_SWIFT_NAME(installContent(atPath:));
 - (BOOL)pause;
 - (BOOL)resume;
