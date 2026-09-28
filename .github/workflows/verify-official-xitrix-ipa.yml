@@ -7,7 +7,7 @@ on:
       - ".github/workflows/verify-official-xitrix-ipa.yml"
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   verify-official-ipa:
@@ -91,3 +91,28 @@ jobs:
             dist/UPSTREAM.txt
           if-no-files-found: error
           retention-days: 30
+      - name: Publish the verified official IPA to the downloads branch
+        if: github.ref == 'refs/heads/main'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh auth setup-git
+          git clone --depth 1 --branch downloads "https://github.com/${GITHUB_REPOSITORY}.git" downloads-publish
+          git -C downloads-publish rm -f -- README.md RPCS3.ipa RPCS3.ipa.sha256
+          cp dist/RPCS3.ipa dist/RPCS3.ipa.sha256 dist/UPSTREAM.txt downloads-publish/
+          cat > downloads-publish/README.md <<'EOF'
+          # Official XITRIX RPCS3 iOS v0.10
+
+          This branch contains the unchanged `RPCS3.ipa` from the official XITRIX v0.10 release.
+
+          Upstream: https://github.com/XITRIX/RPCS3-iOS-Releases/releases/tag/v0.10
+          SHA-256: `ba80e48ca9ee947a6b0ccbda05bc9af4cf190e1552e4aa550eb9d6ef143e1a91`
+
+          This binary is the official XITRIX frontend. It is not the experimental SwiftUI host from the source branch.
+          EOF
+          git -C downloads-publish config user.name "github-actions[bot]"
+          git -C downloads-publish config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git -C downloads-publish add README.md RPCS3.ipa RPCS3.ipa.sha256 UPSTREAM.txt
+          git -C downloads-publish commit -m "Publish official XITRIX v0.10 IPA"
+          git -C downloads-publish push origin downloads

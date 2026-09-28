@@ -9,7 +9,7 @@ Experimental iPhone/iPad RPCS3 project built around the XITRIX iOS core.
 
 ## Install the actual XITRIX app
 
-[Download the official XITRIX v0.10 IPA](https://github.com/XITRIX/RPCS3-iOS-Releases/releases/download/v0.10/RPCS3.ipa) · [Release notes](https://github.com/XITRIX/RPCS3-iOS-Releases/releases/tag/v0.10)
+[Download the official XITRIX v0.10 IPA from this repo](https://raw.githubusercontent.com/NightVibes33/Rpcs3-IOS/downloads/RPCS3.ipa) · [Upstream release](https://github.com/XITRIX/RPCS3-iOS-Releases/releases/tag/v0.10)
 
 Import the `.ipa` in SideStore or AltStore. Follow the [official XITRIX instructions](https://github.com/XITRIX/RPCS3-iOS-Releases) for launch/JIT setup, then supply your own PS3 firmware and legally dumped games.
 
@@ -21,7 +21,7 @@ The artifact from [NeoStation run 36343065903](https://github.com/TarbleFR/neost
 
 ### Get the exact official IPA through this repo
 
-Run **Actions → Verify official XITRIX RPCS3 iOS IPA → Run workflow**. The workflow checks the official v0.10 GitHub release SHA-256 and IPA structure, then uploads the unmodified app as `RPCS3-XITRIX-v0.10-official-IPA`.
+Run **Actions → Verify official XITRIX RPCS3 iOS IPA → Run workflow**. The workflow checks the official v0.10 GitHub release SHA-256 and IPA structure, then uploads it as `RPCS3-XITRIX-v0.10-official-IPA` and updates the `downloads` branch with the same unchanged official IPA.
 
 ```text
 SHA-256: ba80e48ca9ee947a6b0ccbda05bc9af4cf190e1552e4aa550eb9d6ef143e1a91
