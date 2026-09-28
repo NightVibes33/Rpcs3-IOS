@@ -2,17 +2,36 @@
 
 [![Build Real RPCS3 iOS](https://github.com/NightVibes33/Rpcs3-IOS/actions/workflows/build-real-rpcs3-ios.yml/badge.svg?branch=main)](https://github.com/NightVibes33/Rpcs3-IOS/actions/workflows/build-real-rpcs3-ios.yml)
 
-Experimental iPhone/iPad port of RPCS3 built around the current XITRIX iOS core.
+Experimental iPhone/iPad RPCS3 project built around the XITRIX iOS core.
 
 > [!IMPORTANT]
-> The canonical product is now the **SwiftUI/UIKit + XITRIX RPCS3Core** application. The old Qt/v0.0.40 path remains only as legacy/manual engineering material and is not the shipping build.
+> The official XITRIX app and this repository's experimental SwiftUI/UIKit host are different frontends. Use the official release below when you want the actual XITRIX app. The source project and its build files remain in this repository.
 
-## Current verified build
+## Install the actual XITRIX app
 
-Current main commit:
+[Download the official XITRIX v0.10 IPA](https://github.com/XITRIX/RPCS3-iOS-Releases/releases/download/v0.10/RPCS3.ipa) · [Release notes](https://github.com/XITRIX/RPCS3-iOS-Releases/releases/tag/v0.10)
+
+Import the `.ipa` in SideStore or AltStore. Follow the [official XITRIX instructions](https://github.com/XITRIX/RPCS3-iOS-Releases) for launch/JIT setup, then supply your own PS3 firmware and legally dumped games.
+
+This is the actual upstream XITRIX frontend. The native `NativeApp/` source below is this repo's separate experimental host.
+
+### The NeoStation file that caused the import error
+
+The artifact from [NeoStation run 36343065903](https://github.com/TarbleFR/neostation-ios/actions/runs/36343065903) is named `RPCS3Core-7ecc36bdb9f1206aedff02cb15aa23341c242f91.zip`. It contains `libRPCS3Core.dylib` and build metadata, with no `Payload/*.app/Info.plist`. It's a core for another frontend, not an IPA, so SideStore correctly rejects it. NeoStation is optional; you don't need it to install XITRIX's app.
+
+### Get the exact official IPA through this repo
+
+Run **Actions → Verify official XITRIX RPCS3 iOS IPA → Run workflow**. The workflow checks the official v0.10 GitHub release SHA-256 and IPA structure, then uploads the unmodified app as `RPCS3-XITRIX-v0.10-official-IPA`.
 
 ```text
-fc89a3887e7c14325d846c053501c13ea50df00a
+SHA-256: ba80e48ca9ee947a6b0ccbda05bc9af4cf190e1552e4aa550eb9d6ef143e1a91
+```
+## Current verified build
+
+Latest verified source-build commit:
+
+```text
+c7614f4e7a9025b1452be757d1b739f7a7d56bc2
 ```
 
 Canonical workflow:
@@ -24,7 +43,7 @@ Canonical workflow:
 Latest canonical run:
 
 ```text
-Build Real RPCS3 iOS #27
+Build Real RPCS3 iOS #29
 PASS
 ```
 
@@ -41,7 +60,7 @@ That run successfully:
 Produced artifact:
 
 ```text
-RPCS3-XITRIX-iOS-fc89a38-unsigned.ipa
+RPCS3-XITRIX-iOS-c7614f4-unsigned.ipa
 ```
 
 ## Architecture
@@ -164,7 +183,7 @@ The IPA itself follows:
 RPCS3-XITRIX-iOS-<commit>-unsigned.ipa
 ```
 
-The legacy Qt workflows are manual-only and should not be used for the product build.
+The retired Qt build workflows have been removed from active Actions. `QtApp/` remains only as legacy source material.
 
 ## Device-support metadata
 
