@@ -147,10 +147,11 @@ jobs:
           fi
 
           if [[ -f "$CANDIDATE/libRPCS3Core.dylib.sha256" ]]; then
-            (
-              cd "$CANDIDATE"
-              shasum -a 256 -c libRPCS3Core.dylib.sha256
-            )
+            EXPECTED_SHA="$(awk '{print $1}' "$CANDIDATE/libRPCS3Core.dylib.sha256")"
+            ACTUAL_SHA="$(shasum -a 256 "$CORE" | awk '{print $1}')"
+            test -n "$EXPECTED_SHA"
+            test "$ACTUAL_SHA" = "$EXPECTED_SHA"
+            echo "Verified baseline RPCS3Core SHA-256: $ACTUAL_SHA"
           fi
 
           nm -gU "$CORE" > "$RUNNER_TEMP/baseline-core-symbols.txt"
