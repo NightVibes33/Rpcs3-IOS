@@ -1,0 +1,74 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleDevelopmentRegion</key><string>en</string>
+    <key>CFBundleExecutable</key><string>RPCS3</string>
+    <key>CFBundleIdentifier</key><string>com.nightvibes33.rpcs3ios</string>
+    <key>CFBundleInfoDictionaryVersion</key><string>6.0</string>
+    <key>CFBundleName</key><string>RPCS3</string>
+    <key>CFBundleDisplayName</key><string>RPCS3</string>
+    <key>CFBundlePackageType</key><string>APPL</string>
+    <key>CFBundleShortVersionString</key><string>0.9.0</string>
+    <key>CFBundleVersion</key><string>1</string>
+    <key>CFBundleURLTypes</key>
+    <array>
+        <dict>
+            <key>CFBundleURLName</key><string>RPCS3 Preparation</string>
+            <key>CFBundleURLSchemes</key>
+            <array><string>rpcs3</string></array>
+        </dict>
+    </array>
+    <key>LSRequiresIPhoneOS</key><true/>
+    <key>MinimumOSVersion</key><string>17.4</string>
+    <key>LSApplicationCategoryType</key><string>public.app-category.games</string>
+    <key>LSSupportsGameMode</key><true/>
+    <key>UIFileSharingEnabled</key><true/>
+    <key>LSSupportsOpeningDocumentsInPlace</key><true/>
+    <key>UIApplicationSupportsIndirectInputEvents</key><true/>
+    <key>NSLocalNetworkUsageDescription</key>
+    <string>RPCS3 uses the local network for RPCN multiplayer and custom RPCN servers.</string>
+    <key>UIBackgroundModes</key>
+    <array><string>audio</string></array>
+    <key>UIRequiredDeviceCapabilities</key>
+    <array><string>arm64</string></array>
+    <key>UILaunchScreen</key><dict/>
+    <key>UISupportedInterfaceOrientations</key>
+    <array>
+        <string>UIInterfaceOrientationPortrait</string>
+        <string>UIInterfaceOrientationLandscapeLeft</string>
+        <string>UIInterfaceOrientationLandscapeRight</string>
+    </array>
+    <key>UISupportedInterfaceOrientations~ipad</key>
+    <array>
+        <string>UIInterfaceOrientationPortrait</string>
+        <string>UIInterfaceOrientationPortraitUpsideDown</string>
+        <string>UIInterfaceOrientationLandscapeLeft</string>
+        <string>UIInterfaceOrientationLandscapeRight</string>
+    </array>
+    <key>UTExportedTypeDeclarations</key>
+    <array>
+        <dict>
+            <key>UTTypeConformsTo</key>
+            <array><string>public.data</string></array>
+            <key>UTTypeDescription</key><string>RPCS3 Save Data</string>
+            <key>UTTypeIdentifier</key><string>com.nightvibes33.rpcs3.save-data</string>
+            <key>UTTypeTagSpecification</key>
+            <dict>
+                <key>public.filename-extension</key><string>rpcs3save</string>
+                <key>public.mime-type</key><string>application/vnd.rpcs3.save-data</string>
+            </dict>
+        </dict>
+    </array>
+    <key>CFBundleDocumentTypes</key>
+    <array>
+        <dict>
+            <key>CFBundleTypeName</key><string>RPCS3 Save Data</string>
+            <key>CFBundleTypeRole</key><string>Editor</string>
+            <key>LSHandlerRank</key><string>Owner</string>
+            <key>LSItemContentTypes</key>
+            <array><string>com.nightvibes33.rpcs3.save-data</string></array>
+        </dict>
+    </array>
+</dict>
+</plist>

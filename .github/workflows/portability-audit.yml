@@ -1,0 +1,43 @@
+name: RPCS3 iOS Portability Audit
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "17 6 * * 1"
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    runs-on: macos-26
+    timeout-minutes: 90
+
+    steps:
+      - name: Checkout iOS port
+        uses: actions/checkout@v4
+
+      - name: Select an installed Xcode 26
+        shell: bash
+        run: |
+          set -euo pipefail
+          XCODE_PATH="$(find /Applications -maxdepth 1 -type d -name 'Xcode_26*.app' -print | sort -V | tail -n 1)"
+          test -n "$XCODE_PATH"
+          sudo xcode-select -s "$XCODE_PATH/Contents/Developer"
+          xcodebuild -version
+          SDK_VERSION="$(xcrun --sdk iphoneos --show-sdk-version)"
+          [[ "$SDK_VERSION" == 26.* ]]
+
+      - name: Audit current RPCS3 upstream
+        shell: bash
+        run: bash scripts/audit-upstream.sh
+
+      - name: Upload portability report
+        uses: actions/upload-artifact@v4
+        with:
+          name: RPCS3-iOS-portability-report
+          path: |
+            portability-report/**
+            portability-report.tar.gz
+          if-no-files-found: error
+          retention-days: 30

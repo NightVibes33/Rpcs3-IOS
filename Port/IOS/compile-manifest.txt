@@ -1,0 +1,10 @@
+# First-pass upstream translation units for physical iOS cross-compilation.
+# Format: tier<TAB>path
+portable	Utilities/StrFmt.cpp
+portable	Utilities/File.cpp
+portable	Utilities/Log.cpp
+platform	Utilities/Thread.cpp
+loader	rpcs3/Loader/PSF.cpp
+loader	rpcs3/Loader/TROPUSR.cpp
+interpreter	rpcs3/Emu/Cell/PPUInterpreter.cpp
+interpreter	rpcs3/Emu/Cell/SPUInterpreter.cpp
