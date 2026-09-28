@@ -3,7 +3,7 @@ name: Build Real RPCS3 iOS
 on:
   workflow_dispatch:
   push:
-    branches: [ios-core-v30-migration]
+    branches: [main]
     paths:
       - "NativeApp/**"
       - "scripts/build-real-xitrix-core.sh"
