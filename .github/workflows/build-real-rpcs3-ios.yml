@@ -105,8 +105,11 @@ jobs:
           grep -q 'rpcs3_ios_get_performance_metrics' NativeApp/RPCS3DynamicCore.mm
           grep -q '@main' NativeApp/RPCS3App.swift
           grep -q 'struct GamesView' NativeApp/ContentView.swift
-          ! grep -R -n 'RPCS3UpstreamRuntime.framework' NativeApp scripts/build-real-*.sh
-          ! grep -R -n 'Qt6::\|QApplication\|QMainWindow\|Flutter' NativeApp scripts/build-real-*.sh
+          test ! -e QtApp
+          test ! -e CoreBridge
+          test ! -e Port
+          ! grep -R -n 'RPCS3UpstreamRuntime.framework' NativeApp
+          ! grep -R -n 'Qt6::\|QApplication\|QMainWindow\|Flutter' NativeApp
 
       - name: Try verified baseline RPCS3Core artifact
         id: baseline-core-download
