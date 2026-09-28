@@ -1,9 +1,0 @@
-# Initial upstream translation units selected for physical iOS compilation.
-# Keep this list explicit: every new entry must compile independently before linking.
-rpcs3/Crypto/sha256.cpp
-Utilities/StrFmt.cpp
-Utilities/File.cpp
-Utilities/Thread.cpp
-Utilities/Log.cpp
-rpcs3/Loader/PSF.cpp
-rpcs3/Loader/TROPUSR.cpp

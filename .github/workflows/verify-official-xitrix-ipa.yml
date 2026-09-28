@@ -1,0 +1,91 @@
+name: Verify official XITRIX RPCS3 iOS IPA
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - ".github/workflows/verify-official-xitrix-ipa.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  verify-official-ipa:
+    name: Verify and package the upstream release
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Download the exact XITRIX v0.10 release asset
+        env:
+          UPSTREAM_URL: https://github.com/XITRIX/RPCS3-iOS-Releases/releases/download/v0.10/RPCS3.ipa
+          EXPECTED_SHA256: ba80e48ca9ee947a6b0ccbda05bc9af4cf190e1552e4aa550eb9d6ef143e1a91
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          curl --fail --location --retry 4 --retry-delay 2 "$UPSTREAM_URL" --output dist/RPCS3.ipa
+          printf '%s  %s\n' "$EXPECTED_SHA256" dist/RPCS3.ipa | sha256sum --check --status
+          printf '%s  %s\n' "$EXPECTED_SHA256" RPCS3.ipa > dist/RPCS3.ipa.sha256
+
+      - name: Verify IPA archive and app bundle
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import hashlib
+          import plistlib
+          import zipfile
+
+          path = "dist/RPCS3.ipa"
+          with zipfile.ZipFile(path) as archive:
+              bad_member = archive.testzip()
+              assert bad_member is None, f"Corrupt IPA member: {bad_member}"
+              names = set(archive.namelist())
+              app_roots = {
+                  "/".join(name.split("/")[:2])
+                  for name in names
+                  if name.startswith("Payload/")
+                  and len(name.split("/")) >= 3
+                  and name.split("/")[1].endswith(".app")
+              }
+              assert len(app_roots) == 1, f"Expected one Payload/*.app; found {sorted(app_roots)}"
+              app_root = next(iter(app_roots))
+              info_path = f"{app_root}/Info.plist"
+              assert info_path in names, f"Missing {info_path}; this is not an installable app IPA"
+              info = plistlib.loads(archive.read(info_path))
+              executable = info.get("CFBundleExecutable")
+              assert executable, "Info.plist has no CFBundleExecutable"
+              executable_path = f"{app_root}/{executable}"
+              assert executable_path in names, f"Missing app executable: {executable_path}"
+              assert archive.getinfo(executable_path).file_size > 0, "App executable is empty"
+              assert info.get("CFBundlePackageType") == "APPL", "Payload is not an iOS application bundle"
+              core_path = f"{app_root}/Frameworks/libRPCS3Core.dylib"
+              assert core_path in names, f"Missing embedded RPCS3 core: {core_path}"
+              assert archive.getinfo(core_path).file_size > 0, "Embedded RPCS3 core is empty"
+              print("Validated official XITRIX IPA:")
+              print("  bundle:", info.get("CFBundleIdentifier"))
+              print("  app:", executable_path)
+              print("  core:", core_path)
+              print("  bytes:", __import__("os").path.getsize(path))
+              print("  sha256:", hashlib.sha256(open(path, "rb").read()).hexdigest())
+          PY
+
+      - name: Record upstream provenance
+        run: |
+          cat > dist/UPSTREAM.txt <<'EOF'
+          Upstream: https://github.com/XITRIX/RPCS3-iOS-Releases
+          Release: v0.10 (Preview 0.10)
+          Asset: RPCS3.ipa
+          SHA-256: ba80e48ca9ee947a6b0ccbda05bc9af4cf190e1552e4aa550eb9d6ef143e1a91
+          Packaging: unchanged upstream IPA; verified and copied byte-for-byte
+          EOF
+
+      - name: Upload verified official IPA
+        uses: actions/upload-artifact@v4
+        with:
+          name: RPCS3-XITRIX-v0.10-official-IPA
+          path: |
+            dist/RPCS3.ipa
+            dist/RPCS3.ipa.sha256
+            dist/UPSTREAM.txt
+          if-no-files-found: error
+          retention-days: 30
