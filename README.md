@@ -1,9 +1,8 @@
-# RPCS3 iOS direct build
+# Official XITRIX RPCS3 iOS v0.10
 
-Source workflow: SwiftUI Host Smoke
-Source run: 36358460668
-Source commit: ea0305718d4cd68672ad52587502e236698ff9dc
-IPA SHA-256: bdb08bd961743b8900c6d73308ce0bb6f1e26d2c5510adb22e4fcc846d2a03fd
+This branch contains the unchanged `RPCS3.ipa` from the official XITRIX v0.10 release.
 
-This is the current native SwiftUI/UIKit frontend backed by the current XITRIX RPCS3 iOS core.
-It is NOT the retired Qt frontend and NOT the byte-for-byte XITRIX v0.9 frontend repack.
+Upstream: https://github.com/XITRIX/RPCS3-iOS-Releases/releases/tag/v0.10
+SHA-256: `ba80e48ca9ee947a6b0ccbda05bc9af4cf190e1552e4aa550eb9d6ef143e1a91`
+
+This binary is the official XITRIX frontend. It is not the experimental SwiftUI host from the source branch.

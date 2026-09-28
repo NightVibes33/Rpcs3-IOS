@@ -1,0 +1,5 @@
+Upstream: https://github.com/XITRIX/RPCS3-iOS-Releases
+Release: v0.10 (Preview 0.10)
+Asset: RPCS3.ipa
+SHA-256: ba80e48ca9ee947a6b0ccbda05bc9af4cf190e1552e4aa550eb9d6ef143e1a91
+Packaging: unchanged upstream IPA; verified and copied byte-for-byte
